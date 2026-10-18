@@ -7,7 +7,8 @@ import { describeAccount, priceFor } from '../../../shared/engine';
 import { A, K, type PriceList } from '../../../shared/model';
 import { ADJUST_REASONS } from '../../../shared/ops';
 import { businessDate, fmtDate, fmtDateShort } from '../../../shared/time';
-import { ADJUST_LABEL } from '../../lib/labels';
+import { rich, useT } from '../../lib/i18n';
+import type { Key } from '../../../shared/i18n';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, GarmentLabel, Money, PageHead, Qty, Sheet, save } from '../../ui/kit';
 import { LinesEditor, type EditLine } from '../../ui/LinesEditor';
@@ -16,19 +17,12 @@ import { movementsReport, stockReport } from '../../../shared/reports';
 import { reportCtx } from '../../lib/report-ctx';
 import { ScopeSwitch } from './Overview';
 
-const COLS: { key: keyof Omit<StockRow, 'gt'>; label: string; hint: string }[] = [
-  { key: 'avail', label: 'Ready', hint: 'In the store, ready to sell or ship' },
-  { key: 'withWorkers', label: 'With workers', hint: 'Taken out to sell, not yet returned or closed' },
-  { key: 'incoming', label: 'Incoming', hint: 'Dispatched to this place, not yet received' },
-  { key: 'inspection', label: 'To inspect', hint: 'Delivered by a vendor, not yet inspected' },
-  { key: 'awaiting', label: 'At vendor', hint: 'Paid or ordered, not yet collected' },
-  { key: 'rejected', label: 'Rejected', hint: 'Rejected at inspection, not yet returned' },
-  { key: 'sold', label: 'Sold', hint: 'Sold so far (all time)' },
-];
+const COLS: { key: keyof Omit<StockRow, 'gt'> }[] = [{ key: 'avail' }, { key: 'withWorkers' }, { key: 'incoming' }, { key: 'inspection' }, { key: 'awaiting' }, { key: 'rejected' }, { key: 'sold' }];
 
 export function StockPage() {
   const { ledger, version, prefs, user } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [adjust, setAdjust] = useState(false);
   const byLoc = useMemo(() => stockByLocation(ledger), [ledger, version]);
   const scope = prefs.scope;
@@ -50,16 +44,16 @@ export function StockPage() {
   return (
     <div className="page">
       <PageHead
-        title="Stock"
-        lead="Every piece is in exactly one place or state. Tap a garment to follow its journey."
+        title={t('nav.stock')}
+        lead={t('stk.lead')}
         actions={
           <>
             <ScopeSwitch />
-            <DownloadButton label="Stock now" build={() => stockReport(reportCtx(), { locationId: scope })} />
-            <DownloadButton label="Movements" build={() => movementsReport(reportCtx(), { from: null, to: null, locationId: scope })} />
+            <DownloadButton label={t('stk.now')} build={() => stockReport(reportCtx(), { locationId: scope })} />
+            <DownloadButton label={t('stk.movements')} build={() => movementsReport(reportCtx(), { from: null, to: null, locationId: scope })} />
             {user!.caps.includes('stock.adjust') && (
               <button className="btn" onClick={() => setAdjust(true)}>
-                <Icon name="edit" size={18} /> Count / adjust
+                <Icon name="edit" size={18} /> {t('stk.adjust')}
               </button>
             )}
           </>
@@ -68,16 +62,16 @@ export function StockPage() {
       {!scope && (
         <div className="grid cols-3">
           {lk.locations.map((l) => {
-            const t = sumRows(byLoc.get(l.id)?.values() ?? []);
+            const sum = sumRows(byLoc.get(l.id)?.values() ?? []);
             return (
               <button key={l.id} className="card stat" style={{ textAlign: 'left', cursor: 'pointer' }} onClick={() => store.setPrefs({ scope: l.id })}>
                 <span className="eyebrow">{l.name}</span>
-                <span className="stat-value">{t.avail.toLocaleString('en-US')}</span>
+                <span className="stat-value">{sum.avail.toLocaleString('en-US')}</span>
                 <span className="stat-sub">
-                  ready
-                  {t.withWorkers ? ` · ${t.withWorkers} with workers` : ''}
-                  {t.incoming ? ` · ${t.incoming} incoming` : ''}
-                  {t.inspection ? ` · ${t.inspection} to inspect` : ''}
+                  {t('stk.ready')}
+                  {sum.withWorkers ? t('stk.nWith', { n: sum.withWorkers }) : ''}
+                  {sum.incoming ? t('stk.nIncoming', { n: sum.incoming }) : ''}
+                  {sum.inspection ? t('stk.nInspect', { n: sum.inspection }) : ''}
                 </span>
               </button>
             );
@@ -86,18 +80,18 @@ export function StockPage() {
       )}
       <section className="card">
         {lk.garments.length === 0 ? (
-          <Empty icon="tag" title="No garments yet">
-            Add garment types in <a href={href('/catalogue')}>Garments &amp; prices</a> first.
+          <Empty icon="tag" title={t('stk.noGarments')}>
+            {rich(t('stk.addFirst'), { link: <a href={href('/catalogue')}>{t('nav.catalogue')}</a> })}
           </Empty>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Garment</th>
+                  <th>{t('c.garment')}</th>
                   {visibleCols.map((c) => (
-                    <th key={c.key} className="n" title={c.hint}>
-                      {c.label}
+                    <th key={c.key} className="n" title={t(`stk.hint.${c.key}` as Key)}>
+                      {t(`stk.col.${c.key}` as Key)}
                     </th>
                   ))}
                 </tr>
@@ -118,7 +112,7 @@ export function StockPage() {
               </tbody>
               <tfoot>
                 <tr>
-                  <td>Total</td>
+                  <td>{t('stk.total')}</td>
                   {visibleCols.map((c) => (
                     <td key={c.key} className="n">
                       {totals[c.key].toLocaleString('en-US')}
@@ -130,7 +124,7 @@ export function StockPage() {
           </div>
         )}
       </section>
-      <p className="hint">A red number means the records say more left than arrived. It is shown, not hidden, so it can be investigated.</p>
+      <p className="hint">{t('stk.redHint')}</p>
       {adjust && <AdjustSheet onClose={() => setAdjust(false)} defaultLoc={scope} />}
     </div>
   );
@@ -139,6 +133,7 @@ export function StockPage() {
 function AdjustSheet({ onClose, defaultLoc }: { onClose: () => void; defaultLoc: string | null }) {
   const { ledger } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [loc, setLoc] = useState(defaultLoc ?? lk.locations[0]?.id ?? '');
   const [reason, setReason] = useState<(typeof ADJUST_REASONS)[number]>('count_correction');
   const [lines, setLines] = useState<EditLine[]>([]);
@@ -147,12 +142,12 @@ function AdjustSheet({ onClose, defaultLoc }: { onClose: () => void; defaultLoc:
   const valid = lines.length > 0 && lines.every((l) => l.qty !== 0) && (reason !== 'other' || note.trim());
   return (
     <Sheet
-      title="Count / adjust stock"
+      title={t('stk.adjTitle')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
@@ -161,20 +156,20 @@ function AdjustSheet({ onClose, defaultLoc }: { onClose: () => void; defaultLoc:
               setBusy(true);
               const ok = await save(
                 () => store.submit('stock.adjust', { locationId: loc, date: businessDate(), reason, lines: lines.map((l) => ({ garmentTypeId: l.garmentTypeId, delta: l.qty })), note: note.trim() }),
-                'Stock adjusted',
+                t('stk.adjusted'),
               );
               setBusy(false);
               if (ok) onClose();
             }}
           >
-            Save adjustment
+            {t('stk.saveAdj')}
           </button>
         </>
       }
     >
-      <p className="soft">Use this when a physical count differs from the records, or for damaged, lost or found pieces. The reason is kept in the activity log.</p>
+      <p className="soft">{t('stk.adjLead')}</p>
       <div className="form-grid">
-        <Field label="Place">
+        <Field label={t('place.label')}>
           <select className="select" value={loc} onChange={(e) => setLoc(e.target.value)}>
             {lk.locations.map((l) => (
               <option key={l.id} value={l.id}>
@@ -183,19 +178,19 @@ function AdjustSheet({ onClose, defaultLoc }: { onClose: () => void; defaultLoc:
             ))}
           </select>
         </Field>
-        <Field label="Reason">
+        <Field label={t('stk.reason')}>
           <select className="select" value={reason} onChange={(e) => setReason(e.target.value as typeof reason)}>
             {ADJUST_REASONS.map((r) => (
               <option key={r} value={r}>
-                {ADJUST_LABEL[r]}
+                {t(`lbl.adjust.${r}`)}
               </option>
             ))}
           </select>
         </Field>
       </div>
       <LinesEditor garments={lk.garments} lines={lines} onChange={setLines} signed available={(gt) => ledger.balance(A.avail(loc), gt)} />
-      <Field label="Note">
-        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What happened?" />
+      <Field label={t('stk.note')}>
+        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('stk.whatHappened')} />
       </Field>
     </Sheet>
   );
@@ -204,19 +199,20 @@ function AdjustSheet({ onClose, defaultLoc }: { onClose: () => void; defaultLoc:
 export function GarmentDetail({ id }: { id: string }) {
   const { ledger, version, user } = useApp();
   const lk = useLookups();
+  const t = useT();
   const g = lk.garment(id);
   const journey = useMemo(() => garmentJourney(ledger, id).reverse().slice(0, 80), [ledger, version, id]);
   const byLoc = useMemo(() => stockByLocation(ledger), [ledger, version]);
   const missing = new Set<string>();
   const cost = user!.caps.includes('costs.view') ? weightedCosts(ledger, 'KES', missing).get(id) : undefined;
-  if (!g) return <Empty title="Garment not found" />;
+  if (!g) return <Empty title={t('stk.notFound')} />;
   const get = (k: string) => ledger.get(k);
   return (
     <div className="page">
       <PageHead
-        eyebrow={<a href={href('/stock')}>← Stock</a>}
+        eyebrow={<a href={href('/stock')}>{t('stk.back')}</a>}
         title={<GarmentLabel g={g} />}
-        lead={[lk.size(g.sizeCategoryId)?.name, lk.vendor(g.vendorId)?.name ? `from ${lk.vendor(g.vendorId)?.name}` : null, g.description].filter(Boolean).join(' · ')}
+        lead={[lk.size(g.sizeCategoryId)?.name, lk.vendor(g.vendorId)?.name ? t('stk.from', { vendor: lk.vendor(g.vendorId)!.name }) : null, g.description].filter(Boolean).join(' · ')}
       />
       <div className="grid cols-3">
         {lk.locations.map((l) => {
@@ -227,17 +223,18 @@ export function GarmentDetail({ id }: { id: string }) {
               <span className="eyebrow">{l.name}</span>
               <span className="stat-value">{r?.avail ?? 0}</span>
               <span className="stat-sub">
-                ready{r?.withWorkers ? ` · ${r.withWorkers} with workers` : ''}
-                {r?.incoming ? ` · ${r.incoming} incoming` : ''}
-                {r?.sold ? ` · ${r.sold} sold` : ''}
+                {t('stk.ready')}
+                {r?.withWorkers ? t('stk.nWith', { n: r.withWorkers }) : ''}
+                {r?.incoming ? t('stk.nIncoming', { n: r.incoming }) : ''}
+                {r?.sold ? t('stk.nSold', { n: r.sold }) : ''}
               </span>
               {price && (
                 <span className="stat-sub">
-                  Sells at <Money amount={price.retail} currency={price.currency} />
+                  {rich(t('stk.sellsAt'), { amount: <Money amount={price.retail} currency={price.currency} /> })}
                   {price.wholesale ? (
                     <>
-                      {' '}
-                      · wholesale <Money amount={price.wholesale} currency={price.currency} />
+                      {' · '}
+                      {rich(t('stk.wholesaleAmt'), { amount: <Money amount={price.wholesale} currency={price.currency} /> })}
                     </>
                   ) : null}
                 </span>
@@ -247,20 +244,20 @@ export function GarmentDetail({ id }: { id: string }) {
         })}
         {cost && (
           <div className="card stat">
-            <span className="eyebrow">Average purchase cost</span>
+            <span className="eyebrow">{t('stk.avgCost')}</span>
             <span className="stat-value">{cost.cost === null ? '—' : <Money amount={Math.round(cost.cost)} currency="KES" />}</span>
-            <span className="stat-sub">over {cost.pieces} pieces bought</span>
+            <span className="stat-sub">{t('stk.overN', { n: cost.pieces })}</span>
           </div>
         )}
       </div>
       <PriceHistory gt={id} />
       <section className="card">
         <div className="card-head">
-          <span className="section-title">Journey</span>
-          <span className="muted">newest first</span>
+          <span className="section-title">{t('stk.journey')}</span>
+          <span className="muted">{t('stk.newest')}</span>
         </div>
         <div className="card-body">
-          {journey.length === 0 && <span className="muted">No movements yet.</span>}
+          {journey.length === 0 && <span className="muted">{t('stk.noMoves')}</span>}
           <div className="timeline">
             {journey.map((s, i) => {
               const rec = ledger.getOp(s.opId);
@@ -272,9 +269,9 @@ export function GarmentDetail({ id }: { id: string }) {
                   </span>
                   <div className="stack-sm">
                     <span>
-                      <strong className="num">{s.qty}</strong> · {describeAccount(s.from, get)} <Icon name="arrowRight" size={14} /> {describeAccount(s.to, get)}
+                      <strong className="num">{s.qty}</strong> · {describeAccount(s.from, get, t)} <Icon name="arrowRight" size={14} /> {describeAccount(s.to, get, t)}
                     </span>
-                    {rec && <span className="hint">{describeOp(rec.op, lk, ledger)}</span>}
+                    {rec && <span className="hint">{describeOp(rec.op, lk, ledger, t)}</span>}
                   </div>
                 </div>
               );
@@ -289,24 +286,25 @@ export function GarmentDetail({ id }: { id: string }) {
 function PriceHistory({ gt }: { gt: string }) {
   const { ledger } = useApp();
   const lk = useLookups();
+  const t = useT();
   const lists = lk.locations.map((l) => ({ l, list: ledger.get(K.price(gt, l.id)) as PriceList | undefined })).filter((x) => x.list?.entries.length);
   if (!lists.length) return null;
   return (
     <section className="card">
       <div className="card-head">
-        <span className="section-title">Selling prices</span>
+        <span className="section-title">{t('stk.prices')}</span>
         <a className="btn btn-ghost btn-sm" href={href('/catalogue?tab=prices')}>
-          Change
+          {t('stk.change')}
         </a>
       </div>
       <div className="table-wrap" style={{ marginTop: 8 }}>
         <table className="data">
           <thead>
             <tr>
-              <th>Place</th>
-              <th>From</th>
-              <th className="n">Retail</th>
-              <th className="n">Wholesale</th>
+              <th>{t('place.label')}</th>
+              <th>{t('st.since')}</th>
+              <th className="n">{t('stk.retail')}</th>
+              <th className="n">{t('stk.wholesale')}</th>
             </tr>
           </thead>
           <tbody>

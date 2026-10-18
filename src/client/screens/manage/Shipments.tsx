@@ -7,7 +7,7 @@ import { A, K, type Shipment, type ShipmentCost } from '../../../shared/model';
 import { CURRENCY_CODES, type Currency } from '../../../shared/money';
 import { SHIPMENT_COST_CATEGORIES, SHIPMENT_METHODS } from '../../../shared/ops';
 import { businessDate, fmtDate, fmtDateShort, fmtDateTime } from '../../../shared/time';
-import { METHOD_LABEL, SHIP_COST_LABEL } from '../../lib/labels';
+import { rich, useT } from '../../lib/i18n';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, GarmentLabel, Money, MoneyInput, PageHead, Seg, Sheet, Stepper, save } from '../../ui/kit';
 import { LinesEditor, type EditLine } from '../../ui/LinesEditor';
@@ -16,11 +16,11 @@ import { DownloadButton } from '../../ui/Reporting';
 import { selectShipments, shipmentsReport, type ShipmentFilter } from '../../../shared/reports';
 import { reportCtx } from '../../lib/report-ctx';
 
-const STATUS: Record<Shipment['status'], { label: string; tone: string }> = {
-  in_transit: { label: 'On the way', tone: 'lagoon' },
-  partial: { label: 'Partly received', tone: 'saffron' },
-  received: { label: 'Received', tone: 'green' },
-  voided: { label: 'Cancelled', tone: '' },
+const STATUS: Record<Shipment['status'], { tone: string }> = {
+  in_transit: { tone: 'lagoon' },
+  partial: { tone: 'saffron' },
+  received: { tone: 'green' },
+  voided: { tone: '' },
 };
 
 const pieces = (s: Shipment) => s.lines.reduce((a, l) => a + l.qty, 0);
@@ -42,21 +42,22 @@ function CostSummary({ costs }: { costs: ShipmentCost[] }) {
 export function ShipmentsPage() {
   const { ledger, version, user } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [filter, setFilter] = useState<ShipmentFilter>('open');
   const list = useMemo(() => selectShipments(ledger, filter), [ledger, version, filter]);
   const showCosts = user!.caps.includes('costs.view') || user!.caps.includes('shipments');
   return (
     <div className="page">
       <PageHead
-        title="Shipments"
-        lead="Stock leaves one place and only counts at the next place once someone records that it arrived."
+        title={t('nav.shipments')}
+        lead={t('sh.lead')}
         actions={
           <>
-            <Seg value={filter} onChange={setFilter} options={[{ value: 'open', label: 'On the way' }, { value: 'received', label: 'Received' }, { value: 'all', label: 'All' }]} />
+            <Seg value={filter} onChange={setFilter} options={[{ value: 'open', label: t('sh.f.open') }, { value: 'received', label: t('sh.f.received') }, { value: 'all', label: t('range.allShort') }]} />
             <DownloadButton build={() => shipmentsReport(reportCtx(), filter)} />
             {user!.caps.includes('shipments') && (
               <a className="btn btn-primary" href={href('/shipments/new')}>
-                <Icon name="plus" size={18} /> Dispatch
+                <Icon name="plus" size={18} /> {t('sh.dispatch')}
               </a>
             )}
           </>
@@ -64,19 +65,19 @@ export function ShipmentsPage() {
       />
       <section className="card">
         {list.length === 0 ? (
-          <Empty icon="ship" title={filter === 'open' ? 'Nothing on the way' : filter === 'received' ? 'Nothing fully received yet' : 'No shipments yet'} />
+          <Empty icon="ship" title={filter === 'open' ? t('sh.nothingOnWay') : filter === 'received' ? t('sh.nothingReceived') : t('sh.none')} />
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Label</th>
-                  <th>Route</th>
-                  <th>How</th>
-                  <th>Sent</th>
-                  <th className="n">Pieces</th>
-                  {showCosts && <th className="n">Costs</th>}
-                  <th>Status</th>
+                  <th>{t('sh.label')}</th>
+                  <th>{t('sh.route')}</th>
+                  <th>{t('sh.how')}</th>
+                  <th>{t('sh.sent')}</th>
+                  <th className="n">{t('sh.pieces')}</th>
+                  {showCosts && <th className="n">{t('sh.costs')}</th>}
+                  <th>{t('sh.status')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -88,7 +89,7 @@ export function ShipmentsPage() {
                     <td className="nowrap">
                       {lk.locName(s.fromLocationId)} → {lk.locName(s.toLocationId)}
                     </td>
-                    <td className="muted">{METHOD_LABEL[s.method]}</td>
+                    <td className="muted">{t(`lbl.method.${s.method}`)}</td>
                     <td className="nowrap">{fmtDateShort(s.date)}</td>
                     <td className="n">{pieces(s)}</td>
                     {showCosts && (
@@ -97,7 +98,7 @@ export function ShipmentsPage() {
                       </td>
                     )}
                     <td>
-                      <span className={`pill ${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span>
+                      <span className={`pill ${STATUS[s.status].tone}`}>{t(`sh.st.${s.status}`)}</span>
                     </td>
                   </tr>
                 ))}
@@ -113,6 +114,7 @@ export function ShipmentsPage() {
 export function NewShipment() {
   const { ledger } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [from, setFrom] = useState(lk.locations.find((l) => l.kind === 'purchasing')?.id ?? lk.locations[0]?.id ?? '');
   const [to, setTo] = useState(lk.locations.find((l) => l.kind === 'selling')?.id ?? lk.locations[1]?.id ?? '');
   const [method, setMethod] = useState<(typeof SHIPMENT_METHODS)[number]>('bus');
@@ -120,7 +122,7 @@ export function NewShipment() {
   const [carrier, setCarrier] = useState('');
   const [date, setDate] = useState(businessDate());
   const [expected, setExpected] = useState('');
-  const [packages, setPackages] = useState<{ label: string; weightKg: string }[]>([{ label: 'Sack 1', weightKg: '' }]);
+  const [packages, setPackages] = useState<{ label: string; weightKg: string }[]>(() => [{ label: t('sh.sack', { n: 1 }), weightKg: '' }]);
   const [lines, setLines] = useState<EditLine[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -129,10 +131,10 @@ export function NewShipment() {
   const valid = from && to && from !== to && lines.length > 0 && lines.every((l) => l.qty > 0);
   return (
     <div className="page" style={{ maxWidth: 860 }}>
-      <PageHead eyebrow={<a href={href('/shipments')}>← Shipments</a>} title="Dispatch a shipment" lead="Count the pieces by garment type. Weight is noted for reference only — pieces are what we count." />
+      <PageHead eyebrow={<a href={href('/shipments')}>{t('sh.back')}</a>} title={t('sh.newTitle')} lead={t('sh.newLead')} />
       <section className="card card-pad stack">
         <div className="form-grid">
-          <Field label="From">
+          <Field label={t('cv.from')}>
             <select className="select" value={from} onChange={(e) => setFrom(e.target.value)}>
               {lk.locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -141,7 +143,7 @@ export function NewShipment() {
               ))}
             </select>
           </Field>
-          <Field label="To">
+          <Field label={t('cv.to')}>
             <select className="select" value={to} onChange={(e) => setTo(e.target.value)}>
               {lk.locations.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -150,52 +152,52 @@ export function NewShipment() {
               ))}
             </select>
           </Field>
-          <Field label="Sent on">
+          <Field label={t('sh.sentOn')}>
             <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <Field label="Expected arrival (optional)">
+          <Field label={t('sh.expected')}>
             <input type="date" className="input" value={expected} min={date} onChange={(e) => setExpected(e.target.value)} />
           </Field>
         </div>
-        <Field label="How">
-          <Seg value={method} onChange={setMethod} options={SHIPMENT_METHODS.map((m) => ({ value: m, label: METHOD_LABEL[m] }))} />
+        <Field label={t('sh.how')}>
+          <Seg value={method} onChange={setMethod} options={SHIPMENT_METHODS.map((m) => ({ value: m, label: t(`lbl.method.${m}`) }))} />
         </Field>
         <div className="form-grid">
-          <Field label="Label" hint={`Leave empty to use ${autoCode}`}>
+          <Field label={t('sh.label')} hint={t('sh.labelHint', { code: autoCode })}>
             <input className="input mono" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={autoCode} />
           </Field>
-          <Field label="Carrier / bus company (optional)">
+          <Field label={t('sh.carrier')}>
             <input className="input" value={carrier} onChange={(e) => setCarrier(e.target.value)} />
           </Field>
         </div>
-        {from === to && <div className="error-box">Pick two different places.</div>}
+        {from === to && <div className="error-box">{t('sh.twoPlaces')}</div>}
       </section>
       <section className="card card-pad stack">
         <div className="row-between">
-          <span className="section-title">Packages</span>
-          <button className="btn btn-sm" onClick={() => setPackages([...packages, { label: `Sack ${packages.length + 1}`, weightKg: '' }])}>
-            <Icon name="plus" size={16} /> Package
+          <span className="section-title">{t('sh.packages')}</span>
+          <button className="btn btn-sm" onClick={() => setPackages([...packages, { label: t('sh.sack', { n: packages.length + 1 }), weightKg: '' }])}>
+            <Icon name="plus" size={16} /> {t('sh.package')}
           </button>
         </div>
         {packages.map((p, i) => (
           <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input" value={p.label} onChange={(e) => setPackages(packages.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
             <input className="input" style={{ width: 120 }} inputMode="decimal" placeholder="kg" value={p.weightKg} onChange={(e) => setPackages(packages.map((x, j) => (j === i ? { ...x, weightKg: e.target.value.replace(/[^\d.]/g, '') } : x)))} />
-            <button className="icon-btn" aria-label="Remove package" onClick={() => setPackages(packages.filter((_, j) => j !== i))}>
+            <button className="icon-btn" aria-label={t('sh.removePackage')} onClick={() => setPackages(packages.filter((_, j) => j !== i))}>
               <Icon name="x" />
             </button>
           </div>
         ))}
       </section>
       <section className="stack">
-        <span className="section-title">Garments in this shipment</span>
+        <span className="section-title">{t('sh.garmentsIn')}</span>
         <LinesEditor garments={lk.garments} lines={lines} onChange={setLines} available={(gt) => ledger.balance(A.avail(from), gt)} />
       </section>
-      <Field label="Note">
+      <Field label={t('stk.note')}>
         <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
       <div className="sticky-foot">
-        <div style={{ fontWeight: 700 }}>{total} pcs</div>
+        <div style={{ fontWeight: 700 }}>{t('c.nPcs', { n: total })}</div>
         <button
           className="btn btn-accent btn-lg"
           disabled={!valid || busy}
@@ -217,13 +219,13 @@ export function NewShipment() {
                   expectedDate: expected || null,
                   note: note.trim(),
                 }),
-              'Shipment dispatched',
+              t('sh.dispatched'),
             );
             setBusy(false);
             if (ok) navigate(`/shipments/${id}`);
           }}
         >
-          <Icon name="ship" /> Dispatch
+          <Icon name="ship" /> {t('sh.dispatch')}
         </button>
       </div>
     </div>
@@ -233,6 +235,7 @@ export function NewShipment() {
 export function ShipmentDetail({ id }: { id: string }) {
   const { ledger, version, user, records } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [sheet, setSheet] = useState<'receive' | 'cost' | ShipmentCost | null>(null);
   const s = ledger.get(K.shipment(id)) as Shipment | undefined;
   const history = useMemo(
@@ -242,33 +245,40 @@ export function ShipmentDetail({ id }: { id: string }) {
         .sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime)),
     [ledger, version, id],
   );
-  if (!s) return <Empty title="Shipment not found" />;
+  if (!s) return <Empty title={t('sh.notFound')} />;
   const can = user!.caps.includes('shipments') && s.status !== 'voided';
   const outstanding = s.lines.reduce((a, l) => a + l.qty - l.received - l.missing, 0);
   const showCosts = user!.caps.includes('costs.view') || user!.caps.includes('shipments');
   return (
     <div className="page">
       <PageHead
-        eyebrow={<a href={href('/shipments')}>← Shipments</a>}
+        eyebrow={<a href={href('/shipments')}>{t('sh.back')}</a>}
         title={
           <span className="row" style={{ gap: 12 }}>
             <span className="mono" style={{ fontSize: '0.8em' }}>
               {s.code}
             </span>
-            <span className={`pill ${STATUS[s.status].tone}`}>{STATUS[s.status].label}</span>
+            <span className={`pill ${STATUS[s.status].tone}`}>{t(`sh.st.${s.status}`)}</span>
           </span>
         }
-        lead={`${lk.locName(s.fromLocationId)} → ${lk.locName(s.toLocationId)} · ${METHOD_LABEL[s.method]}${s.carrier ? ` (${s.carrier})` : ''} · sent ${fmtDate(s.date)}${s.expectedDate ? ` · expected ${fmtDate(s.expectedDate)}` : ''}`}
+        lead={t('sh.detailLead', {
+          from: lk.locName(s.fromLocationId),
+          to: lk.locName(s.toLocationId),
+          method: t(`lbl.method.${s.method}`),
+          carrier: s.carrier ? ` (${s.carrier})` : '',
+          date: fmtDate(s.date),
+          expected: s.expectedDate ? t('sh.expectedOn', { date: fmtDate(s.expectedDate) }) : '',
+        })}
         actions={
           <>
             {can && outstanding > 0 && (
               <button className="btn btn-primary" onClick={() => setSheet('receive')}>
-                <Icon name="check" size={18} /> Record arrival
+                <Icon name="check" size={18} /> {t('sh.recordArrival')}
               </button>
             )}
             {can && (
               <button className="btn" onClick={() => setSheet('cost')}>
-                <Icon name="receipt" size={18} /> Add cost
+                <Icon name="receipt" size={18} /> {t('sh.addCost')}
               </button>
             )}
           </>
@@ -279,11 +289,11 @@ export function ShipmentDetail({ id }: { id: string }) {
           <table className="data">
             <thead>
               <tr>
-                <th>Garment</th>
-                <th className="n">Sent</th>
-                <th className="n">Arrived</th>
-                <th className="n">Missing</th>
-                <th className="n">Still expected</th>
+                <th>{t('c.garment')}</th>
+                <th className="n">{t('sh.sent')}</th>
+                <th className="n">{t('sh.arrived')}</th>
+                <th className="n">{t('sh.missing')}</th>
+                <th className="n">{t('sh.stillExpected')}</th>
               </tr>
             </thead>
             <tbody>
@@ -308,7 +318,7 @@ export function ShipmentDetail({ id }: { id: string }) {
         {s.packages.length > 0 && (
           <section className="card">
             <div className="card-head">
-              <span className="section-title">Packages</span>
+              <span className="section-title">{t('sh.packages')}</span>
               <span className="muted">{s.packages.reduce((a, p) => a + (p.weightKg ?? 0), 0) || '—'} kg</span>
             </div>
             <div className="list" style={{ marginTop: 8 }}>
@@ -324,20 +334,20 @@ export function ShipmentDetail({ id }: { id: string }) {
         {showCosts && (
           <section className="card">
             <div className="card-head">
-              <span className="section-title">Costs</span>
+              <span className="section-title">{t('sh.costs')}</span>
               <CostSummary costs={activeCosts(s)} />
             </div>
             <div className="list" style={{ marginTop: 8 }}>
-              {s.costs.length === 0 && <div className="list-item muted">No costs recorded.</div>}
+              {s.costs.length === 0 && <div className="list-item muted">{t('sh.noCosts')}</div>}
               {s.costs.map((c) => (
                 <div key={c.id} className="list-item" style={c.voided || c.supersededBy ? { opacity: 0.5 } : undefined}>
                   <span style={{ flex: 1 }}>
-                    {SHIP_COST_LABEL[c.category]}
+                    {t(`lbl.shipCost.${c.category}`)}
                     {c.description && <span className="muted"> · {c.description}</span>}
                     <div className="row" style={{ gap: 6, marginTop: 2 }}>
-                      {c.status === 'estimated' && !c.supersededBy && <span className="pill saffron">Estimate</span>}
-                      {c.supersededBy && <span className="pill">Replaced by actual</span>}
-                      {c.voided && <span className="pill">Cancelled</span>}
+                      {c.status === 'estimated' && !c.supersededBy && <span className="pill saffron">{t('sh.estimate')}</span>}
+                      {c.supersededBy && <span className="pill">{t('sh.replaced')}</span>}
+                      {c.voided && <span className="pill">{t('c.cancelled')}</span>}
                     </div>
                   </span>
                   <span style={c.voided || c.supersededBy ? { textDecoration: 'line-through' } : undefined}>
@@ -345,7 +355,7 @@ export function ShipmentDetail({ id }: { id: string }) {
                   </span>
                   {can && c.status === 'estimated' && !c.supersededBy && !c.voided && (
                     <button className="btn btn-sm" onClick={() => setSheet(c)}>
-                      Enter actual
+                      {t('sh.enterActual')}
                     </button>
                   )}
                 </div>
@@ -356,7 +366,7 @@ export function ShipmentDetail({ id }: { id: string }) {
       </div>
       <section className="card">
         <div className="card-head">
-          <span className="section-title">History</span>
+          <span className="section-title">{t('c.history')}</span>
         </div>
         <div className="card-body timeline">
           {history.map((r) => (
@@ -367,13 +377,13 @@ export function ShipmentDetail({ id }: { id: string }) {
               </span>
               <div className="row-between">
                 <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>
-                  {describeOp(r.op, lk, ledger)}
+                  {describeOp(r.op, lk, ledger, t)}
                   <span className="muted">
                     {' '}
                     · {records.get(r.op.id)?.actorName ?? lk.personName(r.op.actorId)} · {fmtDateTime(r.op.deviceTime)}
                   </span>
                 </span>
-                <VoidButton opId={r.op.id} label="Cancel" />
+                <VoidButton opId={r.op.id} label={t('void.cancel')} />
               </div>
             </div>
           ))}
@@ -388,6 +398,7 @@ export function ShipmentDetail({ id }: { id: string }) {
 
 function ReceiveSheet({ s, onClose }: { s: Shipment; onClose: () => void }) {
   const lk = useLookups();
+  const t = useT();
   const open = s.lines.filter((l) => l.qty - l.received - l.missing > 0);
   const [v, setV] = useState<Record<string, { received: number; missing: number }>>(Object.fromEntries(open.map((l) => [l.garmentTypeId, { received: l.qty - l.received - l.missing, missing: 0 }])));
   const [date, setDate] = useState(businessDate());
@@ -396,27 +407,27 @@ function ReceiveSheet({ s, onClose }: { s: Shipment; onClose: () => void }) {
   const anyMissing = lines.some((l) => l.missing > 0);
   return (
     <Sheet
-      title={`Arrival of ${s.code}`}
+      title={t('sh.arrivalOf', { code: s.code })}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
             disabled={!lines.length || (anyMissing && !note.trim())}
             onClick={async () => {
-              if (await save(() => store.submit('shipment.receive', { shipmentId: s.id, date, lines, note: note.trim() }), `Received at ${lk.locName(s.toLocationId)}`)) onClose();
+              if (await save(() => store.submit('shipment.receive', { shipmentId: s.id, date, lines, note: note.trim() }), t('sh.receivedAt', { place: lk.locName(s.toLocationId) }))) onClose();
             }}
           >
-            Save arrival
+            {t('sh.saveArrival')}
           </button>
         </>
       }
     >
-      <p className="soft">Count what physically arrived. If some will still come later, leave them out — record them when they arrive. Mark pieces as missing only if they are lost.</p>
-      <Field label="Arrived on">
+      <p className="soft">{t('sh.arrivalLead')}</p>
+      <Field label={t('sh.arrivedOn')}>
         <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
       </Field>
       {open.map((l) => {
@@ -426,20 +437,20 @@ function ReceiveSheet({ s, onClose }: { s: Shipment; onClose: () => void }) {
           <div key={l.garmentTypeId} className="card card-pad stack">
             <div className="row-between">
               <GarmentLabel g={lk.garment(l.garmentTypeId)} />
-              <span className="muted">{left} expected</span>
+              <span className="muted">{t('sh.nExpected', { n: left })}</span>
             </div>
             <div className="form-grid">
-              <Field label="Arrived">
+              <Field label={t('sh.arrived')}>
                 <Stepper value={cur.received} max={left - cur.missing} onChange={(n) => setV({ ...v, [l.garmentTypeId]: { ...cur, received: n } })} />
               </Field>
-              <Field label="Missing (lost)">
+              <Field label={t('sh.missingLost')}>
                 <Stepper value={cur.missing} max={left - cur.received} onChange={(n) => setV({ ...v, [l.garmentTypeId]: { ...cur, missing: n } })} />
               </Field>
             </div>
           </div>
         );
       })}
-      <Field label={anyMissing ? 'What happened to the missing pieces? (required)' : 'Note'}>
+      <Field label={anyMissing ? t('sh.whatMissing') : t('stk.note')}>
         <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
     </Sheet>
@@ -447,6 +458,7 @@ function ReceiveSheet({ s, onClose }: { s: Shipment; onClose: () => void }) {
 }
 
 function CostSheet({ s, replaces, onClose }: { s: Shipment; replaces?: ShipmentCost; onClose: () => void }) {
+  const t = useT();
   const [category, setCategory] = useState<(typeof SHIPMENT_COST_CATEGORIES)[number]>(replaces?.category ?? (s.method === 'air' ? 'air_baggage' : 'bus_fare'));
   const [description, setDescription] = useState(replaces?.description ?? '');
   const [currency, setCurrency] = useState<Currency>(replaces?.currency ?? 'KES');
@@ -456,12 +468,12 @@ function CostSheet({ s, replaces, onClose }: { s: Shipment; replaces?: ShipmentC
   const [reference, setReference] = useState('');
   return (
     <Sheet
-      title={replaces ? 'Enter the actual cost' : `Cost for ${s.code}`}
+      title={replaces ? t('sh.actualTitle') : t('sh.costFor', { code: s.code })}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
@@ -480,54 +492,54 @@ function CostSheet({ s, replaces, onClose }: { s: Shipment; replaces?: ShipmentC
                     reference: reference.trim(),
                     supersedesId: replaces?.id ?? null,
                   }),
-                'Cost saved',
+                t('sh.costSaved'),
               );
               if (ok) onClose();
             }}
           >
-            Save cost
+            {t('sh.saveCost')}
           </button>
         </>
       }
     >
       {replaces && (
         <div className="note-box">
-          Replaces the estimate of <Money amount={replaces.amount} currency={replaces.currency} />. The estimate stays in the history.
+          {rich(t('sh.replacesEstimate'), { amount: <Money amount={replaces.amount} currency={replaces.currency} /> })}
         </div>
       )}
-      <Field label="Kind of cost">
+      <Field label={t('sh.kindOfCost')}>
         <select className="select" value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
           {SHIPMENT_COST_CATEGORIES.map((c) => (
             <option key={c} value={c}>
-              {SHIP_COST_LABEL[c]}
+              {t(`lbl.shipCost.${c}`)}
             </option>
           ))}
         </select>
       </Field>
       <div className="form-grid">
-        <Field label="Amount">
+        <Field label={t('sd.amount')}>
           <MoneyInput currency={currency} value={amount} onChange={setAmount} />
         </Field>
-        <Field label="Currency" hint="Record it in the currency actually paid.">
+        <Field label={t('ex.currency')} hint={t('sh.currencyHint')}>
           <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
             {CURRENCY_CODES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
         </Field>
-        <Field label="Date">
+        <Field label={t('ex.date')}>
           <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
       </div>
       {!replaces && (
-        <Field label="Is this the real amount?">
-          <Seg value={status} onChange={setStatus} options={[{ value: 'actual', label: 'Actual (paid)' }, { value: 'estimated', label: 'Estimate' }]} />
+        <Field label={t('sh.realQ')}>
+          <Seg value={status} onChange={setStatus} options={[{ value: 'actual', label: t('sh.actualPaid') }, { value: 'estimated', label: t('sh.estimate') }]} />
         </Field>
       )}
-      <Field label="Description">
-        <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. extra 23 kg bag" />
+      <Field label={t('sh.description')}>
+        <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('sh.descPh')} />
       </Field>
-      <Field label="Receipt / reference (optional)">
+      <Field label={t('sh.reference')}>
         <input className="input mono" value={reference} onChange={(e) => setReference(e.target.value)} />
       </Field>
     </Sheet>

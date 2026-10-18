@@ -3,6 +3,7 @@ import type { GarmentType } from '../../shared/model';
 import type { Currency } from '../../shared/money';
 import { Icon } from './Icon';
 import { GarmentLabel, MoneyInput, Stepper } from './kit';
+import { useT } from '../lib/i18n';
 
 export interface EditLine {
   garmentTypeId: string;
@@ -26,6 +27,7 @@ export function LinesEditor({
   available?: (gt: string) => number;
   signed?: boolean;
 }) {
+  const t = useT();
   const [pick, setPick] = useState('');
   const used = new Set(lines.map((l) => l.garmentTypeId));
   const options = garments.filter((g) => g.active && !used.has(g.id));
@@ -41,16 +43,16 @@ export function LinesEditor({
               <div key={l.garmentTypeId} className="garment-row" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
                 <div className="stack-sm" style={{ minWidth: 0 }}>
                   <GarmentLabel g={g} />
-                  {avail !== undefined && <span className="hint">{avail} available</span>}
+                  {avail !== undefined && <span className="hint">{t('le.available', { n: avail })}</span>}
                 </div>
                 <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
                   {signed ? (
                     <div className="row" style={{ gap: 4 }}>
                       <button type="button" className={`btn btn-sm ${l.qty < 0 ? 'btn-danger' : ''}`} onClick={() => set(i, { qty: -Math.abs(l.qty || 1) })}>
-                        Remove
+                        {t('le.remove')}
                       </button>
                       <button type="button" className={`btn btn-sm ${l.qty > 0 ? 'btn-primary' : ''}`} onClick={() => set(i, { qty: Math.abs(l.qty || 1) })}>
-                        Add
+                        {t('le.add')}
                       </button>
                       <Stepper value={Math.abs(l.qty)} onChange={(v) => set(i, { qty: (l.qty < 0 ? -1 : 1) * v })} />
                     </div>
@@ -59,10 +61,10 @@ export function LinesEditor({
                   )}
                   {costCurrency && (
                     <div style={{ width: 150 }}>
-                      <MoneyInput currency={costCurrency} value={l.unitCost ?? null} onChange={(v) => set(i, { unitCost: v })} placeholder="Cost each" />
+                      <MoneyInput currency={costCurrency} value={l.unitCost ?? null} onChange={(v) => set(i, { unitCost: v })} placeholder={t('le.costEach')} />
                     </div>
                   )}
-                  <button type="button" className="icon-btn" aria-label="Remove line" onClick={() => onChange(lines.filter((_, j) => j !== i))}>
+                  <button type="button" className="icon-btn" aria-label={t('le.removeLine')} onClick={() => onChange(lines.filter((_, j) => j !== i))}>
                     <Icon name="x" size={18} />
                   </button>
                 </div>
@@ -83,11 +85,11 @@ export function LinesEditor({
               setPick('');
             }}
           >
-            <option value="">+ Add a garment…</option>
+            <option value="">{t('le.addGarment')}</option>
             {options.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.code} — {g.name}
-                {available ? ` (${available(g.id)} available)` : ''}
+                {available ? t('le.availableP', { n: available(g.id) }) : ''}
               </option>
             ))}
           </select>

@@ -128,6 +128,9 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^The code can have at most (\d+) digits\.$/, 'err.pinLong', ['n']],
   [/^Avoid codes with one repeated digit\.$/, 'err.pinRepeat', []],
   [/^Avoid simple sequences like 1234\.$/, 'err.pinSequence', []],
+  [/^No connection\. Showing the last rates saved on this device\.$/, 'err.ratesOffline', []],
+  [/^Could not get rates\.$/, 'err.ratesFailed', []],
+  [/^Too many wrong codes on this device\.$/, 'err.tooManyDevice', []],
 ];
 
 export function localizeError(lang: Lang, message: string | null | undefined): string {

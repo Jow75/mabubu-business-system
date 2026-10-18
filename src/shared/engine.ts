@@ -9,6 +9,7 @@
 // books say were available) are accepted and flagged for management.
 
 import type { AnyOp, Flag, OpEnvelope, OpType } from './ops';
+import { tEn, type T } from './i18n';
 import { visibilityOf } from './ops';
 import type { Capability, VisClass } from './permissions';
 import { lineTotal } from './money';
@@ -812,27 +813,27 @@ function flagNegativeBalances(tx: Tx) {
   }
 }
 
-export function describeAccount(acct: string, get: (key: string) => unknown): string {
+export function describeAccount(acct: string, get: (key: string) => unknown, t: T = tEn): string {
   const { kind, loc, ref } = parseAccount(acct);
-  const locName = loc ? ((get(K.location(loc)) as Location | undefined)?.name ?? 'location') : '';
+  const place = loc ? ((get(K.location(loc)) as Location | undefined)?.name ?? t('acct.location')) : '';
   switch (kind) {
     case 'avail':
-      return `Available at ${locName}`;
+      return t('acct.avail', { place });
     case 'worker':
-      return `Held by ${(get(K.user(ref ?? '')) as UserRef | undefined)?.name ?? 'worker'} (${locName})`;
+      return t('acct.worker', { name: (get(K.user(ref ?? '')) as UserRef | undefined)?.name ?? t('c.worker'), place });
     case 'transit':
-      return `In transit (${(get(K.shipment(ref ?? '')) as Shipment | undefined)?.code ?? 'shipment'})`;
+      return t('acct.transit', { code: (get(K.shipment(ref ?? '')) as Shipment | undefined)?.code ?? t('c.shipment') });
     case 'await':
-      return `Waiting for collection at ${locName}`;
+      return t('acct.await', { place });
     case 'insp':
-      return `Waiting for inspection at ${locName}`;
+      return t('acct.insp', { place });
     case 'rej':
-      return `Rejected at ${locName}`;
+      return t('acct.rej', { place });
     case 'sold':
-      return `Sold at ${locName}`;
+      return t('acct.sold', { place });
     case 'adj':
-      return `Adjustments at ${locName}`;
+      return t('acct.adj', { place });
     case 'vendor':
-      return `Vendor ${(get(K.vendor(ref ?? '')) as Vendor | undefined)?.name ?? ''}`;
+      return t('acct.vendor', { name: (get(K.vendor(ref ?? '')) as Vendor | undefined)?.name ?? '' });
   }
 }

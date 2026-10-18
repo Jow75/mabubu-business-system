@@ -81,7 +81,7 @@ function DownloadSheet({ build, onClose }: { build: () => ReportDoc; onClose: ()
         {EXPORT_FORMATS.map((f) => (
           <button key={f} className="export-format" disabled={busy !== null} onClick={() => void go(f)}>
             <strong>{busy === f ? t('dl.preparing') : FORMAT_INFO[f].label}</strong>
-            <span className="hint">{FORMAT_INFO[f].hint}</span>
+            <span className="hint">{t(`fmt.${f}` as Key)}</span>
           </button>
         ))}
       </div>

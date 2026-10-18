@@ -3,7 +3,9 @@ import { store, useApp } from '../../lib/store';
 import { useLookups } from '../../lib/lookups';
 import { refreshMarketRates, useMarketRates } from '../../lib/fx';
 import { uuidv7 } from '../../../shared/ids';
-import { MARKET_PROVIDER, RATE_BASIS_LABEL, findRecordedRate, marketRate } from '../../../shared/fx';
+import { MARKET_PROVIDER, findRecordedRate, marketRate } from '../../../shared/fx';
+import { errText, rich, useT } from '../../lib/i18n';
+import type { Key } from '../../../shared/i18n';
 import { CURRENCIES, CURRENCY_CODES, convertMinor, formatLocalCount, formatMoney, isValidRate, parseMoney, type Currency } from '../../../shared/money';
 import { businessDate, fmtDate, fmtDateTime, fmtDuration } from '../../../shared/time';
 import { Icon } from '../../ui/Icon';
@@ -32,6 +34,7 @@ export function CurrencyConverter() {
   const { ledger, user } = useApp();
   const lk = useLookups();
   const m = useMarketRates();
+  const t = useT();
   const [pair, setPair] = useState(loadPair);
   const [text, setText] = useState('1000');
   const [saveOpen, setSaveOpen] = useState(false);
@@ -54,69 +57,70 @@ export function CurrencyConverter() {
 
   return (
     <div className="page" style={{ maxWidth: 640 }}>
-      <PageHead eyebrow="Tool" title="Currency converter" lead="A calculator only. Nothing here is saved as a purchase, sale, payment or expense." />
+      <PageHead eyebrow={t('tool.eyebrow')} title={t('nav.convert')} lead={t('cv.lead')} />
 
       <section className="card card-pad stack">
         <div className="fx-pair">
-          <Field label="From">
+          <Field label={t('cv.from')}>
             <select className="select" value={from} onChange={(e) => setBoth({ from: e.target.value as Currency, to })}>
               {CURRENCY_CODES.map((c) => (
                 <option key={c} value={c}>
-                  {c} · {CURRENCIES[c].name}
+                  {c} · {t(`cur.${c}` as Key)}
                 </option>
               ))}
             </select>
           </Field>
-          <button className="btn fx-swap" aria-label="Swap currencies" title="Swap" onClick={() => setBoth({ from: to, to: from })}>
+          <button className="btn fx-swap" aria-label={t('cv.swap')} title={t('cv.swapShort')} onClick={() => setBoth({ from: to, to: from })}>
             <Icon name="swap" />
           </button>
-          <Field label="To">
+          <Field label={t('cv.to')}>
             <select className="select" value={to} onChange={(e) => setBoth({ from, to: e.target.value as Currency })}>
               {CURRENCY_CODES.map((c) => (
                 <option key={c} value={c}>
-                  {c} · {CURRENCIES[c].name}
+                  {c} · {t(`cur.${c}` as Key)}
                 </option>
               ))}
             </select>
           </Field>
         </div>
-        <Field label={`Amount in ${from}`}>
+        <Field label={t('cv.amountIn', { currency: from })}>
           <div style={{ position: 'relative' }}>
             <input className="input big" inputMode={CURRENCIES[from].exp ? 'decimal' : 'numeric'} value={text} onChange={(e) => setText(e.target.value)} style={{ paddingRight: 64 }} />
             <span className="muted" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontWeight: 650 }}>
               {CURRENCIES[from].prefix}
             </span>
           </div>
-          {text !== '' && amount === null && <span className="hint" style={{ color: 'var(--hibiscus)' }}>Not a valid {from} amount{CURRENCIES[from].exp === 0 ? ' (whole numbers only)' : ''}</span>}
+          {text !== '' && amount === null && <span className="hint" style={{ color: 'var(--hibiscus)' }}>{t('cv.invalid', { currency: from })}
+              {CURRENCIES[from].exp === 0 ? t('cv.whole') : ''}</span>}
         </Field>
 
         <div className="selvedge" style={{ paddingLeft: 18 }}>
-          <div className="eyebrow">At today’s market reference rate</div>
+          <div className="eyebrow">{t('cv.market')}</div>
           <div className="fx-result">{result !== null ? formatMoney(to, result) : '—'}</div>
-          {result !== null && to === 'KMF' && <div className="local">{formatLocalCount(result)} {lk.settings.localCountLabel} (counting aid only)</div>}
+          {result !== null && to === 'KMF' && <div className="local">{t('cv.countingAid', { amount: formatLocalCount(result), label: lk.settings.localCountLabel })}</div>}
           {mr && from !== to && (
             <div className="trace" style={{ marginTop: 6 }}>
-              {rateLine(mr.rate, from, to)} · worked out through USD (1 USD = {mr.legs[0]?.perBase} {from} = {mr.legs[1]?.perBase} {to})
+              {t('cv.viaUsd', { rate: rateLine(mr.rate, from, to), a: String(mr.legs[0]?.perBase ?? ''), from, b: String(mr.legs[1]?.perBase ?? ''), to })}
             </div>
           )}
         </div>
 
         {m.rates ? (
           <div className={m.stale ? 'note-box' : 'info-box'} role="status">
-            {m.stale ? <strong>These rates may be out of date. </strong> : null}
-            Market rates published {fmtDateTime(m.rates.publishedAt)} ({m.ageMs !== null ? `${fmtDuration(m.ageMs)} ago` : ''}) by {MARKET_PROVIDER.name}.
-            {m.rates.nextUpdateAt && !m.stale && <> Next update expected {fmtDateTime(m.rates.nextUpdateAt)}.</>}
-            {m.error && <div style={{ marginTop: 4 }}>{m.error}</div>}
+            {m.stale ? <strong>{t('cv.stale')} </strong> : null}
+            {t('cv.published', { time: fmtDateTime(m.rates.publishedAt), age: m.ageMs !== null ? t('cv.ago', { d: fmtDuration(m.ageMs) }) : '', provider: MARKET_PROVIDER.name })}
+            {m.rates.nextUpdateAt && !m.stale && <> {t('cv.nextUpdate', { time: fmtDateTime(m.rates.nextUpdateAt) })}</>}
+            {m.error && <div style={{ marginTop: 4 }}>{errText(m.error)}</div>}
           </div>
         ) : (
           <div className="note-box" role="status">
-            {m.loading ? 'Getting market rates…' : <>No market rates on this device yet. {m.error ?? 'Connect to the internet once to load them.'}</>}
+            {m.loading ? t('cv.getting') : <>{t('cv.noRates')} {m.error ? errText(m.error) : t('cv.connectOnce')}</>}
           </div>
         )}
-        {m.rates && !mr && from !== to && <div className="error-box">The provider did not publish a rate for {from} or {to}, so no conversion is shown.</div>}
+        {m.rates && !mr && from !== to && <div className="error-box">{t('cv.noProviderRate', { from, to })}</div>}
         <div className="row-between">
           <button className="btn btn-sm" disabled={m.loading} onClick={() => void refreshMarketRates(true)}>
-            <Icon name="refresh" size={16} /> {m.loading ? 'Checking…' : 'Check for new rates'}
+            <Icon name="refresh" size={16} /> {m.loading ? t('cv.checking') : t('cv.check')}
           </button>
           <a className="hint" href={MARKET_PROVIDER.attribution.href} target="_blank" rel="noreferrer">
             {MARKET_PROVIDER.attribution.text}
@@ -126,28 +130,28 @@ export function CurrencyConverter() {
 
       {from !== to && (user!.caps.includes('costs.view') || user!.caps.includes('pricing.manage')) && (
         <section className="card card-pad stack">
-          <span className="section-title">Rate the family recorded (used in reports)</span>
+          <span className="section-title">{t('cv.recordedTitle')}</span>
           {recorded ? (
             <>
               <div className="row-between">
                 <span>
                   {rateLine(recorded.rate, from, to)}
                   <div className="trace">
-                    {RATE_BASIS_LABEL[recorded.basis]} · since {fmtDate(recorded.effectiveDate)} · {recorded.source}
-                    {recorded.inverse && ` · recorded as 1 ${recorded.recorded.from} = ${recorded.recorded.rate} ${recorded.recorded.to}`}
+                    {t('cv.sinceSource', { basis: t(`basis.${recorded.basis}` as Key), date: fmtDate(recorded.effectiveDate), source: recorded.source })}
+                    {recorded.inverse && t('cv.recordedAs', { from: recorded.recorded.from, rate: recorded.recorded.rate, to: recorded.recorded.to })}
                   </div>
                 </span>
                 {recordedResult !== null && <strong className="num">{formatMoney(to, recordedResult)}</strong>}
               </div>
-              {mr && <p className="hint">Today’s market rate differs from the recorded one by {(((mr.rate - recorded.rate) / recorded.rate) * 100).toFixed(1)}%. Reports keep using recorded rates on each transaction’s date, so past profit does not change with the market.</p>}
+              {mr && <p className="hint">{t('cv.differs', { pct: (((mr.rate - recorded.rate) / recorded.rate) * 100).toFixed(1) })}</p>}
             </>
           ) : (
-            <p className="soft">No recorded rate for {from} → {to} yet. Reports in another currency need one; add it in Settings, or save today’s market rate below.</p>
+            <p className="soft">{t('cv.noRecorded', { from, to })}</p>
           )}
           {canRecord && (
             <div>
               <button className="btn" onClick={() => setSaveOpen(true)}>
-                Save today’s market rate as a recorded rate
+                {t('cv.saveMarket')}
               </button>
             </div>
           )}
@@ -159,36 +163,35 @@ export function CurrencyConverter() {
 }
 
 function SaveRateSheet({ from, to, rate, publishedAt, onClose }: { from: Currency; to: Currency; rate: string; publishedAt: string; onClose: () => void }) {
+  const t = useT();
   const [date, setDate] = useState(businessDate());
   const source = `${MARKET_PROVIDER.name} market reference, published ${publishedAt.slice(0, 16).replace('T', ' ')} UTC`;
   return (
     <Sheet
-      title="Save as a recorded rate"
+      title={t('cv.saveTitle')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
             disabled={!isValidRate(rate)}
             onClick={async () => {
-              if (await save(() => store.submit('fx.set', { id: uuidv7(), from, to, rate, date, source, basis: 'market' }), 'Rate saved')) onClose();
+              if (await save(() => store.submit('fx.set', { id: uuidv7(), from, to, rate, date, source, basis: 'market' }), t('fx.saved'))) onClose();
             }}
           >
-            Save rate
+            {t('fx.save')}
           </button>
         </>
       }
     >
-      <p className="soft">
-        From this date, reports will convert {from} amounts to {to} at <strong className="num">1 {from} = {rate} {to}</strong>, until a newer rate is recorded. Amounts dated earlier keep their own rates. If you exchanged money at a different rate, record that actual rate in Settings instead — it is the better figure.
-      </p>
-      <Field label="Valid from">
+      <p className="soft">{rich(t('cv.saveBody', { from, to }), { rate: <strong className="num">1 {from} = {rate} {to}</strong> })}</p>
+      <Field label={t('fx.validFrom')}>
         <input type="date" className="input" value={date} max={businessDate()} onChange={(e) => setDate(e.target.value)} />
       </Field>
-      <p className="hint">Source saved with the rate: {source}</p>
+      <p className="hint">{t('cv.sourceSaved', { source })}</p>
     </Sheet>
   );
 }

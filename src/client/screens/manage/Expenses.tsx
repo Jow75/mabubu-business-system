@@ -6,7 +6,7 @@ import { CURRENCY_CODES, type Currency } from '../../../shared/money';
 import { EXPENSE_CATEGORIES } from '../../../shared/ops';
 import { businessDate, fmtDateShort } from '../../../shared/time';
 import { expenseTotals, expensesReport, selectExpenses, type ExpenseFilter } from '../../../shared/reports';
-import { EXPENSE_LABEL } from '../../lib/labels';
+import { useT } from '../../lib/i18n';
 import { reportCtx } from '../../lib/report-ctx';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, Money, MoneyInput, PageHead, Sheet, save } from '../../ui/kit';
@@ -16,6 +16,7 @@ import { VoidButton } from '../../ui/VoidButton';
 export function ExpensesPage() {
   const { ledger, version, user, prefs, records } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [add, setAdd] = useState(false);
   const dr = useDateRange('30');
   const filter: ExpenseFilter = { from: dr.range.from, to: dr.range.to, locationId: prefs.scope, preset: dr.range.label };
@@ -25,14 +26,14 @@ export function ExpensesPage() {
   return (
     <div className="page">
       <PageHead
-        title="Expenses"
-        lead="Money spent running the business. Workers’ spending during a sales day is recorded when they close the day."
+        title={t('nav.expenses')}
+        lead={t('ex.lead')}
         actions={
           <>
             <DownloadButton build={() => expensesReport(reportCtx(), filter)} />
             {user!.caps.includes('expenses') && (
               <button className="btn btn-primary" onClick={() => setAdd(true)}>
-                <Icon name="plus" size={18} /> Add expense
+                <Icon name="plus" size={18} /> {t('ex.add')}
               </button>
             )}
           </>
@@ -46,7 +47,7 @@ export function ExpensesPage() {
       <div className="grid cols-4">
         {[...totals].map(([cur, amt]) => (
           <div key={cur} className="card stat">
-            <span className="eyebrow">Total in {cur}</span>
+            <span className="eyebrow">{t('ex.totalIn', { currency: cur })}</span>
             <span className="stat-value">
               <Money amount={amt} currency={cur} />
             </span>
@@ -55,20 +56,20 @@ export function ExpensesPage() {
       </div>
       <section className="card">
         {list.length === 0 ? (
-          <Empty icon="receipt" title="No expenses match these filters">
-            {hidden > 0 ? `${hidden} expense${hidden === 1 ? ' is' : 's are'} at other places — choose “All places”.` : 'Try a longer period.'}
+          <Empty icon="receipt" title={t('ex.noMatch')}>
+            {hidden > 0 ? t('ex.hiddenOther', { n: hidden }) : t('ex.tryLonger')}
           </Empty>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Place</th>
-                  <th>Kind</th>
-                  <th>What for</th>
-                  <th className="n">Amount</th>
-                  <th>By</th>
+                  <th>{t('ex.date')}</th>
+                  <th>{t('place.label')}</th>
+                  <th>{t('ex.kind')}</th>
+                  <th>{t('sd.whatFor')}</th>
+                  <th className="n">{t('sd.amount')}</th>
+                  <th>{t('ex.by')}</th>
                   <th />
                 </tr>
               </thead>
@@ -77,17 +78,17 @@ export function ExpensesPage() {
                   <tr key={e.opId} style={e.cancelled ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
                     <td className="nowrap">{fmtDateShort(e.date)}</td>
                     <td>{lk.locName(e.locationId)}</td>
-                    <td>{EXPENSE_LABEL[e.category]}</td>
+                    <td>{t(`lbl.expense.${e.category}`)}</td>
                     <td>
                       {e.description}
-                      {e.pending && <span className="pill saffron">Not synced yet</span>}
+                      {e.pending && <span className="pill saffron">{t('days.notSynced')}</span>}
                     </td>
                     <td className="n">
                       <Money amount={e.amount} currency={e.currency} />
                     </td>
                     <td className="muted">{records.get(e.opId)?.actorName ?? lk.personName(e.actorId)}</td>
                     <td>
-                      <VoidButton opId={e.opId} label="Cancel" />
+                      <VoidButton opId={e.opId} label={t('void.cancel')} />
                     </td>
                   </tr>
                 ))}
@@ -104,6 +105,7 @@ export function ExpensesPage() {
 function ExpenseSheet({ onClose }: { onClose: () => void }) {
   const { ledger, prefs } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [loc, setLoc] = useState(prefs.scope ?? lk.locations[0]?.id ?? '');
   const [currency, setCurrency] = useState<Currency>(lk.loc(loc)?.currency ?? 'KES');
   const [category, setCategory] = useState<(typeof EXPENSE_CATEGORIES)[number]>('transport');
@@ -114,27 +116,27 @@ function ExpenseSheet({ onClose }: { onClose: () => void }) {
   const shipments = ledger.list<Shipment>('shipment').filter((s) => s.status !== 'voided');
   return (
     <Sheet
-      title="Add expense"
+      title={t('ex.add')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
             disabled={!amount || !description.trim() || !loc}
             onClick={async () => {
-              if (await save(() => store.submit('expense.record', { locationId: loc, date, category, description: description.trim(), amount: amount ?? 0, currency, shipmentId: shipmentId || null }), 'Expense saved')) onClose();
+              if (await save(() => store.submit('expense.record', { locationId: loc, date, category, description: description.trim(), amount: amount ?? 0, currency, shipmentId: shipmentId || null }), t('ex.saved'))) onClose();
             }}
           >
-            Save expense
+            {t('ex.save')}
           </button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Place">
+        <Field label={t('place.label')}>
           <select
             className="select"
             value={loc}
@@ -151,27 +153,27 @@ function ExpenseSheet({ onClose }: { onClose: () => void }) {
             ))}
           </select>
         </Field>
-        <Field label="Kind">
+        <Field label={t('ex.kind')}>
           <select className="select" value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
             {EXPENSE_CATEGORIES.map((c) => (
               <option key={c} value={c}>
-                {EXPENSE_LABEL[c]}
+                {t(`lbl.expense.${c}`)}
               </option>
             ))}
           </select>
         </Field>
-        <Field label="Date">
+        <Field label={t('ex.date')}>
           <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
       </div>
-      <Field label="What was it for?">
+      <Field label={t('ex.whatQ')}>
         <input className="input" autoFocus value={description} onChange={(e) => setDescription(e.target.value)} />
       </Field>
       <div className="form-grid">
-        <Field label="Amount">
+        <Field label={t('sd.amount')}>
           <MoneyInput currency={currency} value={amount} onChange={setAmount} />
         </Field>
-        <Field label="Currency">
+        <Field label={t('ex.currency')}>
           <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
             {CURRENCY_CODES.map((c) => (
               <option key={c}>{c}</option>
@@ -180,9 +182,9 @@ function ExpenseSheet({ onClose }: { onClose: () => void }) {
         </Field>
       </div>
       {shipments.length > 0 && (
-        <Field label="Linked to a shipment? (optional)">
+        <Field label={t('ex.linked')}>
           <select className="select" value={shipmentId} onChange={(e) => setShipmentId(e.target.value)}>
-            <option value="">No</option>
+            <option value="">{t('c.no')}</option>
             {shipments.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.code} · {fmtDateShort(s.date)}
