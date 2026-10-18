@@ -96,7 +96,7 @@ export function ReportsPage() {
           </Field>
         </div>
       )}
-      <PlaceNotice hidden={hiddenDays} what="closed sales days in this period" />
+      <PlaceNotice hidden={hiddenDays} what="what.closedDays" />
       <div className="row-between">
         <span className="row" style={{ gap: 10 }}>
           <span className="muted">Convert with</span>

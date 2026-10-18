@@ -56,7 +56,7 @@ export function Setup() {
           <input id="nm" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         <div className="form-grid">
-          <Field label={t('setup.code')} htmlFor="p1" hint={policy ?? t('setup.codeHint')}>
+          <Field label={t('setup.code')} htmlFor="p1" hint={policy ? errText(policy) : t('setup.codeHint')}>
             <input id="p1" className="input" inputMode="numeric" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} required />
           </Field>
           <Field label={t('setup.repeat')} htmlFor="p2" hint={mismatch ? t('setup.mismatch') : undefined}>

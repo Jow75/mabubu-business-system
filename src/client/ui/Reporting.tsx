@@ -12,15 +12,18 @@ import { ReportForbidden } from '../../shared/reports';
 import { addDays, businessDate } from '../../shared/time';
 import { Icon } from './Icon';
 import { Seg, Sheet, toast } from './kit';
+import { errText, useT } from '../lib/i18n';
+import type { Key } from '../../shared/i18n';
 
 /* ---------------- Download ---------------- */
 
-export function DownloadButton({ build, label = 'Download', small }: { build: () => ReportDoc; label?: string; small?: boolean }) {
+export function DownloadButton({ build, label, small }: { build: () => ReportDoc; label?: string; small?: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <>
       <button className={`btn ${small ? 'btn-sm' : ''}`} onClick={() => setOpen(true)}>
-        <Icon name="download" size={small ? 16 : 18} /> {label}
+        <Icon name="download" size={small ? 16 : 18} /> {label ?? t('dl.download')}
       </button>
       {open && <DownloadSheet build={build} onClose={() => setOpen(false)} />}
     </>
@@ -28,19 +31,20 @@ export function DownloadButton({ build, label = 'Download', small }: { build: ()
 }
 
 function DownloadSheet({ build, onClose }: { build: () => ReportDoc; onClose: () => void }) {
+  const t = useT();
   const [busy, setBusy] = useState<ExportFormat | null>(null);
   // Built once when the sheet opens, from the same records and filters as the screen.
   const result = useMemo(() => {
     try {
       return { doc: build() };
     } catch (e) {
-      return { error: e instanceof ReportForbidden ? e.message : 'This report could not be prepared.' };
+      return { error: e instanceof ReportForbidden ? errText(e.message) : t('dl.cannotPrepare') };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if ('error' in result) {
     return (
-      <Sheet title="Download" onClose={onClose}>
+      <Sheet title={t('dl.download')} onClose={onClose}>
         <div className="error-box">{result.error}</div>
       </Sheet>
     );
@@ -50,38 +54,38 @@ function DownloadSheet({ build, onClose }: { build: () => ReportDoc; onClose: ()
     setBusy(f);
     try {
       const { logged } = await exportReport(doc, f);
-      toast(logged ? `${FORMAT_INFO[f].label} downloaded · noted in the log` : `${FORMAT_INFO[f].label} downloaded`);
+      toast(t(logged ? 'dl.doneLogged' : 'dl.done', { format: FORMAT_INFO[f].label }));
       onClose();
     } catch {
-      toast('The file could not be made. Nothing was downloaded.', 'error');
+      toast(t('dl.failed'), 'error');
     } finally {
       setBusy(null);
     }
   };
   return (
-    <Sheet title={`Download: ${doc.title}`} onClose={onClose}>
-      <span className="section-title">What will be in the file</span>
+    <Sheet title={t('dl.title', { title: doc.title })} onClose={onClose}>
+      <span className="section-title">{t('dl.contents')}</span>
       <dl className="kv">
         {doc.filters.map((f) => (
           <FilterRow key={f.label} k={f.label} v={f.value} />
         ))}
-        {doc.tables.map((t) => (
-          <FilterRow key={t.title} k={t.title} v={`${t.rows.length} row${t.rows.length === 1 ? '' : 's'}`} />
+        {doc.tables.map((tb) => (
+          <FilterRow key={tb.title} k={tb.title} v={t('dl.rows', { n: tb.rows.length })} />
         ))}
       </dl>
-      {rowCount(doc) === 0 && <div className="note-box">No records match these filters. The file will say so.</div>}
+      {rowCount(doc) === 0 && <div className="note-box">{t('dl.none')}</div>}
       <span className="section-title" style={{ marginTop: 6 }}>
-        Choose a format
+        {t('dl.format')}
       </span>
       <div className="export-formats">
         {EXPORT_FORMATS.map((f) => (
           <button key={f} className="export-format" disabled={busy !== null} onClick={() => void go(f)}>
-            <strong>{busy === f ? 'Preparing…' : FORMAT_INFO[f].label}</strong>
+            <strong>{busy === f ? t('dl.preparing') : FORMAT_INFO[f].label}</strong>
             <span className="hint">{FORMAT_INFO[f].hint}</span>
           </button>
         ))}
       </div>
-      <p className="hint">Files are made on this device from the records shown on screen; totals match the screen. Word documents are not offered yet.</p>
+      <p className="hint">{t('dl.note')}</p>
     </Sheet>
   );
 }
@@ -121,15 +125,22 @@ export function useDateRange(initial: RangePreset) {
   return { range, preset, setPreset, cFrom, cTo, setFrom, setTo };
 }
 
+/** On-screen name of a period (downloads keep the English label in their filter list). */
+export function useRangeLabel() {
+  const t = useT();
+  return (p: RangePreset) => t(`range.${p}` as Key);
+}
+
 export function DateRangeControl({ r, presets = ['7', '30', 'all', 'custom'] }: { r: ReturnType<typeof useDateRange>; presets?: RangePreset[] }) {
+  const t = useT();
   return (
     <>
-      <Seg value={r.preset} onChange={r.setPreset} options={presets.map((p) => ({ value: p, label: p === 'custom' ? 'Dates…' : p === 'all' ? 'All' : `${p} days` }))} />
+      <Seg value={r.preset} onChange={r.setPreset} options={presets.map((p) => ({ value: p, label: p === 'custom' ? t('range.dates') : p === 'all' ? t('range.allShort') : t('range.nDays', { n: p }) }))} />
       {r.preset === 'custom' && (
         <span className="row" style={{ gap: 8 }}>
-          <input type="date" className="input" style={{ width: 'auto' }} aria-label="From" value={r.cFrom} onChange={(e) => r.setFrom(e.target.value)} />
-          <span className="muted">to</span>
-          <input type="date" className="input" style={{ width: 'auto' }} aria-label="To" value={r.cTo} onChange={(e) => r.setTo(e.target.value)} />
+          <input type="date" className="input" style={{ width: 'auto' }} aria-label={t('range.from')} value={r.cFrom} onChange={(e) => r.setFrom(e.target.value)} />
+          <span className="muted">{t('range.to')}</span>
+          <input type="date" className="input" style={{ width: 'auto' }} aria-label={t('range.toLabel')} value={r.cTo} onChange={(e) => r.setTo(e.target.value)} />
         </span>
       )}
     </>
@@ -142,14 +153,15 @@ export function DateRangeControl({ r, presets = ['7', '30', 'all', 'custom'] }: 
 export function PlaceSelect() {
   const { prefs } = useApp();
   const lk = useLookups();
+  const t = useT();
   return (
-    <select className="select" style={{ width: 'auto' }} aria-label="Place" value={prefs.scope ?? ''} onChange={(e) => store.setPrefs({ scope: e.target.value || null })}>
-      <option value="">All places</option>
+    <select className="select" style={{ width: 'auto' }} aria-label={t('place.label')} value={prefs.scope ?? ''} onChange={(e) => store.setPrefs({ scope: e.target.value || null })}>
+      <option value="">{t('scope.all')}</option>
       {lk.locations
         .filter((l) => l.active || l.id === prefs.scope)
         .map((l) => (
           <option key={l.id} value={l.id}>
-            {l.name} only
+            {t('place.only', { place: l.name })}
           </option>
         ))}
     </select>
@@ -161,18 +173,19 @@ export function PlaceSelect() {
  * device, so without this notice a page could look empty (for example “no
  * sales”) when the records are simply at another place.
  */
-export function PlaceNotice({ hidden, what }: { hidden: number; what: string }) {
+export function PlaceNotice({ hidden, what }: { hidden: number; what: Key }) {
   const { prefs } = useApp();
   const lk = useLookups();
+  const t = useT();
   if (!prefs.scope) return null;
   return (
     <div className="note-box row-between" role="status">
       <span>
-        <strong>Showing {lk.locName(prefs.scope)} only.</strong>{' '}
-        {hidden > 0 ? `${hidden} ${what} at other places ${hidden === 1 ? 'is' : 'are'} hidden by this filter.` : `Nothing at other places is hidden here.`}
+        <strong>{t('place.showing', { place: lk.locName(prefs.scope) })}</strong>{' '}
+        {hidden > 0 ? t('place.hidden', { n: hidden, what: t(what) }) : t('place.noneHidden')}
       </span>
       <button className="btn btn-sm" onClick={() => store.setPrefs({ scope: null })}>
-        Show all places
+        {t('place.showAll')}
       </button>
     </div>
   );

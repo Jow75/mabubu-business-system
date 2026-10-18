@@ -8,7 +8,9 @@ import type { GarmentType, Location, SizeCategory } from '../../../shared/model'
 import { CURRENCY_CODES, formatLocalCount, type Currency } from '../../../shared/money';
 import { LOCATION_KINDS } from '../../../shared/ops';
 import { businessDate, fmtDate } from '../../../shared/time';
-import { LOCATION_KIND_LABEL, SWATCHES } from '../../lib/labels';
+import { SWATCHES } from '../../lib/labels';
+import { rich, useT } from '../../lib/i18n';
+import type { Key } from '../../../shared/i18n';
 import { catalogueReport } from '../../../shared/reports';
 import { reportCtx } from '../../lib/report-ctx';
 import { DownloadButton } from '../../ui/Reporting';
@@ -19,24 +21,25 @@ type Tab = 'garments' | 'prices' | 'sizes' | 'places';
 
 export function CataloguePage() {
   const { query } = useRoute();
+  const t = useT();
   const tab = (query.get('tab') as Tab) ?? 'garments';
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'garments', label: 'Garments' },
-    { id: 'prices', label: 'Selling prices' },
-    { id: 'sizes', label: 'Size groups' },
-    { id: 'places', label: 'Places' },
+  const tabs: { id: Tab; label: Key }[] = [
+    { id: 'garments', label: 'cat.tab.garments' },
+    { id: 'prices', label: 'cat.tab.prices' },
+    { id: 'sizes', label: 'cat.tab.sizes' },
+    { id: 'places', label: 'cat.tab.places' },
   ];
   return (
     <div className="page">
       <PageHead
-        title="Garments & prices"
-        lead="Each garment type has its own identity — two garments with the same purchase price are still different stock if they differ in size, cut or vendor."
-        actions={<DownloadButton label="Download garments, sizes & prices" build={() => catalogueReport(reportCtx(), businessDate())} />}
+        title={t('nav.catalogue')}
+        lead={t('cat.lead')}
+        actions={<DownloadButton label={t('cat.download')} build={() => catalogueReport(reportCtx(), businessDate())} />}
       />
       <div className="tabs" role="tablist">
-        {tabs.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => navigate(`/catalogue?tab=${t.id}`)}>
-            {t.label}
+        {tabs.map((tb) => (
+          <button key={tb.id} role="tab" aria-selected={tab === tb.id} onClick={() => navigate(`/catalogue?tab=${tb.id}`)}>
+            {t(tb.label)}
           </button>
         ))}
       </div>
@@ -56,28 +59,29 @@ function useCan() {
 function Garments() {
   const lk = useLookups();
   const can = useCan();
+  const t = useT();
   const [edit, setEdit] = useState<GarmentType | 'new' | null>(null);
   return (
     <>
       {can.catalog && (
         <div>
           <button className="btn btn-primary" onClick={() => setEdit('new')}>
-            <Icon name="plus" size={18} /> Add garment type
+            <Icon name="plus" size={18} /> {t('cat.addGarment')}
           </button>
         </div>
       )}
       <section className="card">
         {lk.garments.length === 0 ? (
-          <Empty icon="tag" title="No garment types yet">Add the first one — for example “Elastic-neck dera from Hafsa”.</Empty>
+          <Empty icon="tag" title={t('cat.noGarments')}>{t('cat.noGarmentsBody')}</Empty>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Garment</th>
-                  <th>Size group</th>
-                  <th>Usual vendor</th>
-                  <th>Notes</th>
+                  <th>{t('c.garment')}</th>
+                  <th>{t('cat.sizeGroup')}</th>
+                  <th>{t('cat.usualVendor')}</th>
+                  <th>{t('cat.notes')}</th>
                   <th />
                 </tr>
               </thead>
@@ -86,7 +90,7 @@ function Garments() {
                   <tr key={g.id} style={g.active ? undefined : { opacity: 0.55 }}>
                     <td>
                       <GarmentLabel g={g} />
-                      {!g.active && <span className="pill" style={{ marginLeft: 8 }}>not in use</span>}
+                      {!g.active && <span className="pill" style={{ marginLeft: 8 }}>{t('cat.notInUse')}</span>}
                     </td>
                     <td>{lk.size(g.sizeCategoryId)?.name ?? '—'}</td>
                     <td>{lk.vendor(g.vendorId)?.name ?? '—'}</td>
@@ -94,7 +98,7 @@ function Garments() {
                     <td>
                       {can.catalog && (
                         <button className="btn btn-ghost btn-sm" onClick={() => setEdit(g)}>
-                          Edit
+                          {t('cat.edit')}
                         </button>
                       )}
                     </td>
@@ -112,6 +116,7 @@ function Garments() {
 
 function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => void }) {
   const lk = useLookups();
+  const t = useT();
   const [code, setCode] = useState(g?.code ?? '');
   const [name, setName] = useState(g?.name ?? '');
   const [size, setSize] = useState(g?.sizeCategoryId ?? '');
@@ -123,12 +128,12 @@ function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => vo
   const codeOk = /^[A-Z0-9][A-Z0-9-]{0,15}$/.test(code);
   return (
     <Sheet
-      title={g ? `Edit ${g.code}` : 'Add garment type'}
+      title={g ? t('cat.editCode', { code: g.code }) : t('cat.addGarment')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
@@ -136,24 +141,24 @@ function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => vo
             onClick={async () => {
               const ok = await save(
                 () => store.submit('garment.upsert', { id: g?.id ?? uuidv7(), code, name: name.trim(), sizeCategoryId: size || null, vendorId: vendor || null, description: description.trim(), swatch, active }),
-                'Garment saved',
+                t('cat.garmentSaved'),
               );
               if (ok) onClose();
             }}
           >
-            Save
+            {t('c.save')}
           </button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Short code" hint={dupe ? 'Already used by another garment.' : 'e.g. HAF-EN80 — vendor, style, price'}>
+        <Field label={t('cat.shortCode')} hint={dupe ? t('cat.codeUsed') : t('cat.codeHint')}>
           <input className="input mono" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 16))} />
         </Field>
-        <Field label="Name">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Elastic-neck dera" />
+        <Field label={t('pp.name')}>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('cat.namePh')} />
         </Field>
-        <Field label="Size group">
+        <Field label={t('cat.sizeGroup')}>
           <select className="select" value={size} onChange={(e) => setSize(e.target.value)}>
             <option value="">—</option>
             {lk.sizes.map((s) => (
@@ -163,7 +168,7 @@ function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => vo
             ))}
           </select>
         </Field>
-        <Field label="Usual vendor">
+        <Field label={t('cat.usualVendor')}>
           <select className="select" value={vendor} onChange={(e) => setVendor(e.target.value)}>
             <option value="">—</option>
             {lk.vendors.map((v) => (
@@ -174,16 +179,16 @@ function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => vo
           </select>
         </Field>
       </div>
-      <Field label="How to recognise it" hint="Cut, length, neck, fabric — what makes it different from similar garments.">
+      <Field label={t('cat.recognise')} hint={t('cat.recogniseHint')}>
         <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} />
       </Field>
-      <Field label="Colour tag (helps workers spot it in lists)">
+      <Field label={t('cat.colour')}>
         <div className="row">
           {SWATCHES.map((c) => (
             <button
               key={c}
               type="button"
-              aria-label={`Colour ${c}`}
+              aria-label={t('cat.colourN', { c })}
               aria-pressed={swatch === c}
               onClick={() => setSwatch(c)}
               className="swatch"
@@ -193,7 +198,7 @@ function GarmentSheet({ g, onClose }: { g: GarmentType | null; onClose: () => vo
         </div>
       </Field>
       <label className="check">
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> In use (shown to workers)
+        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('cat.inUseWorkers')}
       </label>
     </Sheet>
   );
@@ -203,10 +208,11 @@ function Prices() {
   const { ledger } = useApp();
   const lk = useLookups();
   const can = useCan();
+  const t = useT();
   const [edit, setEdit] = useState<{ g: GarmentType; l: Location } | null>(null);
   const today = businessDate();
   const places = lk.locations.filter((l) => l.kind === 'selling' && l.active);
-  if (!places.length) return <Empty icon="pin" title="No selling place yet">Add a place of kind “Selling” first.</Empty>;
+  if (!places.length) return <Empty icon="pin" title={t('cat.noSelling')}>{t('cat.noSellingBody')}</Empty>;
   return (
     <>
       <section className="card">
@@ -214,10 +220,10 @@ function Prices() {
           <table className="data">
             <thead>
               <tr>
-                <th>Garment</th>
+                <th>{t('c.garment')}</th>
                 {places.map((l) => (
                   <th key={l.id} className="n">
-                    {l.name}: retail · wholesale
+                    {t('cat.retailWholesale', { place: l.name })}
                   </th>
                 ))}
               </tr>
@@ -239,11 +245,11 @@ function Prices() {
                               <span className="muted"> · {p.wholesale ? <Money amount={p.wholesale} currency={p.currency} /> : '—'}</span>
                             </span>
                           ) : (
-                            <span className="pill red">No price</span>
+                            <span className="pill red">{t('cat.noPrice')}</span>
                           )}
                           {can.pricing && (
                             <button className="btn btn-ghost btn-sm" onClick={() => setEdit({ g, l })}>
-                              Set
+                              {t('cat.set')}
                             </button>
                           )}
                         </span>
@@ -256,7 +262,7 @@ function Prices() {
           </table>
         </div>
       </section>
-      <p className="hint">A new price starts on the date you choose. Old prices stay in the history, so past days keep the prices they were sold at.</p>
+      <p className="hint">{t('cat.priceHint')}</p>
       {edit && <PriceSheet g={edit.g} l={edit.l} onClose={() => setEdit(null)} />}
     </>
   );
@@ -264,49 +270,49 @@ function Prices() {
 
 function PriceSheet({ g, l, onClose }: { g: GarmentType; l: Location; onClose: () => void }) {
   const { ledger } = useApp();
+  const t = useT();
   const cur = priceFor((k) => ledger.get(k), g.id, l.id, businessDate());
   const [retail, setRetail] = useState<number | null>(cur?.retail ?? null);
   const [wholesale, setWholesale] = useState<number | null>(cur?.wholesale ?? null);
   const [from, setFrom] = useState(businessDate());
   return (
     <Sheet
-      title={`Price of ${g.code} in ${l.name}`}
+      title={t('cat.priceOf', { code: g.code, place: l.name })}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
             disabled={!retail}
             onClick={async () => {
-              if (await save(() => store.submit('price.set', { id: uuidv7(), garmentTypeId: g.id, locationId: l.id, currency: l.currency, retail: retail ?? 0, wholesale: wholesale || null, effectiveFrom: from }), 'Price saved')) onClose();
+              if (await save(() => store.submit('price.set', { id: uuidv7(), garmentTypeId: g.id, locationId: l.id, currency: l.currency, retail: retail ?? 0, wholesale: wholesale || null, effectiveFrom: from }), t('cat.priceSaved'))) onClose();
             }}
           >
-            Save price
+            {t('cat.savePrice')}
           </button>
         </>
       }
     >
       {cur && (
         <div className="info-box">
-          Current: <Money amount={cur.retail} currency={cur.currency} /> since {fmtDate(cur.effectiveFrom)}
+          {rich(t('cat.current', { date: fmtDate(cur.effectiveFrom) }), { amount: <Money amount={cur.retail} currency={cur.currency} /> })}
         </div>
       )}
-      <Field label={`Retail price (${l.currency})`} hint="Always the official amount, e.g. KMF 1,000 — not the local count.">
+      <Field label={t('cat.retail', { currency: l.currency })} hint={t('cat.retailHint')}>
         <MoneyInput big currency={l.currency as Currency} value={retail} onChange={setRetail} />
       </Field>
-      <Field label="Wholesale price (optional)">
+      <Field label={t('cat.wholesale')}>
         <MoneyInput currency={l.currency as Currency} value={wholesale} onChange={setWholesale} />
       </Field>
       {l.currency === 'KMF' && retail ? (
         <p className="hint">
-          Local count: {formatLocalCount(retail)}
-          {wholesale ? ` retail · ${formatLocalCount(wholesale)} wholesale` : ''}
+          {wholesale ? t('cat.localBoth', { retail: formatLocalCount(retail), wholesale: formatLocalCount(wholesale) }) : t('cat.localRetail', { retail: formatLocalCount(retail) })}
         </p>
       ) : null}
-      <Field label="Starts on">
+      <Field label={t('cat.startsOn')}>
         <input type="date" className="input" value={from} onChange={(e) => setFrom(e.target.value)} />
       </Field>
     </Sheet>
@@ -316,6 +322,7 @@ function PriceSheet({ g, l, onClose }: { g: GarmentType; l: Location; onClose: (
 function Sizes() {
   const lk = useLookups();
   const can = useCan();
+  const t = useT();
   const [edit, setEdit] = useState<SizeCategory | 'new' | null>(null);
   const [name, setName] = useState('');
   const [active, setActive] = useState(true);
@@ -329,19 +336,19 @@ function Sizes() {
       {can.catalog && (
         <div>
           <button className="btn btn-primary" onClick={() => open('new')}>
-            <Icon name="plus" size={18} /> Add size group
+            <Icon name="plus" size={18} /> {t('cat.addSize')}
           </button>
         </div>
       )}
       <section className="card list">
-        {lk.sizes.length === 0 && <div className="list-item muted">No size groups yet.</div>}
+        {lk.sizes.length === 0 && <div className="list-item muted">{t('cat.noSizes')}</div>}
         {lk.sizes.map((s) => (
           <div key={s.id} className="list-item">
             <span style={{ flex: 1 }}>{s.name}</span>
-            {!s.active && <span className="pill">not in use</span>}
+            {!s.active && <span className="pill">{t('cat.notInUse')}</span>}
             {can.catalog && (
               <button className="btn btn-ghost btn-sm" onClick={() => open(s)}>
-                Edit
+                {t('cat.edit')}
               </button>
             )}
           </div>
@@ -349,7 +356,7 @@ function Sizes() {
       </section>
       {edit && (
         <Sheet
-          title={edit === 'new' ? 'Add size group' : 'Edit size group'}
+          title={edit === 'new' ? t('cat.addSize') : t('cat.editSize')}
           onClose={() => setEdit(null)}
           footer={
             <button
@@ -358,20 +365,20 @@ function Sizes() {
               onClick={async () => {
                 const ok = await save(
                   () => store.submit('size.upsert', { id: edit === 'new' ? uuidv7() : edit.id, name: name.trim(), sort: edit === 'new' ? lk.sizes.length + 1 : edit.sort, active }),
-                  'Saved',
+                  t('pp.saved'),
                 );
                 if (ok) setEdit(null);
               }}
             >
-              Save
+              {t('c.save')}
             </button>
           }
         >
-          <Field label="Name" hint="e.g. Newborn & baby, Child, Between child & adult, Small adult">
+          <Field label={t('pp.name')} hint={t('cat.sizeHint')}>
             <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <label className="check">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> In use
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('cat.inUse')}
           </label>
         </Sheet>
       )}
@@ -382,31 +389,32 @@ function Sizes() {
 function Places() {
   const lk = useLookups();
   const can = useCan();
+  const t = useT();
   const [edit, setEdit] = useState<Location | 'new' | null>(null);
   return (
     <>
       {can.catalog && (
         <div>
           <button className="btn btn-primary" onClick={() => setEdit('new')}>
-            <Icon name="plus" size={18} /> Add place
+            <Icon name="plus" size={18} /> {t('cat.addPlace')}
           </button>
         </div>
       )}
       <section className="card list">
-        {lk.locations.length === 0 && <div className="list-item muted">No places yet.</div>}
+        {lk.locations.length === 0 && <div className="list-item muted">{t('cat.noPlaces')}</div>}
         {lk.locations.map((l) => (
           <div key={l.id} className="list-item">
             <Icon name="pin" />
             <span style={{ flex: 1 }}>
               <strong>{l.name}</strong>
               <div className="hint">
-                {LOCATION_KIND_LABEL[l.kind]} · money in {l.currency}
+                {t('cat.moneyIn', { kind: t(`lbl.locKind.${l.kind}`), currency: l.currency })}
               </div>
             </span>
-            {!l.active && <span className="pill">not in use</span>}
+            {!l.active && <span className="pill">{t('cat.notInUse')}</span>}
             {can.catalog && (
               <button className="btn btn-ghost btn-sm" onClick={() => setEdit(l)}>
-                Edit
+                {t('cat.edit')}
               </button>
             )}
           </div>
@@ -418,39 +426,40 @@ function Places() {
 }
 
 function PlaceSheet({ l, onClose }: { l: Location | null; onClose: () => void }) {
+  const t = useT();
   const [name, setName] = useState(l?.name ?? '');
   const [kind, setKind] = useState<(typeof LOCATION_KINDS)[number]>(l?.kind ?? 'selling');
   const [currency, setCurrency] = useState<Currency>(l?.currency ?? 'KMF');
   const [active, setActive] = useState(l?.active ?? true);
   return (
     <Sheet
-      title={l ? `Edit ${l.name}` : 'Add place'}
+      title={l ? t('cat.editCode', { code: l.name }) : t('cat.addPlace')}
       onClose={onClose}
       footer={
         <button
           className="btn btn-primary"
           disabled={!name.trim()}
           onClick={async () => {
-            if (await save(() => store.submit('location.upsert', { id: l?.id ?? uuidv7(), name: name.trim(), kind, currency, active }), 'Place saved')) onClose();
+            if (await save(() => store.submit('location.upsert', { id: l?.id ?? uuidv7(), name: name.trim(), kind, currency, active }), t('cat.placeSaved'))) onClose();
           }}
         >
-          Save
+          {t('c.save')}
         </button>
       }
     >
-      <Field label="Name">
+      <Field label={t('pp.name')}>
         <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="Used for">
+      <Field label={t('cat.usedFor')}>
         <select className="select" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)}>
           {LOCATION_KINDS.map((k) => (
             <option key={k} value={k}>
-              {LOCATION_KIND_LABEL[k]}
+              {t(`lbl.locKind.${k}`)}
             </option>
           ))}
         </select>
       </Field>
-      <Field label="Money used here" hint={l ? 'Changing this does not convert old records.' : undefined}>
+      <Field label={t('cat.moneyHere')} hint={l ? t('cat.moneyHint') : undefined}>
         <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
           {CURRENCY_CODES.map((c) => (
             <option key={c}>{c}</option>
@@ -458,7 +467,7 @@ function PlaceSheet({ l, onClose }: { l: Location | null; onClose: () => void })
         </select>
       </Field>
       <label className="check">
-        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> In use
+        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('cat.inUse')}
       </label>
     </Sheet>
   );

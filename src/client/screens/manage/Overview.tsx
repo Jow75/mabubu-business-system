@@ -6,19 +6,22 @@ import { stockByLocation, sumRows, vendorAccounts, workerDays } from '../../../s
 import { addDays, businessDate, fmtDate, fmtDateShort, fmtTime } from '../../../shared/time';
 import type { Purchase, Shipment, WorkerDay } from '../../../shared/model';
 import { formatMoney, type Currency } from '../../../shared/money';
-import { FLAG_LABEL } from '../../lib/labels';
+import { rich, useT } from '../../lib/i18n';
+import type { Key } from '../../../shared/i18n';
+import { useGreeting } from '../../ui/Greeting';
 import { Icon } from '../../ui/Icon';
 import { Money, Monogram, PageHead, Seg, Stat } from '../../ui/kit';
 
 export function ScopeSwitch() {
   const { prefs } = useApp();
   const lk = useLookups();
+  const t = useT();
   return (
     <Seg
-      label="Location"
+      label={t('scope.label')}
       value={prefs.scope ?? 'all'}
       onChange={(v) => store.setPrefs({ scope: v === 'all' ? null : v })}
-      options={[{ value: 'all', label: 'All places' }, ...lk.locations.filter((l) => l.active).map((l) => ({ value: l.id, label: l.name }))]}
+      options={[{ value: 'all', label: t('scope.all') }, ...lk.locations.filter((l) => l.active).map((l) => ({ value: l.id, label: l.name }))]}
     />
   );
 }
@@ -26,6 +29,8 @@ export function ScopeSwitch() {
 export function Overview() {
   const { ledger, user, version, prefs, records, demo } = useApp();
   const lk = useLookups();
+  const t = useT();
+  const greet = useGreeting(user!.name, user!.id);
   const caps = user!.caps;
   const today = businessDate();
   const scope = prefs.scope;
@@ -52,77 +57,86 @@ export function Overview() {
   // Things a manager should look at
   const attention: { key: string; text: string; to: string; tone: 'red' | 'saffron' | 'lagoon' }[] = [];
   const rejectedMine = [...records.values()].filter((r) => r.status === 'rejected');
-  if (rejectedMine.length) attention.push({ key: 'rej', text: `${rejectedMine.length} record(s) were not accepted by the server`, to: '/me', tone: 'red' });
+  if (rejectedMine.length) attention.push({ key: 'rej', text: t('ov.att.rejected', { n: rejectedMine.length }), to: '/me', tone: 'red' });
   for (const d of data.days) {
     if (d.status === 'settled' && !d.review && d.settlement!.variance !== 0) {
-      attention.push({ key: `v-${d.key}`, text: `${lk.personName(d.workerId)} ${d.settlement!.variance > 0 ? 'short' : 'over'} ${formatMoney(d.settlement!.currency, Math.abs(d.settlement!.variance))} on ${fmtDateShort(d.workDate)}`, to: `/days/${d.workerId}/${d.workDate}`, tone: d.settlement!.variance > 0 ? 'red' : 'saffron' });
+      attention.push({ key: `v-${d.key}`, text: t(d.settlement!.variance > 0 ? 'ov.att.short' : 'ov.att.over', { name: lk.personName(d.workerId), amount: formatMoney(d.settlement!.currency, Math.abs(d.settlement!.variance)), date: fmtDateShort(d.workDate) }), to: `/days/${d.workerId}/${d.workDate}`, tone: d.settlement!.variance > 0 ? 'red' : 'saffron' });
     }
     if (d.status === 'open' && d.workDate < today && Object.keys(d.issued).length) {
-      attention.push({ key: `o-${d.key}`, text: `${lk.personName(d.workerId)} has not closed ${fmtDateShort(d.workDate)}`, to: `/days/${d.workerId}/${d.workDate}`, tone: 'saffron' });
+      attention.push({ key: `o-${d.key}`, text: t('ov.att.notClosed', { name: lk.personName(d.workerId), date: fmtDateShort(d.workDate) }), to: `/days/${d.workerId}/${d.workDate}`, tone: 'saffron' });
     }
   }
   for (const s of inTransit) {
-    if (s.expectedDate && s.expectedDate < today) attention.push({ key: `s-${s.id}`, text: `${s.code} was expected ${fmtDateShort(s.expectedDate)} and is not fully received`, to: `/shipments/${s.id}`, tone: 'saffron' });
+    if (s.expectedDate && s.expectedDate < today) attention.push({ key: `s-${s.id}`, text: t('ov.att.late', { code: s.code, date: fmtDateShort(s.expectedDate) }), to: `/shipments/${s.id}`, tone: 'saffron' });
   }
   for (const p of data.purchases) {
     if (p.status === 'active' && p.intake === 'inspection' && p.lines.some((l) => l.qty - l.accepted - l.rejected > 0)) {
-      attention.push({ key: `p-${p.id}`, text: `${lk.vendor(p.vendorId)?.name} delivery from ${fmtDateShort(p.date)} still to inspect`, to: `/purchases/${p.id}`, tone: 'lagoon' });
+      attention.push({ key: `p-${p.id}`, text: t('ov.att.inspect', { vendor: lk.vendor(p.vendorId)?.name ?? t('c.vendor'), date: fmtDateShort(p.date) }), to: `/purchases/${p.id}`, tone: 'lagoon' });
     }
   }
   if (caps.includes('audit.view')) {
     const flagged = [...ledger.ops.values()]
       .map((r) => ({ r, rec: records.get(r.op.id) }))
       .filter(({ r, rec }) => !r.voidedBy && (rec?.flags ?? []).some((f) => f.code !== 'CASH_VARIANCE') && businessDate(r.op.deviceTime) >= addDays(today, -7));
-    if (flagged.length) attention.push({ key: 'flags', text: `${flagged.length} record(s) this week carry warnings (${[...new Set(flagged.flatMap(({ rec }) => rec!.flags.map((f) => FLAG_LABEL[f.code])))].slice(0, 3).join(', ')})`, to: '/activity?flagged=1', tone: 'saffron' });
+    if (flagged.length) attention.push({ key: 'flags', text: t('ov.att.flags', { n: flagged.length, list: [...new Set(flagged.flatMap(({ rec }) => rec!.flags.map((f) => t(`lbl.flag.${f.code}` as Key))))].slice(0, 3).join(', ') }), to: '/activity?flagged=1', tone: 'saffron' });
   }
 
   const recent = [...ledger.ops.values()].filter((r) => r.status !== 'rejected').sort((a, b) => b.op.deviceTime.localeCompare(a.op.deviceTime)).slice(0, 7);
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', hour: 'numeric', hour12: false }).format(new Date()));
 
   return (
     <div className="page">
       <PageHead
         eyebrow={fmtDate(today)}
-        title={`${hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'}, ${user!.name}`}
-        lead={demo ? 'You are looking at sample records. Try the different roles from the demo menu.' : undefined}
+        title={greet.main}
+        lead={
+          greet.second || demo ? (
+            <>
+              {greet.second && (
+                <span className="greeting-alt" lang="fr" style={{ display: 'block' }}>
+                  {greet.second}
+                </span>
+              )}
+              {demo && t('ov.demoLead')}
+            </>
+          ) : undefined
+        }
         actions={<ScopeSwitch />}
       />
 
       <div className="grid cols-4">
-        <Stat label="Ready to sell" value={data.totals.avail.toLocaleString('en-US')} sub={`pieces ${scope ? `in ${lk.locName(scope)}` : 'across all places'}`} />
-        <Stat label="With workers now" value={data.totals.withWorkers.toLocaleString('en-US')} sub={`${todayDays.filter((d) => d.status === 'open').length} out selling today`} tone="saffron" />
-        <Stat label="On the way" value={data.totals.incoming.toLocaleString('en-US')} sub={`${inTransit.length} shipment${inTransit.length === 1 ? '' : 's'} not fully received`} tone="lagoon" />
+        <Stat label={t('ov.ready')} value={data.totals.avail.toLocaleString('en-US')} sub={scope ? t('ov.piecesIn', { place: lk.locName(scope) }) : t('ov.piecesAll')} />
+        <Stat label={t('ov.withWorkers')} value={data.totals.withWorkers.toLocaleString('en-US')} sub={t('ov.outToday', { n: todayDays.filter((d) => d.status === 'open').length })} tone="saffron" />
+        <Stat label={t('ov.onTheWay')} value={data.totals.incoming.toLocaleString('en-US')} sub={t('ov.notReceived', { n: inTransit.length })} tone="lagoon" />
         {caps.includes('costs.view') || caps.includes('workers.reconcile') ? (
           <Stat
-            label="Sales today"
+            label={t('ov.salesToday')}
             value={<Money amount={salesToday} currency={sellCurrency} />}
             sub={
               <>
-                Last 7 days:{' '}
+                {t('ov.last7')}{' '}
                 {weekVariance === 0 ? (
-                  'cash balanced'
+                  t('ov.cashBalanced')
                 ) : (
                   <span style={{ color: weekVariance > 0 ? 'var(--hibiscus)' : 'var(--saffron-ink)', fontWeight: 650 }}>
-                    {weekVariance > 0 ? 'short ' : 'over '}
-                    <Money amount={Math.abs(weekVariance)} currency={sellCurrency} />
+                    {rich(t(weekVariance > 0 ? 'ov.shortAmt' : 'ov.overAmt'), { amount: <Money amount={Math.abs(weekVariance)} currency={sellCurrency} /> })}
                   </span>
                 )}
               </>
             }
           />
         ) : (
-          <Stat label="Awaiting inspection" value={data.totals.inspection.toLocaleString('en-US')} sub="pieces" />
+          <Stat label={t('ov.awaitInspection')} value={data.totals.inspection.toLocaleString('en-US')} sub={t('w.pieces')} />
         )}
       </div>
 
       <div className="grid cols-2">
         <section className="card">
           <div className="card-head">
-            <span className="section-title">Needs attention</span>
+            <span className="section-title">{t('ov.attention')}</span>
             <span className="muted">{attention.length || ''}</span>
           </div>
           <div className="list" style={{ marginTop: 8 }}>
-            {attention.length === 0 && <div className="list-item muted">Nothing waiting. Everything recorded adds up.</div>}
+            {attention.length === 0 && <div className="list-item muted">{t('ov.nothingWaiting')}</div>}
             {attention.slice(0, 8).map((a) => (
               <a key={a.key} className="list-item" href={href(a.to)}>
                 <span className={`pill ${a.tone}`} style={{ padding: 4 }}>
@@ -137,15 +151,15 @@ export function Overview() {
 
         <section className="card">
           <div className="card-head">
-            <span className="section-title">Workers today</span>
+            <span className="section-title">{t('ov.workersToday')}</span>
             {caps.includes('workers.reconcile') && (
               <a className="btn btn-ghost btn-sm" href={href('/days')}>
-                All days
+                {t('ov.allDays')}
               </a>
             )}
           </div>
           <div className="list" style={{ marginTop: 8 }}>
-            {todayDays.length === 0 && <div className="list-item muted">No one has taken garments today yet.</div>}
+            {todayDays.length === 0 && <div className="list-item muted">{t('ov.noOneToday')}</div>}
             {todayDays.map((d) => (
               <TodayWorker key={d.key} day={d} />
             ))}
@@ -159,13 +173,13 @@ export function Overview() {
         {caps.includes('costs.view') && (
           <section className="card">
             <div className="card-head">
-              <span className="section-title">Owed to vendors</span>
+              <span className="section-title">{t('ov.owed')}</span>
               <a className="btn btn-ghost btn-sm" href={href('/vendors')}>
-                Vendors
+                {t('nav.vendors')}
               </a>
             </div>
             <div className="list" style={{ marginTop: 8 }}>
-              {owed.length === 0 && <div className="list-item muted">Nothing owed.</div>}
+              {owed.length === 0 && <div className="list-item muted">{t('ov.nothingOwed')}</div>}
               {owed.map((b) => (
                 <a key={b.vendorId + b.currency} className="list-item" href={href(`/vendors/${b.vendorId}`)}>
                   <span style={{ flex: 1 }}>{lk.vendor(b.vendorId)?.name}</span>
@@ -177,10 +191,10 @@ export function Overview() {
         )}
         <section className="card">
           <div className="card-head">
-            <span className="section-title">Latest records</span>
+            <span className="section-title">{t('ov.latest')}</span>
             {caps.includes('audit.view') && (
               <a className="btn btn-ghost btn-sm" href={href('/activity')}>
-                Activity log
+                {t('nav.activity')}
               </a>
             )}
           </div>
@@ -193,7 +207,7 @@ export function Overview() {
                     <span className={`tl-knot ${r.voidedBy ? 'muted' : ''}`} />
                   </span>
                   <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>
-                    {describeOp(r.op, lk, ledger)}
+                    {describeOp(r.op, lk, ledger, t)}
                     <span className="muted"> · {records.get(r.op.id)?.actorName ?? lk.personName(r.op.actorId)}</span>
                   </span>
                 </div>
@@ -208,6 +222,7 @@ export function Overview() {
 
 function TodayWorker({ day }: { day: WorkerDay }) {
   const lk = useLookups();
+  const t = useT();
   const took = Object.values(day.issued).reduce((s, n) => s + n, 0);
   const s = day.settlement;
   return (
@@ -217,20 +232,19 @@ function TodayWorker({ day }: { day: WorkerDay }) {
         <strong>{lk.personName(day.workerId)}</strong>
         <span className="muted">
           {' '}
-          · took {took} at {fmtTime(day.firstActivityAt)}
+          · {t('ov.tookAt', { n: took, time: fmtTime(day.firstActivityAt) })}
         </span>
       </span>
       {s ? (
         s.variance === 0 ? (
-          <span className="pill green">Closed · balanced</span>
+          <span className="pill green">{t('ov.closedBalanced')}</span>
         ) : (
           <span className={`pill ${s.variance > 0 ? 'red' : 'saffron'}`}>
-            {s.variance > 0 ? 'Short ' : 'Over '}
-            <Money amount={Math.abs(s.variance)} currency={s.currency} />
+            {rich(t(s.variance > 0 ? 'w.short' : 'w.over'), { amount: <Money amount={Math.abs(s.variance)} currency={s.currency} /> })}
           </span>
         )
       ) : (
-        <span className="pill saffron">Out selling</span>
+        <span className="pill saffron">{t('ov.outSelling')}</span>
       )}
     </a>
   );
@@ -238,6 +252,7 @@ function TodayWorker({ day }: { day: WorkerDay }) {
 
 /** Sales value per day, last 14 days. One series → one hue; today highlighted. */
 function DailySales({ days, currency, today }: { days: WorkerDay[]; currency: Currency; today: string }) {
+  const t = useT();
   const [hover, setHover] = useState<number | null>(null);
   const series = Array.from({ length: 14 }, (_, i) => {
     const date = addDays(today, i - 13);
@@ -257,8 +272,8 @@ function DailySales({ days, currency, today }: { days: WorkerDay[]; currency: Cu
     <section className="card">
       <div className="card-head">
         <div>
-          <span className="section-title">Sales value, last 14 days</span>
-          <div className="hint">Closed days at recorded prices · total {formatMoney(currency, total)}</div>
+          <span className="section-title">{t('ov.chartTitle')}</span>
+          <div className="hint">{t('ov.chartHint', { amount: formatMoney(currency, total) })}</div>
         </div>
         <div className="muted num" style={{ minHeight: 20 }} aria-live="polite">
           {h ? (
@@ -266,18 +281,18 @@ function DailySales({ days, currency, today }: { days: WorkerDay[]; currency: Cu
               {fmtDate(h.date)}: <Money amount={h.value} currency={currency} strong />
             </>
           ) : (
-            'Hover or tap a bar'
+            t('ov.chartHover')
           )}
         </div>
       </div>
       <div className="card-body">
-        <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Daily sales value for the last 14 days, total ${formatMoney(currency, total)}`} onMouseLeave={() => setHover(null)}>
-          {[0, 0.5, 1].map((t) => (
-            <g key={t}>
-              <line className="grid-line" x1={left} x2={W} y1={(H - bottom) * (1 - t)} y2={(H - bottom) * (1 - t)} />
-              {t > 0 && (
-                <text x={left} y={(H - bottom) * (1 - t) - 4} textAnchor="start">
-                  {formatMoney(currency, nice * t)}
+        <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('ov.chartAria', { amount: formatMoney(currency, total) })} onMouseLeave={() => setHover(null)}>
+          {[0, 0.5, 1].map((f) => (
+            <g key={f}>
+              <line className="grid-line" x1={left} x2={W} y1={(H - bottom) * (1 - f)} y2={(H - bottom) * (1 - f)} />
+              {f > 0 && (
+                <text x={left} y={(H - bottom) * (1 - f) - 4} textAnchor="start">
+                  {formatMoney(currency, nice * f)}
                 </text>
               )}
             </g>
@@ -300,7 +315,7 @@ function DailySales({ days, currency, today }: { days: WorkerDay[]; currency: Cu
                 )}
                 {(i % 2 === 1 || s.date === today) && (
                   <text x={x + w / 2} y={H - 6} textAnchor="middle">
-                    {s.date === today ? 'Today' : fmtDateShort(s.date)}
+                    {s.date === today ? t('ov.today') : fmtDateShort(s.date)}
                   </text>
                 )}
               </g>
@@ -308,7 +323,7 @@ function DailySales({ days, currency, today }: { days: WorkerDay[]; currency: Cu
           })}
         </svg>
         <button className="btn btn-ghost btn-sm" style={{ marginTop: 6 }} onClick={() => navigate('/reports')}>
-          Full report <Icon name="right" size={15} />
+          {t('ov.fullReport')} <Icon name="right" size={15} />
         </button>
       </div>
     </section>

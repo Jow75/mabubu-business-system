@@ -42,7 +42,7 @@ export function ExpensesPage() {
         <DateRangeControl r={dr} presets={['30', '90', 'all', 'custom']} />
         <PlaceSelect />
       </div>
-      <PlaceNotice hidden={hidden} what="expenses" />
+      <PlaceNotice hidden={hidden} what="what.expenses" />
       <div className="grid cols-4">
         {[...totals].map(([cur, amt]) => (
           <div key={cur} className="card stat">

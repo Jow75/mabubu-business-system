@@ -3,9 +3,9 @@ import { store, useApp } from '../../lib/store';
 import { useLookups } from '../../lib/lookups';
 import { api, ApiError } from '../../lib/api';
 import type { CreatePersonRequest, DeviceRow, PeopleResponse, PersonRow } from '../../../shared/api';
-import { CAPABILITIES, CAPABILITY_LABELS, MIN_PIN_LENGTH, OWNER_ONLY, ROLE_CAPABILITIES, ROLES, pinPolicyError, type Capability, type Role } from '../../../shared/permissions';
+import { CAPABILITIES, MIN_PIN_LENGTH, OWNER_ONLY, ROLE_CAPABILITIES, ROLES, pinPolicyError, type Capability, type Role } from '../../../shared/permissions';
 import { fmtDateTime } from '../../../shared/time';
-import { ROLE_LABEL } from '../../lib/labels';
+import { errText, tNow, useT, type T } from '../../lib/i18n';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, Monogram, PageHead, Sheet, toast } from '../../ui/kit';
 import { DownloadButton } from '../../ui/Reporting';
@@ -16,21 +16,22 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T 
   try {
     return await api<T>(method, path, body, store.token);
   } catch (e) {
-    toast(e instanceof ApiError ? e.message : 'Request failed', 'error');
+    toast(e instanceof ApiError ? errText(e.message) : tNow()('pp.requestFailed'), 'error');
     return null;
   }
 }
 
-function uaSummary(ua: string) {
-  if (/Android/.test(ua)) return 'Android phone';
-  if (/iPhone|iPad/.test(ua)) return 'iPhone / iPad';
-  if (/Windows/.test(ua)) return 'Windows computer';
-  if (/Mac OS/.test(ua)) return 'Mac';
-  return 'Device';
+function uaSummary(ua: string, t: T) {
+  if (/Android/.test(ua)) return t('pp.android');
+  if (/iPhone|iPad/.test(ua)) return t('pp.iphone');
+  if (/Windows/.test(ua)) return t('pp.windows');
+  if (/Mac OS/.test(ua)) return t('pp.mac');
+  return t('pp.device');
 }
 
 export function PeoplePage() {
   const { demo, online, device } = useApp();
+  const t = useT();
   const [data, setData] = useState<PeopleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<PersonRow | 'new' | null>(null);
@@ -39,7 +40,7 @@ export function PeoplePage() {
       setData(await api<PeopleResponse>('GET', '/admin/people', undefined, store.token));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? (e.offline ? 'People and devices are managed online. Connect to the internet.' : e.message) : 'Could not load.');
+      setError(e instanceof ApiError ? (e.offline ? tNow()('pp.onlineOnly') : errText(e.message)) : tNow()('pp.couldNotLoad'));
     }
   }, []);
   useEffect(() => {
@@ -49,25 +50,25 @@ export function PeoplePage() {
   if (demo)
     return (
       <div className="page">
-        <PageHead title="People & devices" />
-        <Empty icon="key" title="Managed on the server">
-          In the real system the owner adds people here, sets their codes and roles, and approves each new phone or laptop with a short matching code.
+        <PageHead title={t('nav.people')} />
+        <Empty icon="key" title={t('pp.managedServer')}>
+          {t('pp.demoBody')}
         </Empty>
       </div>
     );
 
   const pending = data?.devices.flatMap((d) => d.access.filter((a) => a.status === 'pending').map((a) => ({ d, a }))) ?? [];
-  const nameOf = (id: string) => data?.people.find((p) => p.id === id)?.name ?? 'Unknown';
+  const nameOf = (id: string) => data?.people.find((p) => p.id === id)?.name ?? t('pp.unknown');
   return (
     <div className="page">
       <PageHead
-        title="People & devices"
-        lead="Who can sign in, with which role, and on which phones and computers."
+        title={t('nav.people')}
+        lead={t('pp.lead')}
         actions={
           <>
             {data && <DownloadButton build={() => peopleReport(reportCtx(), data)} />}
             <button className="btn btn-primary" onClick={() => setEdit('new')} disabled={!data}>
-              <Icon name="plus" size={18} /> Add person
+              <Icon name="plus" size={18} /> {t('pp.add')}
             </button>
           </>
         }
@@ -76,7 +77,7 @@ export function PeoplePage() {
       {pending.length > 0 && (
         <section className="card selvedge" style={{ paddingLeft: 6 }}>
           <div className="card-head">
-            <span className="section-title">Waiting for your approval</span>
+            <span className="section-title">{t('pp.waiting')}</span>
           </div>
           <div className="list" style={{ marginTop: 8 }}>
             {pending.map(({ d, a }) => (
@@ -85,19 +86,19 @@ export function PeoplePage() {
                   {d.code}
                 </span>
                 <span style={{ flex: 1 }}>
-                  <strong>{nameOf(a.userId)}</strong> on {d.label || uaSummary(d.userAgent)}
-                  <div className="hint">Asked {fmtDateTime(a.requestedAt)} · check the code matches the one on their screen</div>
+                  <strong>{nameOf(a.userId)}</strong> {t('pp.onDevice', { device: d.label || uaSummary(d.userAgent, t) })}
+                  <div className="hint">{t('pp.asked', { time: fmtDateTime(a.requestedAt) })}</div>
                 </span>
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={async () => {
                     if (await call('POST', '/admin/access', { deviceId: d.id, userId: a.userId, decision: 'approve' })) {
-                      toast('Device approved');
+                      toast(t('pp.approved'));
                       void load();
                     }
                   }}
                 >
-                  Approve
+                  {t('pp.approve')}
                 </button>
                 <button
                   className="btn btn-sm"
@@ -105,7 +106,7 @@ export function PeoplePage() {
                     if (await call('POST', '/admin/access', { deviceId: d.id, userId: a.userId, decision: 'deny' })) void load();
                   }}
                 >
-                  Refuse
+                  {t('pp.refuse')}
                 </button>
               </div>
             ))}
@@ -121,11 +122,11 @@ export function PeoplePage() {
                 <span style={{ flex: 1 }}>
                   <strong>{p.name}</strong>
                   <div className="hint">
-                    {ROLE_LABEL[p.role]} · {data.devices.filter((d) => d.access.some((a) => a.userId === p.id && a.status === 'approved') && !d.revokedAt).length} device(s)
+                    {t(`role.${p.role}`)} · {t('pp.nDevices', { n: data.devices.filter((d) => d.access.some((a) => a.userId === p.id && a.status === 'approved') && !d.revokedAt).length })}
                   </div>
                 </span>
-                {!p.active && <span className="pill">switched off</span>}
-                {(p.hardLocked || (p.lockedUntil && Date.parse(p.lockedUntil) > Date.now())) && <span className="pill red">locked</span>}
+                {!p.active && <span className="pill">{t('pp.off')}</span>}
+                {(p.hardLocked || (p.lockedUntil && Date.parse(p.lockedUntil) > Date.now())) && <span className="pill red">{t('pp.locked')}</span>}
                 <Icon name="right" size={16} />
               </button>
             ))}
@@ -139,20 +140,21 @@ export function PeoplePage() {
 }
 
 function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]; nameOf: (id: string) => string; onChange: () => void; myDevice: string }) {
+  const t = useT();
   return (
     <section className="card">
       <div className="card-head">
-        <span className="section-title">Devices</span>
-        <span className="hint">Block a lost or stolen phone at once</span>
+        <span className="section-title">{t('pp.devices')}</span>
+        <span className="hint">{t('pp.blockHint')}</span>
       </div>
       <div className="table-wrap" style={{ marginTop: 8 }}>
         <table className="data">
           <thead>
             <tr>
-              <th>Device</th>
-              <th>Code</th>
-              <th>People allowed</th>
-              <th>Last seen</th>
+              <th>{t('pp.device')}</th>
+              <th>{t('pp.code')}</th>
+              <th>{t('pp.allowed')}</th>
+              <th>{t('pp.lastSeen')}</th>
               <th />
             </tr>
           </thead>
@@ -160,8 +162,8 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
             {devices.map((d) => (
               <tr key={d.id} style={d.revokedAt ? { opacity: 0.55 } : undefined}>
                 <td>
-                  {d.label || uaSummary(d.userAgent)}
-                  {d.id === myDevice && <span className="pill indigo" style={{ marginLeft: 6 }}>this device</span>}
+                  {d.label || uaSummary(d.userAgent, t)}
+                  {d.id === myDevice && <span className="pill indigo" style={{ marginLeft: 6 }}>{t('pp.thisDevice')}</span>}
                 </td>
                 <td className="mono">{d.code}</td>
                 <td>
@@ -177,12 +179,12 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
                       className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
                       onClick={async () => {
                         if (await call('PATCH', `/admin/devices/${d.id}`, { blocked: !d.revokedAt })) {
-                          toast(d.revokedAt ? 'Device unblocked' : 'Device blocked — its sessions ended');
+                          toast(d.revokedAt ? t('pp.unblocked') : t('pp.blocked'));
                           onChange();
                         }
                       }}
                     >
-                      {d.revokedAt ? 'Unblock' : 'Block'}
+                      {d.revokedAt ? t('pp.unblock') : t('pp.block')}
                     </button>
                   )}
                 </td>
@@ -198,6 +200,7 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
 function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow | null; devices: DeviceRow[]; onClose: () => void; onSaved: () => void }) {
   const { device, user } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [name, setName] = useState(person?.name ?? '');
   const [role, setRole] = useState<Role>(person?.role ?? 'worker');
   const [locationId, setLocationId] = useState<string>(person?.locationId ?? lk.locations.find((l) => l.kind === 'selling')?.id ?? '');
@@ -221,7 +224,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
     if (!person) {
       const body: CreatePersonRequest = { name: name.trim(), role, pin, locationId: locationId || null, grants, revokes, allowOnDeviceId: allowHere ? (device?.deviceId ?? null) : null };
       if (await call('POST', '/admin/people', body)) {
-        toast(`${name} added. Give them their code in person.`);
+        toast(t('pp.addedToast', { name }));
         onSaved();
         onClose();
       }
@@ -229,7 +232,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
       const ok = await call('PATCH', `/admin/people/${person.id}`, { name: name.trim(), role, active, locationId: locationId || null, grants, revokes });
       if (ok && pin) await call('POST', `/admin/people/${person.id}/pin`, { pin });
       if (ok) {
-        toast('Saved');
+        toast(t('pp.saved'));
         onSaved();
         onClose();
       }
@@ -239,33 +242,33 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
 
   return (
     <Sheet
-      title={person ? person.name : 'Add person'}
+      title={person ? person.name : t('pp.add')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button className="btn btn-primary" disabled={busy || !name.trim() || (!person && !pin) || Boolean(policy)} onClick={() => void submit()}>
-            {person ? 'Save changes' : 'Add person'}
+            {person ? t('pp.saveChanges') : t('pp.add')}
           </button>
         </>
       }
     >
       <div className="form-grid">
-        <Field label="Name" hint="This is what they type to sign in. Must be unique.">
+        <Field label={t('pp.name')} hint={t('pp.nameHint')}>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Role">
+        <Field label={t('pp.role')}>
           <select className="select" value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={person?.id === user!.id}>
             {ROLES.map((r) => (
               <option key={r} value={r}>
-                {ROLE_LABEL[r]}
+                {t(`role.${r}`)}
               </option>
             ))}
           </select>
         </Field>
-        <Field label="Works at">
+        <Field label={t('pp.worksAt')}>
           <select className="select" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
             <option value="">—</option>
             {lk.locations.map((l) => (
@@ -275,68 +278,68 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
             ))}
           </select>
         </Field>
-        <Field label={person ? 'New code (leave empty to keep)' : 'Access code'} hint={policy ?? `${MIN_PIN_LENGTH[role]}–8 digits. Tell them in person; never send it by message.`}>
+        <Field label={person ? t('pp.newCode') : t('pp.accessCode')} hint={policy ? errText(policy) : t('pp.codeHint', { n: MIN_PIN_LENGTH[role] })}>
           <input className="input mono" inputMode="numeric" autoComplete="off" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} />
         </Field>
       </div>
       {!person && (
         <label className="check">
-          <input type="checkbox" checked={allowHere} onChange={(e) => setAllowHere(e.target.checked)} /> Also allow them on this device (shared family laptop)
+          <input type="checkbox" checked={allowHere} onChange={(e) => setAllowHere(e.target.checked)} /> {t('pp.allowHere')}
         </label>
       )}
       {person && person.id !== user!.id && (
         <label className="check">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Account switched on
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('pp.switchedOn')}
         </label>
       )}
       {person && (person.hardLocked || (person.lockedUntil && Date.parse(person.lockedUntil) > Date.now())) && (
         <div className="error-box row-between">
-          <span>Locked after {person.failedCount} wrong codes.</span>
+          <span>{t('pp.lockedAfter', { n: person.failedCount })}</span>
           <button
             className="btn btn-sm"
             onClick={async () => {
               if (await call('POST', `/admin/people/${person.id}/unlock`, {})) {
-                toast('Unlocked');
+                toast(t('pp.unlocked'));
                 onSaved();
                 onClose();
               }
             }}
           >
-            Unlock
+            {t('pp.unlock')}
           </button>
         </div>
       )}
       <div className="stack-sm">
-        <span className="field-label">What they can do</span>
+        <span className="field-label">{t('pp.canDo')}</span>
         {CAPABILITIES.filter((c) => !(OWNER_ONLY.includes(c) && role !== 'owner')).map((c) => (
           <label key={c} className="check" style={{ fontWeight: 480 }}>
             <input type="checkbox" checked={effective(c)} disabled={role === 'owner' && OWNER_ONLY.includes(c)} onChange={(e) => toggle(c, e.target.checked)} />
             <span>
-              {CAPABILITY_LABELS[c]}
-              {!base.includes(c) && effective(c) && <span className="pill saffron" style={{ marginLeft: 6 }}>extra</span>}
+              {t(`cap.${c}`)}
+              {!base.includes(c) && effective(c) && <span className="pill saffron" style={{ marginLeft: 6 }}>{t('pp.extra')}</span>}
             </span>
           </label>
         ))}
-        <span className="hint">The server checks these on every request — hiding a screen is never the only protection.</span>
+        <span className="hint">{t('pp.serverChecks')}</span>
       </div>
       {person && myDevices.length > 0 && (
         <div className="stack-sm">
-          <span className="field-label">Allowed devices</span>
+          <span className="field-label">{t('pp.allowedDevices')}</span>
           {myDevices.map((d) => (
             <div key={d.id} className="row-between">
               <span>
-                {d.label || uaSummary(d.userAgent)} <span className="mono muted">{d.code}</span>
+                {d.label || uaSummary(d.userAgent, t)} <span className="mono muted">{d.code}</span>
               </span>
               <button
                 className="btn btn-sm btn-danger"
                 onClick={async () => {
                   if (await call('POST', '/admin/access', { deviceId: d.id, userId: person.id, decision: 'revoke' })) {
-                    toast('Removed');
+                    toast(t('pp.removed'));
                     onSaved();
                   }
                 }}
               >
-                Remove
+                {t('c.remove')}
               </button>
             </div>
           ))}

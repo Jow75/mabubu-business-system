@@ -3,24 +3,25 @@ import { store, useApp } from '../../lib/store';
 import { describeOp, useLookups } from '../../lib/lookups';
 import { href, navigate } from '../../lib/router';
 import { dayLines } from '../../../shared/queries';
-import { REVIEW_FILTERS, REVIEW_LABEL, dayTotals, salesDaysReport, salesLinesReport, selectDays, workerRecordsReport, type DayFilter, type ReviewFilter } from '../../../shared/reports';
+import { REVIEW_FILTERS, dayTotals, salesDaysReport, salesLinesReport, selectDays, workerRecordsReport, type DayFilter, type ReviewFilter } from '../../../shared/reports';
 import { K, type WorkerDay } from '../../../shared/model';
 import { businessDate, fmtDate, fmtDateShort, fmtDuration, fmtTime } from '../../../shared/time';
-import { FLAG_LABEL } from '../../lib/labels';
+import { rich, useT } from '../../lib/i18n';
+import type { Key } from '../../../shared/i18n';
 import { reportCtx } from '../../lib/report-ctx';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, GarmentLabel, Money, Monogram, PageHead, Sheet, save } from '../../ui/kit';
-import { DateRangeControl, DownloadButton, PlaceNotice, PlaceSelect, useDateRange } from '../../ui/Reporting';
+import { DateRangeControl, DownloadButton, PlaceNotice, PlaceSelect, useDateRange, useRangeLabel } from '../../ui/Reporting';
 import { VoidButton } from '../../ui/VoidButton';
 
 function VarianceCell({ d }: { d: WorkerDay }) {
+  const t = useT();
   const s = d.settlement;
-  if (!s) return <span className="pill saffron">Open</span>;
-  if (s.variance === 0) return <span className="pill green">Balanced</span>;
+  if (!s) return <span className="pill saffron">{t('c.open')}</span>;
+  if (s.variance === 0) return <span className="pill green">{t('c.balanced')}</span>;
   return (
     <span className={`pill ${s.variance > 0 ? 'red' : 'saffron'}`}>
-      {s.variance > 0 ? 'Short ' : 'Over '}
-      <Money amount={Math.abs(s.variance)} currency={s.currency} />
+      {rich(t(s.variance > 0 ? 'w.short' : 'w.over'), { amount: <Money amount={Math.abs(s.variance)} currency={s.currency} /> })}
     </span>
   );
 }
@@ -28,6 +29,8 @@ function VarianceCell({ d }: { d: WorkerDay }) {
 export function DaysPage() {
   const { ledger, version, prefs } = useApp();
   const lk = useLookups();
+  const t = useT();
+  const rangeLabel = useRangeLabel();
   const dr = useDateRange('7');
   const [who, setWho] = useState('all');
   const [review, setReview] = useState<ReviewFilter>('all');
@@ -39,92 +42,92 @@ export function DaysPage() {
   const workers = lk.people.filter((p) => p.active);
   const sellCurrency = (lk.loc(prefs.scope)?.kind === 'selling' ? lk.loc(prefs.scope)?.currency : lk.locations.find((l) => l.kind === 'selling')?.currency) ?? 'KMF';
   const all = dayTotals(days);
-  const totals = all.find((t) => t.currency === sellCurrency) ?? { sales: 0, handed: 0, variance: 0, days: 0 };
-  const otherCurrencies = all.filter((t) => t.currency !== sellCurrency);
+  const totals = all.find((x) => x.currency === sellCurrency) ?? { sales: 0, handed: 0, variance: 0, days: 0 };
+  const otherCurrencies = all.filter((x) => x.currency !== sellCurrency);
   return (
     <div className="page">
       <PageHead
-        title="Sales days"
-        lead="Each worker’s day: garments taken, returned and sold, and whether the money adds up."
+        title={t('nav.days')}
+        lead={t('days.lead')}
         actions={
           <>
             <DownloadButton build={() => salesDaysReport(reportCtx(), filter)} />
             <button className="btn" onClick={() => setStartFor(true)}>
-              <Icon name="plus" size={18} /> Record for a worker
+              <Icon name="plus" size={18} /> {t('days.recordFor')}
             </button>
           </>
         }
       />
       <div className="row">
         <DateRangeControl r={dr} />
-        <select className="select" style={{ width: 'auto' }} aria-label="Worker" value={who} onChange={(e) => setWho(e.target.value)}>
-          <option value="all">Everyone</option>
+        <select className="select" style={{ width: 'auto' }} aria-label={t('days.worker')} value={who} onChange={(e) => setWho(e.target.value)}>
+          <option value="all">{t('days.everyone')}</option>
           {workers.map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
             </option>
           ))}
         </select>
-        <select className="select" style={{ width: 'auto' }} aria-label="Status" value={review} onChange={(e) => setReview(e.target.value as ReviewFilter)}>
+        <select className="select" style={{ width: 'auto' }} aria-label={t('days.status')} value={review} onChange={(e) => setReview(e.target.value as ReviewFilter)}>
           {REVIEW_FILTERS.map((r) => (
             <option key={r} value={r}>
-              {REVIEW_LABEL[r]}
+              {t(`rv.${r}`)}
             </option>
           ))}
         </select>
         <PlaceSelect />
       </div>
-      <PlaceNotice hidden={hidden} what="sales days" />
+      <PlaceNotice hidden={hidden} what="what.salesDays" />
       <div className="grid cols-3">
         <div className="card stat">
-          <span className="eyebrow">Sales value (closed days)</span>
+          <span className="eyebrow">{t('days.salesClosed')}</span>
           <span className="stat-value">
             <Money amount={totals.sales} currency={sellCurrency} />
           </span>
           <span className="stat-sub">
-            {totals.days} closed day{totals.days === 1 ? '' : 's'} · {dr.range.label.toLowerCase()}
-            {otherCurrencies.map((t) => (
-              <span key={t.currency}>
-                {' '}
-                · plus <Money amount={t.sales} currency={t.currency} />
+            {t('days.nClosed', { n: totals.days, period: rangeLabel(dr.range.preset).toLowerCase() })}
+            {otherCurrencies.map((x) => (
+              <span key={x.currency}>
+                {' · '}
+                {rich(t('days.plus'), { amount: <Money amount={x.sales} currency={x.currency} /> })}
               </span>
             ))}
           </span>
         </div>
         <div className="card stat">
-          <span className="eyebrow">Handed over</span>
+          <span className="eyebrow">{t('c.handedOver')}</span>
           <span className="stat-value">
             <Money amount={totals.handed} currency={sellCurrency} />
           </span>
-          <span className="stat-sub">cash + mobile money</span>
+          <span className="stat-sub">{t('days.cashMobile')}</span>
         </div>
         <div className="card stat">
-          <span className="eyebrow">Net difference</span>
+          <span className="eyebrow">{t('days.net')}</span>
           <span className="stat-value" style={{ color: totals.variance > 0 ? 'var(--hibiscus)' : undefined }}>
-            {totals.variance === 0 ? 'Balanced' : <Money amount={totals.variance} currency={sellCurrency} />}
+            {totals.variance === 0 ? t('c.balanced') : <Money amount={totals.variance} currency={sellCurrency} />}
           </span>
-          <span className="stat-sub">positive = money short</span>
+          <span className="stat-sub">{t('days.positiveShort')}</span>
         </div>
       </div>
       <section className="card">
         {days.length === 0 ? (
-          <Empty icon="people" title="No sales days match these filters">
-            {hidden > 0 ? `${hidden} day${hidden === 1 ? ' is' : 's are'} at other places — choose “All places”.` : 'Try a longer period or “Everyone”.'}
+          <Empty icon="people" title={t('days.noMatch')}>
+            {hidden > 0 ? t('days.hiddenOther', { n: hidden }) : t('days.tryLonger')}
           </Empty>
         ) : (
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Day</th>
-                  <th>Worker</th>
-                  <th>Out at</th>
-                  <th className="n">Took</th>
-                  <th className="n">Sold</th>
-                  <th className="n">Sales value</th>
-                  <th className="n">Handed</th>
-                  <th>Money</th>
-                  <th>Review</th>
+                  <th>{t('days.day')}</th>
+                  <th>{t('days.worker')}</th>
+                  <th>{t('days.outAt')}</th>
+                  <th className="n">{t('w.took')}</th>
+                  <th className="n">{t('c.sold')}</th>
+                  <th className="n">{t('w.salesValue')}</th>
+                  <th className="n">{t('days.handed')}</th>
+                  <th>{t('days.money')}</th>
+                  <th>{t('days.review')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,7 +150,7 @@ export function DaysPage() {
                       <td>
                         <VarianceCell d={d} />
                       </td>
-                      <td>{d.review ? <span className={`pill ${d.review.decision === 'approved' ? 'green' : 'saffron'}`}>{d.review.decision === 'approved' ? 'Approved' : 'Queried'}</span> : d.settlement ? <span className="muted">To review</span> : ''}</td>
+                      <td>{d.review ? <span className={`pill ${d.review.decision === 'approved' ? 'green' : 'saffron'}`}>{t(d.review.decision === 'approved' ? 'rv.approved' : 'rv.queried')}</span> : d.settlement ? <span className="muted">{t('days.toReview')}</span> : ''}</td>
                     </tr>
                   );
                 })}
@@ -158,8 +161,8 @@ export function DaysPage() {
       </section>
       {days.length > 0 && (
         <div className="row">
-          <DownloadButton small label="Sales by garment" build={() => salesLinesReport(reportCtx(), filter)} />
-          <DownloadButton small label="Take & return records" build={() => workerRecordsReport(reportCtx(), filter)} />
+          <DownloadButton small label={t('days.byGarment')} build={() => salesLinesReport(reportCtx(), filter)} />
+          <DownloadButton small label={t('days.takeReturn')} build={() => workerRecordsReport(reportCtx(), filter)} />
         </div>
       )}
       {startFor && <StartForSheet onClose={() => setStartFor(false)} />}
@@ -169,13 +172,14 @@ export function DaysPage() {
 
 function StartForSheet({ onClose }: { onClose: () => void }) {
   const lk = useLookups();
+  const t = useT();
   const workers = lk.people.filter((p) => p.active);
   const [who, setWho] = useState(workers.find((w) => w.role === 'worker')?.id ?? workers[0]?.id ?? '');
   const [date, setDate] = useState(businessDate());
   return (
-    <Sheet title="Record for a worker" onClose={onClose}>
-      <p className="soft">Use this when a worker has no phone with them. Records are saved under your name, for their day.</p>
-      <Field label="Worker">
+    <Sheet title={t('days.recordFor')} onClose={onClose}>
+      <p className="soft">{t('days.startLead')}</p>
+      <Field label={t('days.worker')}>
         <select className="select" value={who} onChange={(e) => setWho(e.target.value)}>
           {workers.map((w) => (
             <option key={w.id} value={w.id}>
@@ -184,11 +188,11 @@ function StartForSheet({ onClose }: { onClose: () => void }) {
           ))}
         </select>
       </Field>
-      <Field label="Day">
+      <Field label={t('days.day')}>
         <input type="date" className="input" value={date} max={businessDate()} onChange={(e) => setDate(e.target.value)} />
       </Field>
       <button className="btn btn-primary" onClick={() => navigate(`/days/${who}/${date}`)}>
-        Open the day
+        {t('days.openDay')}
       </button>
     </Sheet>
   );
@@ -197,6 +201,7 @@ function StartForSheet({ onClose }: { onClose: () => void }) {
 export function DayDetail({ workerId, date }: { workerId: string; date: string }) {
   const { ledger, version, records, user } = useApp();
   const lk = useLookups();
+  const t = useT();
   const [review, setReview] = useState<'approved' | 'queried' | null>(null);
   const day = ledger.get(K.day(workerId, date)) as WorkerDay | undefined;
   const ops = useMemo(
@@ -205,8 +210,8 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
         .filter((r) => {
           const p = r.op.payload as { workerId?: string; workDate?: string; targetId?: string };
           if (r.op.type === 'op.void') {
-            const t = ledger.getOp(p.targetId ?? '');
-            const tp = t?.op.payload as { workerId?: string; workDate?: string } | undefined;
+            const tg = ledger.getOp(p.targetId ?? '');
+            const tp = tg?.op.payload as { workerId?: string; workDate?: string } | undefined;
             return tp?.workerId === workerId && tp?.workDate === date;
           }
           return p.workerId === workerId && p.workDate === date;
@@ -220,7 +225,7 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
   return (
     <div className="page">
       <PageHead
-        eyebrow={<a href={href('/days')}>← Sales days</a>}
+        eyebrow={<a href={href('/days')}>{t('days.back')}</a>}
         title={
           <span className="row" style={{ gap: 12 }}>
             <Monogram name={lk.personName(workerId)} id={workerId} />
@@ -233,48 +238,48 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
             {(!day || day.status === 'open') && (
               <>
                 <a className="btn" href={href(`/take${q}`)}>
-                  <Icon name="out" size={18} /> Take
+                  <Icon name="out" size={18} /> {t('days.take')}
                 </a>
                 <a className="btn" href={href(`/return${q}`)}>
-                  <Icon name="in" size={18} /> Return
+                  <Icon name="in" size={18} /> {t('days.return')}
                 </a>
                 <a className="btn btn-primary" href={href(`/close${q}`)}>
-                  <Icon name="wallet" size={18} /> Close day
+                  <Icon name="wallet" size={18} /> {t('days.close')}
                 </a>
               </>
             )}
             {day?.status === 'settled' && (
               <>
                 <button className="btn btn-primary" onClick={() => setReview('approved')}>
-                  <Icon name="check" size={18} /> Approve
+                  <Icon name="check" size={18} /> {t('days.approve')}
                 </button>
                 <button className="btn" onClick={() => setReview('queried')}>
-                  <Icon name="flag" size={18} /> Ask a question
+                  <Icon name="flag" size={18} /> {t('days.ask')}
                 </button>
-                {s && <VoidButton opId={s.opId} label="Reopen day" small={false} />}
+                {s && <VoidButton opId={s.opId} label={t('void.reopen')} small={false} reopen />}
               </>
             )}
           </>
         }
       />
-      {!day && <Empty icon="calendar" title="Nothing recorded for this day yet" />}
+      {!day && <Empty icon="calendar" title={t('days.nothing')} />}
       {day && (
         <div className="grid cols-2">
           <section className="card">
             <div className="card-head">
-              <span className="section-title">Garments</span>
+              <span className="section-title">{t('days.garments')}</span>
               <VarianceCell d={day} />
             </div>
             <div className="table-wrap" style={{ marginTop: 8 }}>
               <table className="data">
                 <thead>
                   <tr>
-                    <th>Garment</th>
-                    <th className="n">Took</th>
-                    <th className="n">Back</th>
-                    <th className="n">Sold</th>
-                    <th className="n">Kept</th>
-                    <th className="n">Lost</th>
+                    <th>{t('c.garment')}</th>
+                    <th className="n">{t('w.took')}</th>
+                    <th className="n">{t('w.back')}</th>
+                    <th className="n">{t('c.sold')}</th>
+                    <th className="n">{t('days.kept')}</th>
+                    <th className="n">{t('days.lost')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -284,7 +289,7 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                       <tr key={l.gt}>
                         <td>
                           <GarmentLabel g={lk.garment(l.gt)} showName={false} />
-                          {sl && sl.wholesaleQty > 0 && <div className="hint">{sl.wholesaleQty} wholesale</div>}
+                          {sl && sl.wholesaleQty > 0 && <div className="hint">{t('sd.nWholesale', { n: sl.wholesaleQty })}</div>}
                         </td>
                         <td className="n">{l.issued}</td>
                         <td className="n">{l.returned}</td>
@@ -301,33 +306,33 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
             </div>
           </section>
           <section className="card card-pad stack">
-            <span className="section-title">Money</span>
+            <span className="section-title">{t('days.money')}</span>
             {!s ? (
-              <span className="muted">The day is not closed yet.</span>
+              <span className="muted">{t('days.notClosedYet')}</span>
             ) : (
               <>
                 <dl className="kv">
-                  <dt>Sales at recorded prices</dt>
+                  <dt>{t('sd.salesAtPrices')}</dt>
                   <dd>
                     <Money amount={s.expected} currency={s.currency} />
                   </dd>
                   {s.expenses.map((e, i) => (
-                    <FragmentKV key={i} k={`Spent: ${e.description}`} v={<>− <Money amount={e.amount} currency={s.currency} /></>} />
+                    <FragmentKV key={i} k={t('days.spent', { what: e.description })} v={<>− <Money amount={e.amount} currency={s.currency} /></>} />
                   ))}
-                  <dt>Cash handed over</dt>
+                  <dt>{t('days.cashHanded')}</dt>
                   <dd>
                     <Money amount={s.cash} currency={s.currency} />
                   </dd>
-                  {s.mobile > 0 && <FragmentKV k="Mobile money" v={<Money amount={s.mobile} currency={s.currency} />} />}
-                  <dt className="total">{s.variance === 0 ? 'Difference' : s.variance > 0 ? 'Short by' : 'Over by'}</dt>
+                  {s.mobile > 0 && <FragmentKV k={t('days.mobile')} v={<Money amount={s.mobile} currency={s.currency} />} />}
+                  <dt className="total">{s.variance === 0 ? t('w.difference') : s.variance > 0 ? t('sd.shortBy') : t('sd.overBy')}</dt>
                   <dd className="total" style={{ color: s.variance > 0 ? 'var(--hibiscus)' : undefined }}>
-                    {s.variance === 0 ? 'none' : <Money amount={Math.abs(s.variance)} currency={s.currency} />}
+                    {s.variance === 0 ? t('days.none') : <Money amount={Math.abs(s.variance)} currency={s.currency} />}
                   </dd>
                 </dl>
-                {s.note && <div className="note-box">Worker’s note: “{s.note}”</div>}
+                {s.note && <div className="note-box">{t('days.workerNote', { note: s.note })}</div>}
                 {day.review && (
                   <div className={day.review.decision === 'approved' ? 'info-box' : 'note-box'}>
-                    {day.review.decision === 'approved' ? 'Approved' : 'Queried'} by {lk.personName(day.review.by)}
+                    {t(day.review.decision === 'approved' ? 'days.reviewedApproved' : 'days.reviewedQueried', { name: lk.personName(day.review.by) })}
                     {day.review.note && <>: “{day.review.note}”</>}
                   </div>
                 )}
@@ -339,8 +344,8 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
       {ops.length > 0 && (
         <section className="card">
           <div className="card-head">
-            <span className="section-title">What was recorded, and when</span>
-            {canAudit && <span className="hint">Device time · time it reached the server</span>}
+            <span className="section-title">{t('days.timeline')}</span>
+            {canAudit && <span className="hint">{t('days.timesHint')}</span>}
           </div>
           <div className="card-body timeline">
             {ops.map((r) => {
@@ -355,17 +360,17 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                   </span>
                   <div className="stack-sm">
                     <span className="row-between">
-                      <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>{describeOp(r.op, lk, ledger)}</span>
-                      {(r.op.type === 'worker.issue' || r.op.type === 'worker.return') && day?.status === 'open' && <VoidButton opId={r.op.id} label="Cancel" />}
+                      <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>{describeOp(r.op, lk, ledger, t)}</span>
+                      {(r.op.type === 'worker.issue' || r.op.type === 'worker.return') && day?.status === 'open' && <VoidButton opId={r.op.id} label={t('void.cancel')} />}
                     </span>
                     {canAudit && (
                       <span className="row" style={{ gap: 6 }}>
-                        <span className="hint">by {rec?.actorName ?? lk.personName(r.op.actorId)}</span>
-                        {rec?.status === 'pending' && <span className="pill saffron">Not synced yet</span>}
-                        {delay !== null && delay > 10 * 60_000 && <span className="pill lagoon">Offline · reached server {fmtDuration(delay)} later ({fmtTime(rec!.serverTime)})</span>}
+                        <span className="hint">{t('days.by', { name: rec?.actorName ?? lk.personName(r.op.actorId) })}</span>
+                        {rec?.status === 'pending' && <span className="pill saffron">{t('days.notSynced')}</span>}
+                        {delay !== null && delay > 10 * 60_000 && <span className="pill lagoon">{t('days.offlineLate', { delay: fmtDuration(delay), time: fmtTime(rec!.serverTime) })}</span>}
                         {(rec?.flags ?? []).filter((f) => f.code !== 'CASH_VARIANCE').map((f, i) => (
                           <span key={i} className="pill saffron" title={f.message}>
-                            {FLAG_LABEL[f.code]}
+                            {t(`lbl.flag.${f.code}` as Key)}
                           </span>
                         ))}
                       </span>
@@ -392,29 +397,30 @@ function FragmentKV({ k, v }: { k: string; v: ReactNode }) {
 }
 
 function ReviewSheet({ workerId, date, decision, onClose }: { workerId: string; date: string; decision: 'approved' | 'queried'; onClose: () => void }) {
+  const t = useT();
   const [note, setNote] = useState('');
   return (
     <Sheet
-      title={decision === 'approved' ? 'Approve this day' : 'Ask the worker a question'}
+      title={decision === 'approved' ? t('days.approveTitle') : t('days.askTitle')}
       onClose={onClose}
       footer={
         <>
           <button className="btn" onClick={onClose}>
-            Cancel
+            {t('c.cancel')}
           </button>
           <button
             className="btn btn-primary"
             disabled={decision === 'queried' && !note.trim()}
             onClick={async () => {
-              if (await save(() => store.submit('worker.review', { workerId, workDate: date, decision, note: note.trim() }), decision === 'approved' ? 'Day approved' : 'Question saved')) onClose();
+              if (await save(() => store.submit('worker.review', { workerId, workDate: date, decision, note: note.trim() }), decision === 'approved' ? t('days.approvedToast') : t('days.questionToast'))) onClose();
             }}
           >
-            Save
+            {t('c.save')}
           </button>
         </>
       }
     >
-      <Field label={decision === 'approved' ? 'Note (optional)' : 'Question — the worker sees it in their history'}>
+      <Field label={decision === 'approved' ? t('sd.noteOptional') : t('days.questionField')}>
         <textarea className="textarea" autoFocus value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
     </Sheet>

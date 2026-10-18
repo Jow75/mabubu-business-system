@@ -3,10 +3,12 @@ import { store, useApp } from '../lib/store';
 import { describeOp, useLookups } from '../lib/lookups';
 import { Icon } from './Icon';
 import { Field, Sheet, save } from './kit';
+import { useT } from '../lib/i18n';
 
 /** Cancel a record with a reason. History is kept; its effects are reversed. */
-export function VoidButton({ opId, label = 'Cancel record', small = true }: { opId: string; label?: string; small?: boolean }) {
+export function VoidButton({ opId, label, small = true, reopen = false }: { opId: string; label?: string; small?: boolean; reopen?: boolean }) {
   const { ledger, user } = useApp();
+  const t = useT();
   const lk = useLookups();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -17,33 +19,33 @@ export function VoidButton({ opId, label = 'Cancel record', small = true }: { op
   return (
     <>
       <button className={`btn btn-ghost ${small ? 'btn-sm' : ''}`} onClick={() => setOpen(true)}>
-        <Icon name="undo" size={16} /> {label}
+        <Icon name="undo" size={16} /> {label ?? t('void.cancelRecord')}
       </button>
       {open && (
         <Sheet
-          title="Cancel this record?"
+          title={reopen ? t('void.reopenTitle') : t('void.title')}
           onClose={() => setOpen(false)}
           footer={
             <>
               <button className="btn" onClick={() => setOpen(false)}>
-                Keep it
+                {t('void.keep')}
               </button>
               <button
                 className="btn btn-danger"
                 disabled={reason.trim().length < 3}
                 onClick={async () => {
-                  if (await save(() => store.submit('op.void', { targetId: opId, reason: reason.trim() }), 'Record cancelled')) setOpen(false);
+                  if (await save(() => store.submit('op.void', { targetId: opId, reason: reason.trim() }), reopen ? t('void.reopened') : t('void.done'))) setOpen(false);
                 }}
               >
-                Cancel record
+                {reopen ? t('void.reopen') : t('void.cancelRecord')}
               </button>
             </>
           }
         >
-          <div className="note-box">{describeOp(rec.op, lk, ledger)}</div>
-          <p className="soft">The record stays in the activity log, marked as cancelled. Its effect on stock and money is reversed. Enter the correct record afterwards if needed.</p>
-          <Field label="Reason (required)">
-            <textarea className="textarea" autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. typed 500 instead of 50" />
+          <div className="note-box">{describeOp(rec.op, lk, ledger, t)}</div>
+          <p className="soft">{reopen ? t('void.reopenExplain') : t('void.explain')}</p>
+          <Field label={t('void.reason')}>
+            <textarea className="textarea" autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('void.reasonPh')} />
           </Field>
         </Sheet>
       )}

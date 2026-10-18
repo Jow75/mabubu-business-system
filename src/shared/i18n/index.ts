@@ -123,6 +123,11 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^Setup is already done\. For recovery, enter the existing owner’s name\.$/, 'err.setupDone', []],
   [/^Work day not found\.$/, 'err.workDayNotFound', []],
   [/^The record to cancel was not found\.$/, 'err.recordNotFound', []],
+  [/^The code must contain digits only\.$/, 'err.pinDigits', []],
+  [/^An? (?:owner|manager|worker) code needs at least (\d+) digits\.$/, 'err.pinShort', ['n']],
+  [/^The code can have at most (\d+) digits\.$/, 'err.pinLong', ['n']],
+  [/^Avoid codes with one repeated digit\.$/, 'err.pinRepeat', []],
+  [/^Avoid simple sequences like 1234\.$/, 'err.pinSequence', []],
 ];
 
 export function localizeError(lang: Lang, message: string | null | undefined): string {
