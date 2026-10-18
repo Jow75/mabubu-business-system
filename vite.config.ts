@@ -41,6 +41,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Rollup's shared CommonJS helpers must not land in an optional chunk:
+          // the app imports them at start-up, and optional chunks are not cached
+          // for offline use, so the app would not open without internet.
+          if (id.includes('commonjsHelpers')) return 'cjs-helpers';
           const m = /node_modules\/(html2canvas|dompurify|canvg)\//.exec(id.replace(/\\/g, '/'));
           return m ? `pdf-optional-${m[1]}` : undefined;
         },

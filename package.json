@@ -13,7 +13,7 @@
     "dev:api": "wrangler dev --port 8787",
     "db:migrate:local": "wrangler d1 migrations apply mabubu --local",
     "db:migrate:remote": "wrangler d1 migrations apply mabubu --remote",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-offline.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
