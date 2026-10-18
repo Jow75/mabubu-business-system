@@ -26,6 +26,9 @@ Read first:
 - Permissions: `src/shared/permissions.ts`. Every server endpoint re-checks capabilities; the download filter in `src/worker/sync.ts` (`pull`) must stay in step with `src/shared/visibility.ts`.
 - On replay (`actor === null`), the engine must not require records the user may not see (workers never receive vendors).
 
+- Interface text goes through `useT()` with keys in `src/shared/i18n/en.ts`, `fr.ts` and `sw.ts` (all three; see ADR-003). Never translate stored data (garment, vendor or place names, notes), and never store translated text in a record.
+- The live app and its database: see `docs/HANDOVER_NEXT_SESSION.md` and `docs/DEPLOY.md`. Do not deploy, migrate or touch production data without the owner's go-ahead.
+
 ## Before saying a change is done
 
 ```bash

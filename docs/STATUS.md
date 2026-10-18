@@ -1,4 +1,6 @@
-# Build status — 18 Oct 2026 (day 2 of 3, after the owner's first test round)
+# Build status — 18 Oct 2026, evening (live on Cloudflare)
+
+Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked; no owner account created yet (that is the owner's first step, see [DEPLOY.md](DEPLOY.md)).
 
 ## Working and tested
 
@@ -12,13 +14,19 @@
 | Sync | Records saved on the device first; idempotent upload (retries never duplicate); download filtered by role (workers never receive costs, vendors, purchases or other workers); device time, server time and clock skew kept; late-sync / clock / back-dated warnings; concurrent-change guard | AT-10, AT-12, AT-13 tests; server balances proven equal to a replay of downloaded records; every role's view of the demo replays cleanly |
 | App | Owner/manager screens: overview, stock with journey per garment, purchases, vendors, shipments, sales days with review, expenses, profit report with downloads, currency converter, activity log, garments & prices, people & devices, settings with exchange rates and backup. Worker phone screens: today, take, return, close day, history, banknote counter, sync status. KMF ⇄ local-count switch. Light and dark themes. Installable on Android | Type-checked; built; driven in headless Chrome on a 390 px phone and a laptop (demo and real setup paths) |
 | Demo mode | Three weeks of clearly-labelled sample records, viewable as owner, manager or worker; never leaves the browser | Unit test + browser run |
+| Languages | English, Français, Kiswahili for every screen, sign-in, setup, errors and record descriptions. First use asks once with the device language preselected; choice kept per device and changeable under Settings or Me. Time-of-day greetings (10 per language). See ADR-003 | 25 i18n tests (detection, completeness, fallback, greetings, error wording, no effect on balances/stock/profit), 4 preference tests (persistence, no records created); browser: French worker journey at 390 px (27 checks) locally and on the live site; owner screens in French, Swahili and English at 1280 px and 390 px with no overflow or errors |
+| Worker day | Closed day: Take and Return disabled with a plain explanation; a direct attempt is refused by the rules; a manager reopens from Sales days → day → Reopen day (closing and reason kept); a new business date starts a fresh day with the first take | Engine test of the full scenario; browser run in French |
+| Offline start | The installed app opens and records without internet | Fixed 18 Oct (a start-up file was not cached). Checked by stopping the server and by browser offline mode on the live site; the build now fails if a start-up file is not cached |
 
 ## Not done yet (in priority order)
 
-1. **Deploy to Cloudflare.** Code is under Git (baseline commit 18 Oct). The `database_id` in `wrangler.jsonc` is still the placeholder, so nothing can be deployed until step 3 of DEPLOY.md is done. It needs your free account; follow [DEPLOY.md](DEPLOY.md). Nothing has been created or paid for.
-2. Try it on a real Android phone: install, go offline, record a day, come back online.
-3. A short "how to" card for workers (Swahili / Shikomori wording to be confirmed by the family).
-4. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
+1. **Owner first sign-in** on the live address with the setup key, then add people and approve their phones ([DEPLOY.md](DEPLOY.md)).
+2. **Try it on a real Android phone** (not done yet): install, choose French, go offline, record a day, come back online and check it syncs.
+3. **A French speaker and a Swahili speaker from the family read the screens** and list any wording to change (the translations have not been reviewed by a native speaker).
+4. Downloads (PDF / Excel / CSV) are still in English.
+5. Two payment features from the owner's decisions: hold a payment as credit while purchases are unpaid; move an existing payment to another purchase (ADR-002).
+6. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
+7. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
 
 ## Decisions waiting for the owner
 
