@@ -1,0 +1,19 @@
+node_modules/
+dist/
+dev-dist/
+.wrangler/
+.dev.vars
+*.local
+.DS_Store
+Thumbs.db
+coverage/
+mabubu-backup-*.json
+
+# Private notes and local data — never commit
+*discusion with AI.txt
+*.sqlite
+*.sqlite3
+*.db
+.env
+.env.*
+!.dev.vars.example

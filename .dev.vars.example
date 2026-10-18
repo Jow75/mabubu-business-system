@@ -1,0 +1,6 @@
+# Local development secrets. Copy to .dev.vars (never commit .dev.vars).
+# For production, set these with:  npx wrangler secret put PIN_PEPPER  (and SETUP_TOKEN)
+# Generate values with:            node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+
+PIN_PEPPER=replace-with-a-long-random-value-at-least-32-chars
+SETUP_TOKEN=replace-with-another-long-random-value

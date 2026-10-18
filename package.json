@@ -1,0 +1,48 @@
+{
+  "name": "mabubu-business-system",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mabubu business management system — stock, shipments, worker sales and cash reconciliation between Mombasa, Dar es Salaam and the Comoros.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "vite",
+    "dev:api": "wrangler dev --port 8787",
+    "db:migrate:local": "wrangler d1 migrations apply mabubu --local",
+    "db:migrate:remote": "wrangler d1 migrations apply mabubu --remote",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "5.3.0",
+    "@fontsource-variable/hanken-grotesk": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "dexie": "4.4.6",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "fake-indexeddb": "6.2.5",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "4.1.11",
+    "workbox-build": "7.4.1",
+    "workbox-window": "7.4.1",
+    "wrangler": "4.147.0"
+  }
+}

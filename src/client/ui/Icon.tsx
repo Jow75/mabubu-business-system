@@ -1,0 +1,80 @@
+// A small hand-drawn icon set (1.6px strokes, 24px grid).
+
+const P: Record<string, string> = {
+  home: 'M4 11 12 4l8 7M6 9.5V20h4.5v-5.5h3V20H18V9.5',
+  box: 'M4 7.5 12 4l8 3.5v9L12 20l-8-3.5zM4 7.5l8 3.5 8-3.5M12 11v9',
+  bag: 'M5.5 8h13l-1 12h-11zM9 8V6.5a3 3 0 0 1 6 0V8',
+  store: 'M4 9.5 5.5 4h13L20 9.5M4 9.5c0 1.4 1.2 2.5 2.7 2.5s2.6-1.1 2.6-2.5c0 1.4 1.2 2.5 2.7 2.5s2.7-1.1 2.7-2.5c0 1.4 1.1 2.5 2.6 2.5S20 10.9 20 9.5M5.5 12v8h13v-8M10 20v-4.5h4V20',
+  ship: 'M3 16.5c1.5 1.3 3 1.3 4.5 0s3-1.3 4.5 0 3 1.3 4.5 0 3-1.3 4.5 0M5 14l-1-4h16l-1.5 4M7 10V6.5h6l2 3.5M10 6.5V4',
+  people: 'M9 11a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 9 11zM3.5 19.5c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M16 11.2a2.8 2.8 0 1 0-.6-5.5M17.5 14.6c1.7.5 2.8 2 3 4.4',
+  receipt: 'M6 3.5h12v17l-2.5-1.5-2 1.5-1.5-1.5-1.5 1.5-2-1.5L6 20.5zM9 8h6M9 11.5h6M9 15h3.5',
+  chart: 'M4 20h16M6.5 20v-6M11 20V9M15.5 20v-8M20 20V5',
+  clock: 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 7.5V12l3 2',
+  tag: 'M3.5 12.5V4h8.5l8.5 8.5-8.5 8.5zM8 8.5h.01',
+  key: 'M14.5 13a4.5 4.5 0 1 0-4.2-2.9L3.5 17v3.5H7v-2h2v-2h2l1.2-1.2c.7.4 1.5.7 2.3.7zM16 7.5h.01',
+  gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13.5l1.6 1-2 3.5-1.8-.6a7 7 0 0 1-1.7 1L15 20.5h-4l-.5-2.1a7 7 0 0 1-1.7-1l-1.8.6-2-3.5 1.6-1a7 7 0 0 1 0-2l-1.6-1 2-3.5 1.8.6a7 7 0 0 1 1.7-1L11 3.5h4l.5 2.1a7 7 0 0 1 1.7 1l1.8-.6 2 3.5-1.6 1a7 7 0 0 1 0 2z',
+  plus: 'M12 5v14M5 12h14',
+  minus: 'M5 12h14',
+  check: 'M5 12.5 10 17l9-10',
+  x: 'M6 6l12 12M18 6 6 18',
+  right: 'M9 5l7 7-7 7',
+  left: 'M15 5l-7 7 7 7',
+  down: 'M5 9l7 7 7-7',
+  arrowRight: 'M4 12h15M13 6l6 6-6 6',
+  search: 'M11 18.5a7.5 7.5 0 1 0 0-15 7.5 7.5 0 0 0 0 15zM20.5 20.5l-4.2-4.2',
+  lock: 'M6.5 10.5h11v9.5h-11zM9 10.5V8a3 3 0 0 1 6 0v2.5',
+  cloud: 'M7 18.5h10a4 4 0 0 0 .6-8 5.5 5.5 0 0 0-10.7 1.4A3.4 3.4 0 0 0 7 18.5z',
+  cloudOff: 'M4 4l16 16M9.5 6.2A5.5 5.5 0 0 1 17.6 10.5 4 4 0 0 1 19.8 17M17 18.5H7a3.4 3.4 0 0 1-.6-6.7',
+  refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4',
+  alert: 'M12 4 21 19.5H3zM12 10v4.5M12 17.2v.1',
+  info: 'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17zM12 11v5.5M12 8v.1',
+  coins: 'M9 9.5c3.3 0 6-1.1 6-2.5S12.3 4.5 9 4.5 3 5.6 3 7s2.7 2.5 6 2.5zM3 7v4c0 1.4 2.7 2.5 6 2.5M3 11v4c0 1.4 2.7 2.5 6 2.5M15 13c3.3 0 6-1.1 6-2.5S18.3 8 15 8M21 10.5v4c0 1.4-2.7 2.5-6 2.5s-6-1.1-6-2.5v-4M9 14.5v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4',
+  download: 'M12 4v11M7 10.5l5 5 5-5M4.5 19.5h15',
+  edit: 'M4 20l1-4.5L15.5 5a2 2 0 0 1 3 3L8 18.5zM13.5 7l3 3',
+  undo: 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
+  calendar: 'M4.5 6.5h15v13h-15zM4.5 10.5h15M8.5 4v4M15.5 4v4',
+  pin: 'M12 21s6.5-6.1 6.5-11a6.5 6.5 0 0 0-13 0c0 4.9 6.5 11 6.5 11zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+  out: 'M13.5 4.5h5v15h-5M10 8l-4 4 4 4M6 12h9.5',
+  in: 'M10.5 4.5h-5v15h5M14 8l4 4-4 4M18 12H8.5',
+  flag: 'M5.5 21V4M5.5 4.5h11l-2 4 2 4h-11',
+  eye: 'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  phone: 'M8 3.5h8v17H8zM11 17.5h2',
+  menu: 'M4 7h16M4 12h16M4 17h16',
+  scissors: 'M6.5 9a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM6.5 20a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM8.5 7.8 20 17M8.5 16.2 20 7',
+  swap: 'M7 4.5 3.5 8 7 11.5M3.5 8h13M17 12.5l3.5 3.5-3.5 3.5M20.5 16h-13',
+  inspect: 'M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM15.5 15.5l5 5M7.5 10.5l2 2 4-4',
+  wallet: 'M4 7.5h14.5a1.5 1.5 0 0 1 1.5 1.5v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5zM4 7.5 15 4.5v3M15.5 13.5h.01',
+};
+
+export type IconName = keyof typeof P;
+
+export function Icon({ name, size = 20, className, title }: { name: IconName; size?: number; className?: string; title?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden={title ? undefined : true}
+      role={title ? 'img' : undefined}
+    >
+      {title && <title>{title}</title>}
+      <path d={P[name]} />
+    </svg>
+  );
+}
+
+export function DeraMark({ size = 32 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" className="brand-mark" aria-hidden="true">
+      <rect width="64" height="64" rx="16" fill="var(--indigo)" />
+      <path d="M24 13c2 4 5 6 8 6s6-2 8-6l9 5-4 9-4-2 5 26H18l5-26-4 2-4-9 9-5z" fill="var(--on-indigo)" />
+      <path d="M21 44h22" stroke="var(--saffron)" strokeWidth="2.5" strokeDasharray="3 2.5" />
+    </svg>
+  );
+}
