@@ -129,6 +129,13 @@ class Store {
       if (document.visibilityState === 'visible') this.requestSync();
     });
     const device = await getDevice();
+    // Ask to keep this device's storage as early as possible, before anyone
+    // signs in. The device identity and the signed-in profile live only in
+    // IndexedDB; if the browser evicts it, the device becomes unrecognised and
+    // the owner is pushed back through setup. Requesting persistence at first
+    // boot makes that eviction far less likely. (Some browsers only grant it
+    // after real use, so we ask again after sign-in too.)
+    void this.requestPersistence();
     const profiles = await this.loadProfiles();
     let phase: Phase = 'welcome';
     if (!profiles.some((p) => !p.demo) && navigator.onLine) {
@@ -189,7 +196,10 @@ class Store {
     const res = await api<LoginResponse>('POST', '/setup', { setupToken, name, pin, deviceId: device.deviceId, deviceSecret: device.deviceSecret, deviceLabel: device.label });
     if (res.status === 'ok') {
       await this.afterOnlineAuth(res, pin);
-      this.set({ firstRun: true });
+      // Only show the starter setup on a genuine first creation. Owner recovery
+      // (re-running setup to re-link a device) must never re-seed places and
+      // size groups — that is what produced the duplicate reference data.
+      if (res.created) this.set({ firstRun: true });
     }
   }
 

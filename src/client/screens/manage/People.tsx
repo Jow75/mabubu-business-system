@@ -271,11 +271,13 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
         <Field label={t('pp.worksAt')}>
           <select className="select" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
             <option value="">—</option>
-            {lk.locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
+            {lk.locations
+              .filter((l) => l.active || l.id === locationId)
+              .map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
           </select>
         </Field>
         <Field label={person ? t('pp.newCode') : t('pp.accessCode')} hint={policy ? errText(policy) : t('pp.codeHint', { n: MIN_PIN_LENGTH[role] })}>

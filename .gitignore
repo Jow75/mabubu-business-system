@@ -7,7 +7,9 @@ dev-dist/
 .DS_Store
 Thumbs.db
 coverage/
-mabubu-backup-*.json
+# Database backups contain real business data and PIN hashes — never commit.
+mabubu-backup-*
+*.sql
 
 # Private notes and local data — never commit
 *discusion with AI.txt

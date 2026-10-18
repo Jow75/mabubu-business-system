@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MAX_PIN_LENGTH } from '../../../shared/permissions';
 import { useT } from '../../lib/i18n';
 
 export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pin: string) => void; busy?: boolean; error?: string | null; minLength?: number }) {
@@ -35,6 +36,9 @@ export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pi
           <span key={i} className={i < pin.length ? 'on' : ''} />
         ))}
       </div>
+      <p className="hint" style={{ textAlign: 'center', marginTop: -6 }}>
+        {t('pin.lenHint', { min: minLength, max: MAX_PIN_LENGTH })}
+      </p>
       {error && (
         <div className="error-box" role="alert" style={{ textAlign: 'center' }}>
           {error}

@@ -130,6 +130,23 @@ describe('first setup', () => {
     expect(r.status).toBe(400);
   });
 
+  it('marks first setup as created and owner recovery as not created', async () => {
+    // First creation.
+    const first = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...ownerDev });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ status: 'ok', created: true });
+
+    // Running setup again for the same owner is recovery: it succeeds but must
+    // NOT report `created`, so the client never re-seeds the starter data.
+    const again = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '817263', ...device('Owner recovery') });
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ status: 'ok', created: false });
+
+    // Still exactly one user (recovery updates the owner, does not add one).
+    const n = env.DB.raw.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
+    expect(n.n).toBe(1);
+  });
+
   it('never stores an access code as plain text', async () => {
     await setupOwner();
     const row = env.DB.raw.prepare('SELECT pin_hmac FROM users').get() as { pin_hmac: string };

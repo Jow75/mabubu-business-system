@@ -30,7 +30,9 @@ export interface SetupRequest extends DeviceIdentity {
 }
 
 export type LoginResponse =
-  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser }
+  // `created` is set only by /setup: true on genuine first-time owner creation,
+  // false on owner recovery. The client uses it to show first-run setup only once.
+  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser; created?: boolean }
   | { status: 'pending'; deviceCode: string; userName: string };
 
 /** Error body returned with a non-2xx status. */

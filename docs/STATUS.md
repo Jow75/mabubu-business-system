@@ -1,6 +1,6 @@
-# Build status — 18 Oct 2026, evening (live on Cloudflare)
+# Build status — 19 Oct 2026 (live on Cloudflare)
 
-Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked; no owner account created yet (that is the owner's first step, see [DEPLOY.md](DEPLOY.md)).
+Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked. The owner account exists (George Muraguri) with one worker (Jijo). On 19 Oct an onboarding bug that duplicated places and size groups was fixed and deployed, and the duplicate records were cleaned from the live database after a backup — see [HANDOVER_NEXT_SESSION.md](HANDOVER_NEXT_SESSION.md) (19 Oct section). The owner's and worker's own devices need a one-time sign-out / sign-in to re-sync the cleaned data.
 
 ## Working and tested
 

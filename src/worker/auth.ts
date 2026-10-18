@@ -389,6 +389,8 @@ export async function setup(env: Env, request: Request): Promise<Response> {
   );
   const s = await newSessionStmts(env, user.id, dev.device.id);
   await env.DB.batch([...stmts, ...s.stmts, eventStmt(env, count === 0 ? 'setup_owner' : 'setup_recover_owner', { userId: user.id, deviceId: dev.device.id, ip })]);
-  const res: LoginResponse = { status: 'ok', token: s.token, expiresAt: s.expiresAt, user: sessionUser(user) };
+  // `created` tells the client whether this was a first-time creation (seed the
+  // starter data once) or a recovery (never re-seed — see the duplicate-data bug).
+  const res: LoginResponse = { status: 'ok', token: s.token, expiresAt: s.expiresAt, user: sessionUser(user), created: count === 0 };
   return json(res);
 }

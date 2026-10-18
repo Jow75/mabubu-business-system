@@ -1,6 +1,21 @@
 # Handover — next session
 
-Last updated 18 Oct 2026 (evening). Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 19 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 19 Oct session — onboarding bug fix + duplicate cleanup
+
+Context: see `docs/FIX_PROMPT_onboarding_and_duplicates.md` (the owner's report of duplicated places and size groups after re-running setup).
+
+Done and deployed to production (Version ID `d0b633b9`):
+- **Root cause (duplicates).** `/setup` now returns `created: true` only on genuine first owner creation and `created: false` on owner recovery (`src/worker/auth.ts`, `src/shared/api.ts`). The client shows the starter-setup screen (which seeds places and size groups) only when `created` is true (`src/client/lib/store.ts`), so re-running setup for recovery never re-seeds. Belt-and-braces: starter seeding is now idempotent — it skips any default whose name already exists and de-duplicates within its own list (`src/client/lib/seed.ts`, used by `StarterSetup.tsx`).
+- **Storage persistence (device identity).** `store.boot()` now requests `navigator.storage.persist()` at first boot, before sign-in, to make IndexedDB eviction (which loses the device identity and pushes the owner back through setup) far less likely. Owner recovery is now safe to re-use as a device re-link path because it no longer re-seeds.
+- **PIN length clarity.** The sign-in pad shows the expected code length ("6–8 digits" / "4–8 digits") and renders the right number of dots once the role is known (`PinPad.tsx`, `Welcome.tsx`). No change to the accepted range or policy.
+- **Minor.** People → "works at" no longer lists inactive places.
+- **Live data cleanup.** The owner's live DB had the second seeding (3 extra places + 5 extra size groups). Backup taken first (`mabubu-backup-2026-10-19-precleanup.sql`, git-ignored, not in the repo). The 8 duplicate entity rows + their 8 ops were deleted after confirming nothing referenced them (no prices, no balances, no garment pointed at a duplicate size). Verified after: 3 places, 5 size groups, 5 garments, 3 vendors, 0 orphaned references. Users (owner George Muraguri, worker Jijo), devices and sessions were untouched.
+
+**Still needed (owner action, cannot be done from the dev machine):** the owner's laptop and Jijo's phone already synced the duplicate records, so they must each sign out and sign back in once to re-sync the cleaned data (Me / Account → Lock-switch person → remove the profile → sign in again; the device stays approved). Until they do, those two devices still show the old duplicates locally even though the server is clean.
+
+Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not verified:** a physical Android phone; the device re-sync described above (owner must do it).
 
 ## Where things are
 

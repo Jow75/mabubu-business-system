@@ -161,7 +161,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         <h2 className="page-title">{profile.name}</h2>
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
-      <PinPad onSubmit={submit} busy={busy} error={error} minLength={4} />
+      <PinPad onSubmit={submit} busy={busy} error={error} minLength={MIN_PIN_LENGTH[profile.role]} />
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => void store.removeProfile(profile.userId)}>
         {t('auth.removeProfile', { name: profile.name })}
       </button>
