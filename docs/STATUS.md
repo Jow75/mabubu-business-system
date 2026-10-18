@@ -15,12 +15,15 @@
 
 ## Not done yet (in priority order)
 
-1. **Deploy to Cloudflare.** It needs your free account; follow [DEPLOY.md](DEPLOY.md). Nothing has been created or paid for.
+1. **Deploy to Cloudflare.** Code is under Git (baseline commit 18 Oct). The `database_id` in `wrangler.jsonc` is still the placeholder, so nothing can be deployed until step 3 of DEPLOY.md is done. It needs your free account; follow [DEPLOY.md](DEPLOY.md). Nothing has been created or paid for.
 2. Try it on a real Android phone: install, go offline, record a day, come back online.
 3. A short "how to" card for workers (Swahili / Shikomori wording to be confirmed by the family).
 4. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
 
 ## Decisions waiting for the owner
+
+On 18 Oct 2026 the owner provisionally confirmed the current defaults below. See ADR-002, "Owner decisions recorded", for the two payment features still to build (holding a payment as credit, moving an allocation). KMF banknote values and the ÷5 wording are still unconfirmed.
+
 
 | Question | Current default | Change needs |
 |---|---|---|

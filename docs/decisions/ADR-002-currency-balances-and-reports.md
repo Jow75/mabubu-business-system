@@ -56,3 +56,17 @@ The Overview's place switch is remembered on the device. Sales days, Expenses an
 
 1. **Payments not tied to a purchase go to the oldest unpaid purchase first.** This matches what was expected in testing. The alternative is to keep them as unapplied credit until someone chooses a purchase.
 2. **The place switch is remembered on the device.** Keep it remembered (now always visible), or reset it to "All places" on each sign-in?
+
+## Owner decisions recorded 18 Oct 2026 (provisional)
+
+| Decision | What the code does today | Gap |
+|---|---|---|
+| Unassigned vendor payments go to the oldest unpaid purchase first (same currency) | Yes — `vendorAccounts()` | — |
+| An authorised user may assign a payment to a specific purchase | Yes, when the payment is recorded ("What does this pay for?") | — |
+| Genuine unallocated credit (advances, payments awaiting allocation) | Only what is left over after all unpaid purchases are cleared | **Open:** a payment cannot yet be held as credit while purchases are unpaid |
+| Each payment recorded once, original amount and reference kept, allocations traceable | Yes — idempotent upload; `PurchaseBalance.allocations` lists each payment, its reference and whether it was named or automatic | — |
+| Re-allocating an existing payment must keep the original and record the change | Only by cancelling (`op.void`, with reason) and recording again — history is kept, but the replacement is a second record | **Open:** a dedicated "move allocation" record that keeps the one payment |
+
+The two open items need a new operation type (engine, sync, visibility, screens, tests). They are deliberately not built during deployment preparation and await the owner's go-ahead.
+
+Other decisions confirmed unchanged: location filter remembered per device and shown on every affected page and download; PINs 6 digits for owner/manager, 4 for workers; a closed worker day stays closed until a manager reopens it (the reopen keeps the closing record and its reason in the log); workers see only stock they hold; the profit report charges shipment costs in the period they are paid and says it is not a per-garment landed cost. KMF banknote values and the ÷5 wording remain editable in Settings and unconfirmed.

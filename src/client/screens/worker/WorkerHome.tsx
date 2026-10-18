@@ -82,6 +82,13 @@ export function WorkerToday() {
         )}
       </section>
 
+      {todayDay?.status === 'settled' && (
+        <div className="note-box">
+          <strong>Today is closed.</strong> Taking and returning garments start again tomorrow. If something must change today, ask a manager to reopen
+          the day (Sales days → today → Reopen day).
+        </div>
+      )}
+
       <div className="action-grid">
         <button className="action" onClick={() => navigate('/take')} disabled={todayDay?.status === 'settled'}>
           <span className="ico">
@@ -91,7 +98,7 @@ export function WorkerToday() {
             Take garments<small>When you pick stock to sell</small>
           </span>
         </button>
-        <button className="action lagoon" onClick={() => navigate('/return')} disabled={total === 0}>
+        <button className="action lagoon" onClick={() => navigate('/return')} disabled={total === 0 || todayDay?.status === 'settled'}>
           <span className="ico">
             <Icon name="in" size={22} />
           </span>
