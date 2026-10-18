@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useT } from '../../lib/i18n';
 
 export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pin: string) => void; busy?: boolean; error?: string | null; minLength?: number }) {
+  const t = useT();
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(false);
 
@@ -28,7 +30,7 @@ export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pi
   const slots = Math.max(minLength, pin.length);
   return (
     <div className="stack" style={{ gap: 18 }}>
-      <div className={`pin-dots ${shake ? 'shake' : ''}`} aria-label={`${pin.length} digits entered`}>
+      <div className={`pin-dots ${shake ? 'shake' : ''}`} aria-label={t('pin.digits', { n: pin.length })}>
         {Array.from({ length: slots }, (_, i) => (
           <span key={i} className={i < pin.length ? 'on' : ''} />
         ))}
@@ -44,8 +46,8 @@ export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pi
             {d}
           </button>
         ))}
-        <button type="button" className="fn" onClick={() => setPin((p) => p.slice(0, -1))} aria-label="Delete last digit">
-          Delete
+        <button type="button" className="fn" onClick={() => setPin((p) => p.slice(0, -1))} aria-label={t('pin.deleteLast')}>
+          {t('pin.delete')}
         </button>
         <button type="button" onClick={() => press('0')}>
           0
@@ -57,7 +59,7 @@ export function PinPad({ onSubmit, busy, error, minLength = 4 }: { onSubmit: (pi
           disabled={busy || pin.length < minLength}
           onClick={() => onSubmit(pin)}
         >
-          {busy ? '…' : 'Enter'}
+          {busy ? '…' : t('pin.enter')}
         </button>
       </div>
     </div>

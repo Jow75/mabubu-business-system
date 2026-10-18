@@ -4,12 +4,15 @@ import { ApiError } from '../../lib/api';
 import type { Profile } from '../../lib/db';
 import { DEMO_USERS } from '../../../shared/demo-data';
 import { MIN_PIN_LENGTH } from '../../../shared/permissions';
-import { ROLE_LABEL } from '../../lib/labels';
 import { DeraMark, Icon } from '../../ui/Icon';
 import { Monogram } from '../../ui/kit';
 import { PinPad } from './PinPad';
+import { errText, useT } from '../../lib/i18n';
+import { makeT, type Lang, type T } from '../../../shared/i18n';
 
-export function AuthLayout({ children }: { children: ReactNode }) {
+export function AuthLayout({ children, lang }: { children: ReactNode; lang?: Lang }) {
+  const own = useT();
+  const t = lang ? makeT(lang) : own;
   return (
     <div className="auth">
       <aside className="auth-art">
@@ -19,8 +22,8 @@ export function AuthLayout({ children }: { children: ReactNode }) {
         </div>
         <RouteArt />
         <div className="stack" style={{ position: 'relative', gap: 14 }}>
-          <h1>Every dera, from Mombasa to Ngazidja.</h1>
-          <p>Purchases, shipments, the day’s sales and the cash — recorded where it happens, even without internet, and seen by the family wherever they are.</p>
+          <h1>{t('auth.tagline')}</h1>
+          <p>{t('auth.blurb')}</p>
         </div>
       </aside>
       <main className="auth-panel">{children}</main>
@@ -55,15 +58,16 @@ export function Welcome() {
   const { profiles, online } = useApp();
   const real = profiles.filter((p) => !p.demo);
   const [mode, setMode] = useState<Mode>(real.length ? { kind: 'list' } : { kind: 'other' });
+  const t = useT();
 
   return (
     <AuthLayout>
       {mode.kind === 'list' && (
         <div className="stack" style={{ gap: 20 }}>
           <div>
-            <div className="eyebrow">Karibu</div>
+            <div className="eyebrow">{t('auth.welcome')}</div>
             <h2 className="page-title" style={{ marginTop: 6 }}>
-              Who is working?
+              {t('auth.who')}
             </h2>
           </div>
           <div className="profiles">
@@ -72,18 +76,18 @@ export function Welcome() {
                 <Monogram name={p.name} id={p.userId} />
                 <strong>{p.name}</strong>
                 <span className="muted" style={{ fontSize: 12.5 }}>
-                  {ROLE_LABEL[p.role]}
+                  {t(`role.${p.role}`)}
                 </span>
-                {p.needsOnline && <span className="pill saffron">Sign in online</span>}
+                {p.needsOnline && <span className="pill saffron">{t('auth.signInOnline')}</span>}
               </button>
             ))}
             <button className="profile" onClick={() => setMode({ kind: 'other' })}>
               <span className="monogram" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)' }}>
                 <Icon name="plus" size={22} />
               </span>
-              <strong>Someone else</strong>
+              <strong>{t('auth.someoneElse')}</strong>
               <span className="muted" style={{ fontSize: 12.5 }}>
-                First time here
+                {t('auth.firstTime')}
               </span>
             </button>
           </div>
@@ -105,29 +109,31 @@ export function Welcome() {
 }
 
 function FooterLinks({ online, onDemo }: { online: boolean; onDemo: () => void }) {
+  const t = useT();
   return (
     <div className="row-between" style={{ marginTop: 8 }}>
       <button type="button" className="btn btn-ghost btn-sm" onClick={onDemo}>
-        <Icon name="eye" size={17} /> Explore the demo
+        <Icon name="eye" size={17} /> {t('auth.demo')}
       </button>
       <span className="pill">
         <span className="dot" style={{ color: online ? 'var(--mangrove)' : 'var(--ink-3)' }} />
-        {online ? 'Online' : 'Offline'}
+        {online ? t('c.online') : t('c.offline')}
       </span>
     </div>
   );
 }
 
-function errorText(e: unknown): string {
+function errorText(e: unknown, t: T): string {
   if (e instanceof ApiError) {
-    if (e.offline) return 'No internet. Signing in on a new device needs a connection once.';
-    if (e.body.attemptsLeft) return `${e.message} ${e.body.attemptsLeft} tries left before a short lock.`;
-    return e.message;
+    if (e.offline) return t('auth.noInternetNew');
+    if (e.body.attemptsLeft) return t('auth.triesLeft', { message: errText(e.message), n: e.body.attemptsLeft });
+    return errText(e.message);
   }
-  return 'Something went wrong. Try again.';
+  return t('c.somethingWrong');
 }
 
 function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () => void; onPending: (name: string, pin: string, code: string) => void }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = useCallback(
@@ -138,26 +144,26 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         const r = await store.unlock(profile, pin);
         if (r?.status === 'pending') onPending(profile.name, pin, r.deviceCode);
       } catch (e) {
-        setError(errorText(e));
+        setError(errorText(e, t));
       } finally {
         setBusy(false);
       }
     },
-    [profile, onPending],
+    [profile, onPending, t],
   );
   return (
     <div className="stack" style={{ gap: 20, alignItems: 'stretch' }}>
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>
-        <Icon name="left" size={17} /> Back
+        <Icon name="left" size={17} /> {t('c.back')}
       </button>
       <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
         <Monogram name={profile.name} id={profile.userId} />
         <h2 className="page-title">{profile.name}</h2>
-        <span className="muted">{profile.needsOnline ? profile.needsOnline + ' Enter your code to sign in online.' : 'Enter your code'}</span>
+        <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
       <PinPad onSubmit={submit} busy={busy} error={error} minLength={4} />
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => void store.removeProfile(profile.userId)}>
-        Remove {profile.name} from this device
+        {t('auth.removeProfile', { name: profile.name })}
       </button>
     </div>
   );
@@ -165,6 +171,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
 
 function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null; onPending: (name: string, pin: string, code: string) => void; onDemo: () => void }) {
   const { online } = useApp();
+  const t = useT();
   const [name, setName] = useState('');
   const [stage, setStage] = useState<'name' | 'pin'>('name');
   const [busy, setBusy] = useState(false);
@@ -177,18 +184,18 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
         const r = await store.signIn(name.trim(), pin);
         if (r.status === 'pending') onPending(name.trim(), pin, r.deviceCode);
       } catch (e) {
-        setError(errorText(e));
+        setError(errorText(e, t));
       } finally {
         setBusy(false);
       }
     },
-    [name, onPending],
+    [name, onPending, t],
   );
   return (
     <div className="stack" style={{ gap: 20 }}>
       {onBack && (
         <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={stage === 'pin' ? () => setStage('name') : onBack}>
-          <Icon name="left" size={17} /> Back
+          <Icon name="left" size={17} /> {t('c.back')}
         </button>
       )}
       {stage === 'name' ? (
@@ -201,29 +208,29 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
           }}
         >
           <div>
-            <div className="eyebrow">Sign in</div>
+            <div className="eyebrow">{t('auth.signIn')}</div>
             <h2 className="page-title" style={{ marginTop: 6 }}>
-              What is your name?
+              {t('auth.yourNameQ')}
             </h2>
             <p className="soft" style={{ marginTop: 8 }}>
-              Use the name the owner gave your account. The first time on a new phone or laptop, the owner approves it once.
+              {t('auth.nameHelp')}
             </p>
           </div>
-          <input className="input big" style={{ fontSize: 20 }} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="username" />
+          <input className="input big" style={{ fontSize: 20 }} autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t('auth.yourName')} autoComplete="username" />
           <button className="btn btn-primary btn-lg" disabled={!name.trim()}>
-            Continue <Icon name="arrowRight" size={18} />
+            {t('c.continue')} <Icon name="arrowRight" size={18} />
           </button>
-          {!online && <div className="note-box">You are offline. A first sign-in on this device needs internet.</div>}
+          {!online && <div className="note-box">{t('auth.offlineFirst')}</div>}
           <FooterLinks online={online} onDemo={onDemo} />
           <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => store.goTo('setup')}>
-            <Icon name="key" size={17} /> First setup or owner recovery
+            <Icon name="key" size={17} /> {t('auth.setupLink')}
           </button>
         </form>
       ) : (
         <div className="stack" style={{ gap: 18 }}>
           <div className="stack" style={{ alignItems: 'center', gap: 6 }}>
             <h2 className="page-title">{name}</h2>
-            <span className="muted">Enter your code</span>
+            <span className="muted">{t('auth.enterCode')}</span>
           </div>
           <PinPad onSubmit={submit} busy={busy} error={error} />
         </div>
@@ -233,15 +240,16 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
 }
 
 function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; code: string; onBack: () => void }) {
+  const t = useT();
   const [msg, setMsg] = useState<string | null>(null);
   const check = useCallback(async () => {
     try {
       const r = await store.signIn(name, pin);
-      if (r.status === 'pending') setMsg('Still waiting for approval.');
+      if (r.status === 'pending') setMsg(t('auth.stillWaiting'));
     } catch (e) {
-      setMsg(errorText(e));
+      setMsg(errorText(e, t));
     }
-  }, [name, pin]);
+  }, [name, pin, t]);
   useEffect(() => {
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') void check();
@@ -251,43 +259,44 @@ function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; c
   return (
     <div className="stack" style={{ gap: 20 }}>
       <div>
-        <div className="eyebrow">New device</div>
+        <div className="eyebrow">{t('auth.newDevice')}</div>
         <h2 className="page-title" style={{ marginTop: 6 }}>
-          Waiting for the owner
+          {t('auth.waitingOwner')}
         </h2>
         <p className="soft" style={{ marginTop: 8 }}>
-          Your code is correct. Because this is a new device, the owner must allow it once. Ask them to open <strong>People &amp; devices</strong> and approve the request with this code:
+          {t('auth.pendingBody')}
         </p>
       </div>
       <div className="device-code">{code}</div>
       <div className="row">
         <button className="btn btn-primary" onClick={() => void check()}>
-          <Icon name="refresh" size={18} /> Check again
+          <Icon name="refresh" size={18} /> {t('auth.checkAgain')}
         </button>
         <button className="btn btn-ghost" onClick={onBack}>
-          Cancel
+          {t('c.cancel')}
         </button>
       </div>
       {msg && <div className="note-box">{msg}</div>}
-      <p className="hint">This page checks by itself every few seconds.</p>
+      <p className="hint">{t('auth.autoCheck')}</p>
     </div>
   );
 }
 
 function DemoStep({ onBack }: { onBack: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const t = useT();
   return (
     <div className="stack" style={{ gap: 20 }}>
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>
-        <Icon name="left" size={17} /> Back
+        <Icon name="left" size={17} /> {t('c.back')}
       </button>
       <div>
-        <div className="eyebrow">Demo</div>
+        <div className="eyebrow">{t('auth.demoEyebrow')}</div>
         <h2 className="page-title" style={{ marginTop: 6 }}>
-          See it as…
+          {t('auth.seeAs')}
         </h2>
         <p className="soft" style={{ marginTop: 8 }}>
-          Three weeks of <strong>sample</strong> records, kept only on this device and never sent anywhere. Each person sees exactly what their role allows.
+          {t('auth.demoBody')}
         </p>
       </div>
       <div className="profiles">
@@ -304,14 +313,14 @@ function DemoStep({ onBack }: { onBack: () => void }) {
             <Monogram name={u.name} id={u.id} />
             <strong>{u.name}</strong>
             <span className="muted" style={{ fontSize: 12.5 }}>
-              {ROLE_LABEL[u.role]}
-              {u.role === 'worker' ? ' · Comoros' : ''}
+              {t(`role.${u.role}`)}
+              {u.role === 'worker' ? ` · ${t('auth.comoros')}` : ''}
             </span>
-            {busy === u.id && <span className="pill indigo">Opening…</span>}
+            {busy === u.id && <span className="pill indigo">{t('c.opening')}</span>}
           </button>
         ))}
       </div>
-      <p className="hint">Real sign-in uses a {MIN_PIN_LENGTH.worker}-digit code for workers and {MIN_PIN_LENGTH.owner} digits for the owner and managers.</p>
+      <p className="hint">{t('auth.pinRule', { w: MIN_PIN_LENGTH.worker, o: MIN_PIN_LENGTH.owner })}</p>
     </div>
   );
 }

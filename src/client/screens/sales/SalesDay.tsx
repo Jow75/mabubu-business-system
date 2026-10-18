@@ -12,6 +12,7 @@ import { K, type WorkerDay } from '../../../shared/model';
 import { lineTotal, type Currency } from '../../../shared/money';
 import { GarmentLabel, Money, MoneyInput, Stepper, Field, PageHead, Empty, save, toast } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
+import { rich, useT } from '../../lib/i18n';
 
 /** Who/where/when the screen records for, from the URL or the signed-in worker. */
 export function useDayContext() {
@@ -30,10 +31,11 @@ export function useDayContext() {
 }
 
 function WhoBar({ ctx }: { ctx: ReturnType<typeof useDayContext> }) {
+  const t = useT();
   if (ctx.self) return null;
   return (
     <div className="info-box row">
-      <Icon name="people" size={18} /> Recording for <strong>{ctx.worker?.name ?? 'worker'}</strong> · {fmtDate(ctx.workDate)} · {ctx.loc?.name}
+      <Icon name="people" size={18} /> {t('sd.recordingFor')} <strong>{ctx.worker?.name ?? t('c.worker')}</strong> · {fmtDate(ctx.workDate)} · {ctx.loc?.name}
     </div>
   );
 }
@@ -42,6 +44,7 @@ function WhoBar({ ctx }: { ctx: ReturnType<typeof useDayContext> }) {
 
 export function TakeGarments() {
   const ctx = useDayContext();
+  const t = useT();
   const { ledger } = useApp();
   const [qty, setQty] = useState<Record<string, number>>({});
   const [q, setQ] = useState('');
@@ -54,14 +57,14 @@ export function TakeGarments() {
   const cur = (ctx.loc?.currency ?? 'KMF') as Currency;
   const value = lines.reduce((s, l) => s + lineTotal(l.qty, priceFor((k) => ledger.get(k), l.garmentTypeId, ctx.locationId, ctx.workDate)?.retail ?? 0), 0);
 
-  if (!ctx.loc) return <Empty icon="pin" title="No selling location yet">The owner needs to add the Comoros location first.</Empty>;
+  if (!ctx.loc) return <Empty icon="pin" title={t('sd.noSelling')}>{t('sd.noSellingBody')}</Empty>;
   return (
     <div className="page" style={{ maxWidth: 720 }}>
-      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc.name}`} title="Take garments" lead="Count the garments in your hands, then save. Save now — not at the end of the day." />
+      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc.name}`} title={t('w.take')} lead={t('sd.takeLead')} />
       <WhoBar ctx={ctx} />
-      <input className="input" placeholder="Search garments…" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="input" placeholder={t('sd.search')} value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="card">
-        {garments.length === 0 && <Empty title="No garments found" />}
+        {garments.length === 0 && <Empty title={t('sd.noGarments')} />}
         {garments.map((g) => {
           const price = priceFor((k) => ledger.get(k), g.id, ctx.locationId, ctx.workDate);
           return (
@@ -76,7 +79,7 @@ export function TakeGarments() {
                       <Money amount={price.retail} currency={price.currency} />
                     </>
                   ) : (
-                    ' · no price set'
+                    ` · ${t('sd.noPrice')}`
                   )}
                 </span>
               </div>
@@ -87,9 +90,9 @@ export function TakeGarments() {
       </div>
       <div className="sticky-foot">
         <div>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>{total} pcs</div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{t('c.nPcs', { n: total })}</div>
           <div style={{ opacity: 0.75, fontSize: 13 }}>
-            Worth <Money amount={value} currency={cur} /> at full price
+            {rich(t('sd.worth'), { amount: <Money amount={value} currency={cur} /> })}
           </div>
         </div>
         <button
@@ -97,12 +100,12 @@ export function TakeGarments() {
           disabled={busy || total === 0}
           onClick={async () => {
             setBusy(true);
-            const ok = await save(() => store.submit('worker.issue', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), `Saved: ${total} pcs taken`);
+            const ok = await save(() => store.submit('worker.issue', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), t('sd.takenToast', { n: total }));
             setBusy(false);
             if (ok) navigate(ctx.back);
           }}
         >
-          <Icon name="check" /> Save
+          <Icon name="check" /> {t('c.save')}
         </button>
       </div>
     </div>
@@ -113,6 +116,7 @@ export function TakeGarments() {
 
 export function ReturnGarments() {
   const ctx = useDayContext();
+  const t = useT();
   const { ledger, version } = useApp();
   const holding = useMemo(() => workerHolding(ledger, ctx.workerId, ctx.locationId), [ledger, ctx.workerId, ctx.locationId, version]);
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -125,19 +129,19 @@ export function ReturnGarments() {
 
   return (
     <div className="page" style={{ maxWidth: 720 }}>
-      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title="Return garments" lead="Count what you bring back to the store. Whatever is not returned is counted as sold when you close the day." />
+      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title={t('w.return')} lead={t('sd.returnLead')} />
       <WhoBar ctx={ctx} />
       <div className="card">
-        {held.length === 0 && <Empty title="Nothing to return">You are not holding any garments right now.</Empty>}
+        {held.length === 0 && <Empty title={t('sd.nothingReturn')}>{t('sd.nothingReturnBody')}</Empty>}
         {held.map(([gt, n]) => (
           <div key={gt} className={`garment-row ${qty[gt] ? 'active' : ''}`}>
             <div className="stack-sm" style={{ minWidth: 0 }}>
               <GarmentLabel g={ctx.lk.garment(gt)} stacked />
-              <span className="hint">You hold {n}</span>
+              <span className="hint">{t('sd.youHold', { n })}</span>
             </div>
             <div className="row" style={{ gap: 6 }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => setQty({ ...qty, [gt]: n })}>
-                All
+                {t('sd.all')}
               </button>
               <Stepper value={qty[gt] ?? 0} max={ctx.self ? n : undefined} onChange={(v) => setQty({ ...qty, [gt]: v })} label={ctx.lk.garment(gt)?.code} />
             </div>
@@ -146,18 +150,18 @@ export function ReturnGarments() {
       </div>
       {held.length > 0 && (
         <div className="sticky-foot">
-          <div style={{ fontWeight: 700, fontSize: 18 }}>{total} pcs back</div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{t('sd.nBack', { n: total })}</div>
           <button
             className="btn btn-accent btn-lg"
             disabled={busy || total === 0}
             onClick={async () => {
               setBusy(true);
-              const ok = await save(() => store.submit('worker.return', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), `Saved: ${total} pcs returned`);
+              const ok = await save(() => store.submit('worker.return', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), t('sd.returnedToast', { n: total }));
               setBusy(false);
               if (ok) navigate(ctx.back);
             }}
           >
-            <Icon name="check" /> Save
+            <Icon name="check" /> {t('c.save')}
           </button>
         </div>
       )}
@@ -177,6 +181,7 @@ interface LineState {
 
 export function CloseDay() {
   const ctx = useDayContext();
+  const t = useT();
   const { ledger, version } = useApp();
   const holding = useMemo(() => workerHolding(ledger, ctx.workerId, ctx.locationId), [ledger, ctx.workerId, ctx.locationId, version]);
   const held = [...holding.entries()].filter(([, n]) => n > 0);
@@ -225,9 +230,9 @@ export function CloseDay() {
   if (day?.status === 'settled') {
     return (
       <div className="page" style={{ maxWidth: 720 }}>
-        <PageHead title="Day already closed" lead={`${fmtDate(ctx.workDate)} was closed. A manager can reopen it if something must change.`} />
+        <PageHead title={t('sd.alreadyClosed')} lead={t('sd.alreadyClosedLead', { date: fmtDate(ctx.workDate) })} />
         <button className="btn" onClick={() => navigate(ctx.back)}>
-          Back
+          {t('c.back')}
         </button>
       </div>
     );
@@ -235,16 +240,16 @@ export function CloseDay() {
 
   return (
     <div className="page" style={{ maxWidth: 760 }}>
-      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title="Close the day" lead="Everything you still hold is counted as sold, unless you mark it as kept for tomorrow or lost." />
+      <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title={t('w.closeDay')} lead={t('sd.closeLead')} />
       <WhoBar ctx={ctx} />
 
       <div className="card">
         <div className="card-head">
-          <span className="section-title">1 · What was sold</span>
-          <span className="muted">{soldTotal} pcs</span>
+          <span className="section-title">{t('sd.step1')}</span>
+          <span className="muted">{t('c.nPcs', { n: soldTotal })}</span>
         </div>
         <div className="card-body" style={{ paddingTop: 6 }}>
-          {held.length === 0 && <div className="muted">You hold no garments. You can still close the day to hand over money.</div>}
+          {held.length === 0 && <div className="muted">{t('sd.holdNone')}</div>}
           {held.map(([gt, n]) => {
             const l = lineOf(gt, n);
             const pr = prices.get(gt)!;
@@ -254,40 +259,40 @@ export function CloseDay() {
                 <div className="row-between">
                   <GarmentLabel g={ctx.lk.garment(gt)} stacked />
                   <span className="num" style={{ fontWeight: 650 }}>
-                    {l.sold} of {n} sold
+                    {t('sd.soldOf', { sold: l.sold, held: n })}
                   </span>
                 </div>
                 <div className="row-between" style={{ marginTop: 6 }}>
                   <span className="hint">
                     {pr.retail ? (
                       <>
-                        <Money amount={pr.retail} currency={cur} /> each
+                        {rich(t('sd.each'), { amount: <Money amount={pr.retail} currency={cur} /> })}
                       </>
                     ) : (
-                      <span style={{ color: 'var(--hibiscus)' }}>No price set — ask a manager</span>
+                      <span style={{ color: 'var(--hibiscus)' }}>{t('sd.noPriceAsk')}</span>
                     )}
-                    {l.wholesaleQty > 0 && <> · {l.wholesaleQty} wholesale</>}
-                    {l.carried > 0 && <> · {l.carried} kept</>}
-                    {l.lost > 0 && <> · {l.lost} lost</>}
+                    {l.wholesaleQty > 0 && <> · {t('sd.nWholesale', { n: l.wholesaleQty })}</>}
+                    {l.carried > 0 && <> · {t('sd.nKept', { n: l.carried })}</>}
+                    {l.lost > 0 && <> · {t('sd.nLost', { n: l.lost })}</>}
                   </span>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowDetail({ ...showDetail, [gt]: !open })}>
-                    {open ? 'Done' : 'Wholesale / kept / lost'}
+                    {open ? t('c.done') : t('sd.detailToggle')}
                   </button>
                 </div>
                 {open && (
                   <div className="form-grid" style={{ marginTop: 10 }}>
-                    <Field label="Sold at wholesale price">
+                    <Field label={t('sd.soldWholesale')}>
                       <Stepper value={l.wholesaleQty} max={l.sold} onChange={(v) => setLine(gt, n, { wholesaleQty: v })} />
                     </Field>
                     {l.wholesaleQty > 0 && (
-                      <Field label="Wholesale price each">
+                      <Field label={t('sd.wholesaleEach')}>
                         <MoneyInput currency={cur} value={l.wholesalePrice} onChange={(v) => setLine(gt, n, { wholesalePrice: v ?? 0 })} />
                       </Field>
                     )}
-                    <Field label="Kept for tomorrow">
+                    <Field label={t('sd.kept')}>
                       <Stepper value={l.carried} max={n - l.lost} onChange={(v) => setLine(gt, n, { carried: v })} />
                     </Field>
-                    <Field label="Lost or damaged">
+                    <Field label={t('sd.lost')}>
                       <Stepper value={l.lost} max={n - l.carried} onChange={(v) => setLine(gt, n, { lost: v })} />
                     </Field>
                   </div>
@@ -300,25 +305,25 @@ export function CloseDay() {
 
       <div className="card">
         <div className="card-head">
-          <span className="section-title">2 · Money spent from the sales</span>
+          <span className="section-title">{t('sd.step2')}</span>
           <button type="button" className="btn btn-sm" onClick={() => setExpenses([...expenses, { description: '', amount: null }])}>
-            <Icon name="plus" size={16} /> Add
+            <Icon name="plus" size={16} /> {t('c.add')}
           </button>
         </div>
         <div className="card-body stack">
-          {expenses.length === 0 && <span className="muted">Nothing spent.</span>}
+          {expenses.length === 0 && <span className="muted">{t('sd.nothingSpent')}</span>}
           {expenses.map((e, i) => (
             <div key={i} className="form-grid" style={{ alignItems: 'end' }}>
-              <Field label="What for">
-                <input className="input" value={e.description} onChange={(ev) => setExpenses(expenses.map((x, j) => (j === i ? { ...x, description: ev.target.value } : x)))} placeholder="e.g. transport" />
+              <Field label={t('sd.whatFor')}>
+                <input className="input" value={e.description} onChange={(ev) => setExpenses(expenses.map((x, j) => (j === i ? { ...x, description: ev.target.value } : x)))} placeholder={t('sd.whatForPh')} />
               </Field>
               <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'nowrap' }}>
                 <div style={{ flex: 1 }}>
-                  <Field label="Amount">
+                  <Field label={t('sd.amount')}>
                     <MoneyInput currency={cur} value={e.amount} onChange={(v) => setExpenses(expenses.map((x, j) => (j === i ? { ...x, amount: v } : x)))} />
                   </Field>
                 </div>
-                <button type="button" className="icon-btn" aria-label="Remove" onClick={() => setExpenses(expenses.filter((_, j) => j !== i))}>
+                <button type="button" className="icon-btn" aria-label={t('c.remove')} onClick={() => setExpenses(expenses.filter((_, j) => j !== i))}>
                   <Icon name="x" />
                 </button>
               </div>
@@ -329,13 +334,13 @@ export function CloseDay() {
 
       <div className="card">
         <div className="card-head">
-          <span className="section-title">3 · Money handed over</span>
+          <span className="section-title">{t('sd.step3')}</span>
         </div>
         <div className="card-body form-grid">
-          <Field label="Cash">
+          <Field label={t('sd.cash')}>
             <MoneyInput big currency={cur} value={cash} onChange={setCash} />
           </Field>
-          <Field label="Mobile money (if any)">
+          <Field label={t('sd.mobile')}>
             <MoneyInput currency={cur} value={mobile} onChange={setMobile} />
           </Field>
         </div>
@@ -343,34 +348,34 @@ export function CloseDay() {
 
       <div className={`variance ${variance === 0 ? 'ok' : variance > 0 ? 'short' : 'over'}`}>
         <dl className="kv" style={{ color: 'var(--ink)' }}>
-          <dt>Sales at recorded prices</dt>
+          <dt>{t('sd.salesAtPrices')}</dt>
           <dd>
             <Money amount={expected} currency={cur} />
           </dd>
-          <dt>Spent from sales</dt>
+          <dt>{t('sd.spentFromSales')}</dt>
           <dd>
             − <Money amount={spent} currency={cur} />
           </dd>
-          <dt>Handed over</dt>
+          <dt>{t('c.handedOver')}</dt>
           <dd>
             − <Money amount={handed} currency={cur} />
           </dd>
-          <dt className="total">{variance === 0 ? 'Balanced' : variance > 0 ? 'Short by' : 'Over by'}</dt>
+          <dt className="total">{variance === 0 ? t('c.balanced') : variance > 0 ? t('sd.shortBy') : t('sd.overBy')}</dt>
           <dd className="total" style={{ color: 'inherit' }}>
             {variance === 0 ? <Icon name="check" /> : <Money amount={Math.abs(variance)} currency={cur} strong />}
           </dd>
         </dl>
       </div>
-      <Field label={variance !== 0 ? 'Explain the difference' : 'Note (optional)'}>
-        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} placeholder={variance > 0 ? 'e.g. gave a discount, wrong change…' : ''} />
+      <Field label={variance !== 0 ? t('sd.explain') : t('sd.noteOptional')}>
+        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} placeholder={variance > 0 ? t('sd.explainPh') : ''} />
       </Field>
-      {missingPrice && <div className="error-box">Some garments have no selling price. A manager must set prices before this day can be closed.</div>}
+      {missingPrice && <div className="error-box">{t('sd.missingPrice')}</div>}
       <button
         className="btn btn-primary btn-lg"
         disabled={busy || missingPrice || cash === null || expenses.some((e) => !e.description.trim() || !e.amount)}
         onClick={async () => {
           if (variance !== 0 && !note.trim()) {
-            toast('Please explain the difference before closing.', 'error');
+            toast(t('sd.explainFirst'), 'error');
             return;
           }
           setBusy(true);
@@ -387,15 +392,15 @@ export function CloseDay() {
                 expenses: expenses.map((e) => ({ description: e.description.trim(), amount: e.amount ?? 0 })),
                 note: note.trim(),
               }),
-            'Day closed',
+            t('sd.closedToast'),
           );
           setBusy(false);
           if (ok) navigate(ctx.back);
         }}
       >
-        <Icon name="lock" /> Close the day
+        <Icon name="lock" /> {t('w.closeDay')}
       </button>
-      <p className="hint">Amounts are saved in official KMF. The local count (÷5) is only shown to help you count.</p>
+      <p className="hint">{t('sd.kmfNote')}</p>
     </div>
   );
 }

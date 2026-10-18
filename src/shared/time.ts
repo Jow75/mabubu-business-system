@@ -30,25 +30,35 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
 
-const dtf = new Intl.DateTimeFormat('en-GB', {
-  timeZone: BUSINESS_TZ,
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: false,
-});
-const tf = new Intl.DateTimeFormat('en-GB', { timeZone: BUSINESS_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
-const tfs = new Intl.DateTimeFormat('en-GB', {
-  timeZone: BUSINESS_TZ,
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-const df = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const dfShort = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+// Date wording follows the language chosen on the device (English by default,
+// which reports and tests rely on). Stored dates never change.
+function build(locale: string) {
+  return {
+    dtf: new Intl.DateTimeFormat(locale, { timeZone: BUSINESS_TZ, day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+    tf: new Intl.DateTimeFormat(locale, { timeZone: BUSINESS_TZ, hour: '2-digit', minute: '2-digit', hour12: false }),
+    tfs: new Intl.DateTimeFormat(locale, { timeZone: BUSINESS_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+    df: new Intl.DateTimeFormat(locale, { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+    dfShort: new Intl.DateTimeFormat(locale, { timeZone: 'UTC', day: 'numeric', month: 'short' }),
+  };
+}
+let F = build('en-GB');
+let displayLocale = 'en-GB';
+/** Switch the wording of formatted dates (screens only call this). */
+export function setDisplayLocale(locale: string) {
+  if (locale === displayLocale) return;
+  try {
+    F = build(locale);
+    displayLocale = locale;
+  } catch {
+    F = build('en-GB');
+    displayLocale = 'en-GB';
+  }
+}
+const dtf = { format: (d: Date) => F.dtf.format(d) };
+const tf = { format: (d: Date) => F.tf.format(d) };
+const tfs = { format: (d: Date) => F.tfs.format(d) };
+const df = { format: (d: Date) => F.df.format(d) };
+const dfShort = { format: (d: Date) => F.dfShort.format(d) };
 
 /** "17 Oct 2026, 14:05" in business time. */
 export function fmtDateTime(iso: string | null | undefined): string {

@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { store, useApp } from './lib/store';
 import { href, navigate, useRoute } from './lib/router';
 import type { Capability } from '../shared/permissions';
-import { ROLE_LABEL } from './lib/labels';
+import { applyLang, useT } from './lib/i18n';
+import type { Key } from '../shared/i18n';
+import { LanguageChoice } from './screens/auth/Language';
 import { DeraMark, Icon, type IconName } from './ui/Icon';
 import { LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
 import { Welcome } from './screens/auth/Welcome';
@@ -28,39 +30,39 @@ const MANAGEMENT_CAPS: Capability[] = ['workers.reconcile', 'purchasing', 'shipm
 
 interface NavItem {
   to: string;
-  label: string;
+  label: Key;
   icon: IconName;
   cap?: Capability | Capability[];
 }
 
-const NAV: { group: string; items: NavItem[] }[] = [
-  { group: 'Today', items: [{ to: '/', label: 'Overview', icon: 'home' }] },
+const NAV: { group: Key; items: NavItem[] }[] = [
+  { group: 'nav.group.today', items: [{ to: '/', label: 'nav.overview', icon: 'home' }] },
   {
-    group: 'Goods',
+    group: 'nav.group.goods',
     items: [
-      { to: '/stock', label: 'Stock', icon: 'box' },
-      { to: '/purchases', label: 'Purchases', icon: 'bag', cap: ['purchasing', 'payments', 'costs.view'] },
-      { to: '/vendors', label: 'Vendors', icon: 'store', cap: ['purchasing', 'payments', 'costs.view'] },
-      { to: '/shipments', label: 'Shipments', icon: 'ship', cap: ['shipments', 'costs.view', 'workers.reconcile', 'stock.adjust'] },
+      { to: '/stock', label: 'nav.stock', icon: 'box' },
+      { to: '/purchases', label: 'nav.purchases', icon: 'bag', cap: ['purchasing', 'payments', 'costs.view'] },
+      { to: '/vendors', label: 'nav.vendors', icon: 'store', cap: ['purchasing', 'payments', 'costs.view'] },
+      { to: '/shipments', label: 'nav.shipments', icon: 'ship', cap: ['shipments', 'costs.view', 'workers.reconcile', 'stock.adjust'] },
     ],
   },
   {
-    group: 'Money',
+    group: 'nav.group.money',
     items: [
-      { to: '/days', label: 'Sales days', icon: 'people', cap: 'workers.reconcile' },
-      { to: '/expenses', label: 'Expenses', icon: 'receipt', cap: ['expenses', 'costs.view'] },
-      { to: '/reports', label: 'Reports', icon: 'chart', cap: 'costs.view' },
+      { to: '/days', label: 'nav.days', icon: 'people', cap: 'workers.reconcile' },
+      { to: '/expenses', label: 'nav.expenses', icon: 'receipt', cap: ['expenses', 'costs.view'] },
+      { to: '/reports', label: 'nav.reports', icon: 'chart', cap: 'costs.view' },
     ],
   },
   {
-    group: 'Records',
+    group: 'nav.group.records',
     items: [
-      { to: '/activity', label: 'Activity log', icon: 'clock', cap: 'audit.view' },
-      { to: '/catalogue', label: 'Garments & prices', icon: 'tag' },
-      { to: '/people', label: 'People & devices', icon: 'key', cap: 'users.manage' },
-      { to: '/settings', label: 'Settings', icon: 'gear' },
-      { to: '/counter', label: 'Count banknotes', icon: 'coins' },
-      { to: '/convert', label: 'Currency converter', icon: 'swap' },
+      { to: '/activity', label: 'nav.activity', icon: 'clock', cap: 'audit.view' },
+      { to: '/catalogue', label: 'nav.catalogue', icon: 'tag' },
+      { to: '/people', label: 'nav.people', icon: 'key', cap: 'users.manage' },
+      { to: '/settings', label: 'nav.settings', icon: 'gear' },
+      { to: '/counter', label: 'nav.counter', icon: 'coins' },
+      { to: '/convert', label: 'nav.convert', icon: 'swap' },
     ],
   },
 ];
@@ -99,11 +101,15 @@ function useIdleLock(active: boolean) {
 }
 
 export function App() {
-  const { phase, user, firstRun } = useApp();
+  const { phase, user, firstRun, prefs } = useApp();
+  // Applied during render so dates on this very render use the chosen language.
+  applyLang(prefs.lang ?? 'en');
+  const t = useT();
   useTheme();
   useIdleLock(phase === 'ready');
   let body: ReactNode;
-  if (phase === 'boot') body = <div className="empty" style={{ minHeight: '100dvh', justifyContent: 'center' }}>Opening…</div>;
+  if (phase === 'boot') body = <div className="empty" style={{ minHeight: '100dvh', justifyContent: 'center' }}>{t('c.opening')}</div>;
+  else if (!prefs.lang) body = <LanguageChoice />;
   else if (phase === 'setup') body = <Setup />;
   else if (phase === 'welcome' || !user) body = <Welcome />;
   else if (firstRun) body = <StarterSetup />;
@@ -118,11 +124,12 @@ export function App() {
 
 function DemoRibbon() {
   const { demo } = useApp();
+  const t = useT();
   if (!demo) return null;
   return (
     <div className="demo-ribbon">
-      DEMO · sample records only, kept on this device
-      <button onClick={() => store.lock()}>Switch person</button>
+      {t('demo.ribbon')}
+      <button onClick={() => store.lock()}>{t('demo.switch')}</button>
     </div>
   );
 }
@@ -133,6 +140,7 @@ function DemoRibbon() {
 
 function ManageShell() {
   const { user } = useApp();
+  const t = useT();
   const route = useRoute();
   const [more, setMore] = useState(false);
   const caps = user!.caps;
@@ -155,12 +163,12 @@ function ManageShell() {
             const visible = g.items.filter((i) => allowed(caps, i.cap));
             if (!visible.length) return null;
             return (
-              <nav key={g.group} className="nav-group" aria-label={g.group}>
-                <span className="eyebrow">{g.group}</span>
+              <nav key={g.group} className="nav-group" aria-label={t(g.group)}>
+                <span className="eyebrow">{t(g.group)}</span>
                 {visible.map((i) => (
                   <a key={i.to} className="nav-link" href={href(i.to)} aria-current={current(i.to) ? 'page' : undefined}>
                     <Icon name={i.icon} size={19} />
-                    {i.label}
+                    {t(i.label)}
                   </a>
                 ))}
               </nav>
@@ -174,7 +182,7 @@ function ManageShell() {
               <span className="stack-sm" style={{ gap: 0 }}>
                 <strong style={{ color: 'var(--ink)' }}>{user!.name}</strong>
                 <span className="muted" style={{ fontSize: 12.5 }}>
-                  {ROLE_LABEL[user!.role]}
+                  {t(`role.${user!.role}`)}
                 </span>
               </span>
             </button>
@@ -194,30 +202,30 @@ function ManageShell() {
           </main>
         </div>
       </div>
-      <nav className="bottom-nav" aria-label="Main">
+      <nav className="bottom-nav" aria-label={t('nav.main')}>
         {mobileMain.map((i) => (
           <a key={i.to} href={href(i.to)} aria-current={current(i.to) ? 'page' : undefined}>
             <Icon name={i.icon} size={22} />
-            {i.label === 'Sales days' ? 'Sales' : i.label}
+            {t(i.label === 'nav.days' ? 'nav.daysShort' : i.label)}
           </a>
         ))}
         <button onClick={() => setMore(true)}>
           <Icon name="menu" size={22} />
-          More
+          {t('nav.more')}
         </button>
       </nav>
       {more && (
-        <Sheet title="More" onClose={() => setMore(false)}>
+        <Sheet title={t('nav.more')} onClose={() => setMore(false)}>
           <div className="stack-sm">
             {items
               .filter((i) => !mobileMain.includes(i))
               .map((i) => (
                 <a key={i.to} className="nav-link" href={href(i.to)} onClick={() => setMore(false)}>
-                  <Icon name={i.icon} size={19} /> {i.label}
+                  <Icon name={i.icon} size={19} /> {t(i.label)}
                 </a>
               ))}
             <a className="nav-link" href={href('/me')} onClick={() => setMore(false)}>
-              <Icon name="phone" size={19} /> Account & sync
+              <Icon name="phone" size={19} /> {t('nav.account')}
             </a>
             <div style={{ padding: '10px' }}>
               <LocalCountToggle />
@@ -280,12 +288,13 @@ function ManageRoutes() {
 
 function WorkerShell() {
   const { parts } = useRoute();
+  const t = useT();
   const a = parts[0] ?? '';
-  const tabs: { to: string; label: string; icon: IconName }[] = [
-    { to: '/', label: 'Today', icon: 'home' },
-    { to: '/history', label: 'History', icon: 'calendar' },
-    { to: '/counter', label: 'Count', icon: 'coins' },
-    { to: '/me', label: 'Me', icon: 'phone' },
+  const tabs: { to: string; label: Key; icon: IconName }[] = [
+    { to: '/', label: 'nav.today', icon: 'home' },
+    { to: '/history', label: 'c.history', icon: 'calendar' },
+    { to: '/counter', label: 'nav.count', icon: 'coins' },
+    { to: '/me', label: 'nav.me', icon: 'phone' },
   ];
   let page: ReactNode;
   switch (a) {
@@ -329,11 +338,11 @@ function WorkerShell() {
       <main className="main" style={{ paddingBottom: 'calc(96px + env(safe-area-inset-bottom, 0px))' }}>
         {page}
       </main>
-      <nav className="bottom-nav" style={{ display: 'grid' }} aria-label="Main">
-        {tabs.map((t) => (
-          <a key={t.to} href={href(t.to)} aria-current={(t.to === '/' ? a === '' : `/${a}` === t.to) ? 'page' : undefined}>
-            <Icon name={t.icon} size={22} />
-            {t.label}
+      <nav className="bottom-nav" style={{ display: 'grid' }} aria-label={t('nav.main')}>
+        {tabs.map((tab) => (
+          <a key={tab.to} href={href(tab.to)} aria-current={(tab.to === '/' ? a === '' : `/${a}` === tab.to) ? 'page' : undefined}>
+            <Icon name={tab.icon} size={22} />
+            {t(tab.label)}
           </a>
         ))}
       </nav>

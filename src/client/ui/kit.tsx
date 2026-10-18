@@ -5,6 +5,7 @@ import type { GarmentType } from '../../shared/model';
 import { store, useApp } from '../lib/store';
 import { personColor } from '../lib/labels';
 import { Icon, type IconName } from './Icon';
+import { errText, rich, tNow, useT } from '../lib/i18n';
 
 /* ---------------- Money ---------------- */
 
@@ -34,13 +35,14 @@ export function Money({ amount, currency, signed, strong }: { amount: number; cu
 
 export function LocalCountToggle() {
   const { prefs } = useApp();
+  const t = useT();
   return (
-    <div className="seg" role="group" aria-label="How to show Comorian francs">
+    <div className="seg" role="group" aria-label={t('money.howShow')}>
       <button type="button" aria-pressed={!prefs.localCount} onClick={() => store.setPrefs({ localCount: false })}>
         KMF
       </button>
       <button type="button" aria-pressed={prefs.localCount} onClick={() => store.setPrefs({ localCount: true })}>
-        Local ÷5
+        {t('money.localToggle')}
       </button>
     </div>
   );
@@ -62,6 +64,7 @@ export function MoneyInput({
   id?: string;
   placeholder?: string;
 }) {
+  const t = useT();
   const exp = CURRENCIES[currency].exp;
   const toText = (v: number | null) => (v === null ? '' : exp ? String(v / 10 ** exp) : String(v));
   const [text, setText] = useState(toText(value));
@@ -94,10 +97,10 @@ export function MoneyInput({
           {CURRENCIES[currency].prefix}
         </span>
       </div>
-      {text !== '' && parsed === null && <span className="hint" style={{ color: 'var(--hibiscus)' }}>Not a valid amount</span>}
+      {text !== '' && parsed === null && <span className="hint" style={{ color: 'var(--hibiscus)' }}>{t('c.notValidAmount')}</span>}
       {currency === 'KMF' && parsed !== null && parsed > 0 && (
         <span className="hint">
-          = <span className="local">{formatLocalCount(parsed)} local</span> (shown only to help counting)
+          {rich(t('c.localHelp'), { amount: <span className="local">{formatLocalCount(parsed)}</span> })}
         </span>
       )}
     </div>
@@ -107,38 +110,42 @@ export function MoneyInput({
 /* ---------------- Quantities ---------------- */
 
 export function Stepper({ value, onChange, max, big, label }: { value: number; onChange: (v: number) => void; max?: number; big?: boolean; label?: string }) {
+  const t = useT();
   const clamp = (v: number) => Math.max(0, Math.min(max ?? 1_000_000, Math.floor(v || 0)));
   return (
     <div className={`stepper ${big ? 'big' : ''}`}>
-      <button type="button" aria-label={`Less${label ? ` ${label}` : ''}`} onClick={() => onChange(clamp(value - 1))}>
+      <button type="button" aria-label={`${t('c.less')}${label ? ` ${label}` : ''}`} onClick={() => onChange(clamp(value - 1))}>
         −
       </button>
       <input
         inputMode="numeric"
-        aria-label={label ?? 'Quantity'}
+        aria-label={label ?? t('c.quantity')}
         value={value === 0 ? '' : String(value)}
         placeholder="0"
         onChange={(e) => onChange(clamp(Number(e.target.value.replace(/\D/g, ''))))}
         onFocus={(e) => e.target.select()}
       />
-      <button type="button" aria-label={`More${label ? ` ${label}` : ''}`} onClick={() => onChange(clamp(value + 1))}>
+      <button type="button" aria-label={`${t('c.more')}${label ? ` ${label}` : ''}`} onClick={() => onChange(clamp(value + 1))}>
         +
       </button>
     </div>
   );
 }
 
-export function Qty({ n, unit = 'pcs' }: { n: number; unit?: string }) {
+export function Qty({ n, unit }: { n: number; unit?: string }) {
+  const t = useT();
+  const u = unit ?? t('c.pcs');
   return (
     <span className={`num ${n === 0 ? 'zero' : ''}`}>
       {n.toLocaleString('en-US')}
-      {unit ? <span className="muted"> {unit}</span> : null}
+      {u ? <span className="muted"> {u}</span> : null}
     </span>
   );
 }
 
 export function GarmentLabel({ g, showName = true, stacked }: { g: GarmentType | undefined; showName?: boolean; stacked?: boolean }) {
-  if (!g) return <span className="muted">Unknown garment</span>;
+  const t = useT();
+  if (!g) return <span className="muted">{t('c.unknownGarment')}</span>;
   if (stacked)
     return (
       <span className="stack-sm" style={{ gap: 2, minWidth: 0 }}>
@@ -235,6 +242,7 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
 /* ---------------- Sheet ---------------- */
 
 export function Sheet({ title, onClose, children, footer }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -253,7 +261,7 @@ export function Sheet({ title, onClose, children, footer }: { title: ReactNode; 
           <h2 className="section-title" style={{ fontSize: 17 }}>
             {title}
           </h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn" onClick={onClose} aria-label={t('c.close')}>
             <Icon name="x" />
           </button>
         </div>
@@ -309,29 +317,30 @@ export function Toasts() {
 
 export function SyncBadge({ onClick }: { onClick?: () => void }) {
   const { sync, demo } = useApp();
+  const t = useT();
   let cls = 'ok';
-  let text = 'Synced';
+  let text = t('sync.synced');
   if (demo) {
     cls = 'pending';
-    text = 'Demo — this device only';
+    text = t('sync.demo');
   } else if (sync.state === 'syncing') {
     cls = 'busy';
-    text = 'Syncing…';
+    text = t('sync.syncing');
   } else if (sync.rejected > 0) {
     cls = 'bad';
-    text = `${sync.rejected} need attention`;
+    text = t('sync.attention', { n: sync.rejected });
   } else if (sync.state === 'offline') {
     cls = sync.pending ? 'pending' : 'off';
-    text = sync.pending ? `Offline · ${sync.pending} saved on this device` : 'Offline';
+    text = sync.pending ? t('sync.offlineSaved', { n: sync.pending }) : t('sync.offline');
   } else if (sync.pending > 0) {
     cls = 'pending';
-    text = `${sync.pending} waiting to sync`;
+    text = t('sync.waiting', { n: sync.pending });
   } else if (sync.state === 'error') {
     cls = 'bad';
-    text = 'Sync problem';
+    text = t('sync.problem');
   }
   return (
-    <button type="button" className={`sync ${cls}`} onClick={onClick} title={sync.lastError ?? undefined}>
+    <button type="button" className={`sync ${cls}`} onClick={onClick} title={sync.lastError ? errText(sync.lastError) : undefined}>
       <span className="dot" />
       {text}
     </button>
@@ -345,6 +354,6 @@ export async function save(fn: () => Promise<{ ok: boolean; error?: string }>, o
     toast(okText);
     return true;
   }
-  toast(r.error ?? 'Could not save.', 'error');
+  toast(r.error ? errText(r.error) : tNow()('c.couldNotSave'), 'error');
   return false;
 }

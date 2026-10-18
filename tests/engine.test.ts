@@ -382,3 +382,33 @@ describe('prices and profit', () => {
     expect(r.periodNet).toBe(10_000 - 2_800 - 1_050);
   });
 });
+
+describe('worker day: closed, reopened, next day (Amina scenario)', () => {
+  it('a closed day blocks take and return for the worker; a manager reopens it; the next date opens by itself', () => {
+    const L = seeded();
+    buyCollected(L, 'pur-d', hafsa, [{ garmentTypeId: HAF, qty: 100, unitCost: 8000 }]);
+    shipToComoros(L, 'shp-d', [{ garmentTypeId: HAF, qty: 100 }]);
+    const day1 = '2026-10-17';
+    ok(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: day1, lines: [{ garmentTypeId: HAF, qty: 10 }] }, 'amina'), 'amina');
+    const settle = op('worker.settle', { workerId: 'u-amina', locationId: com, workDate: day1, currency: 'KMF', lines: [{ garmentTypeId: HAF, held: 10, sold: 8, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 2, lost: 0 }], cash: 8000, mobile: 0, expenses: [], note: '' }, 'amina');
+    ok(L, settle, 'amina');
+
+    // Closed: neither taking nor returning is accepted, whatever the screen shows.
+    expect(fails(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: day1, lines: [{ garmentTypeId: HAF, qty: 1 }] }, 'amina'), 'amina').error).toMatch(/already closed/);
+    expect(fails(L, op('worker.return', { workerId: 'u-amina', locationId: com, workDate: day1, lines: [{ garmentTypeId: HAF, qty: 1 }] }, 'amina'), 'amina').error).toMatch(/already closed/);
+    // The worker cannot reopen it herself.
+    expect(fails(L, op('op.void', { targetId: settle.id, reason: 'reopen' }, 'amina'), 'amina').code).toBe('forbidden');
+
+    // Next business date: a new day starts with the first take, no approval step.
+    ok(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-18', lines: [{ garmentTypeId: HAF, qty: 5 }] }, 'amina'), 'amina');
+    expect((L.get(K.day('u-amina', '2026-10-18')) as WorkerDay).status).toBe('open');
+
+    // A manager reopens day 1 ("Reopen day" = cancelling the closing, with a reason).
+    ok(L, op('op.void', { targetId: settle.id, reason: 'Amina found 1 more to return' }, 'manager'), 'manager');
+    expect((L.get(K.day('u-amina', day1)) as WorkerDay).status).toBe('open');
+    ok(L, op('worker.return', { workerId: 'u-amina', locationId: com, workDate: day1, lines: [{ garmentTypeId: HAF, qty: 1 }] }, 'amina'), 'amina');
+    // The original closing and its reason stay in the history.
+    expect(L.getOp(settle.id)!.op.payload).toMatchObject({ cash: 8000 });
+    expect(L.getOp(settle.id)!.voidedBy).toBeTruthy();
+  });
+});

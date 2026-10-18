@@ -10,6 +10,7 @@ import { canSee } from '../../shared/visibility';
 import type { LoginResponse, PullResponse, PushResponse, SessionUser } from '../../shared/api';
 import type { UserRef } from '../../shared/model';
 import { uuidv7 } from '../../shared/ids';
+import { isLang, type Lang } from '../../shared/i18n';
 import { api, ApiError } from './api';
 import { UserDb, deviceDb, kvGet, kvSet, userDbName, type DeviceRecord, type LocalOp, type Profile } from './db';
 import { checkVerifier, getDevice, makeVerifier } from './device';
@@ -29,6 +30,8 @@ export interface Prefs {
   localCount: boolean;
   scope: string | null;
   theme: 'system' | 'light' | 'dark';
+  /** Interface language chosen on this device; null until the person picks one. */
+  lang: Lang | null;
 }
 
 export interface Snapshot {
@@ -56,9 +59,10 @@ const PUSH_BATCH = 25;
 const SYNC_INTERVAL_MS = 30_000;
 
 function loadPrefs(): Prefs {
-  const d: Prefs = { localCount: false, scope: null, theme: 'system' };
+  const d: Prefs = { localCount: false, scope: null, theme: 'system', lang: null };
   try {
-    return { ...d, ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>) };
+    const p = { ...d, ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>) };
+    return { ...p, lang: isLang(p.lang) ? p.lang : null };
   } catch {
     return d;
   }

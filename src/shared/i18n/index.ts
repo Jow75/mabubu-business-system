@@ -1,0 +1,136 @@
+// Interface languages. Display only: nothing here touches stored records,
+// amounts, currency codes, ids or the order of operations.
+import { en, type Key } from './en';
+import { fr } from './fr';
+import { sw } from './sw';
+
+export type { Key } from './en';
+export type Lang = 'en' | 'fr' | 'sw';
+export type Vars = Record<string, string | number>;
+export type T = (key: Key, vars?: Vars) => string;
+
+export const LANGS: readonly { code: Lang; name: string }[] = [
+  { code: 'en', name: 'English' },
+  { code: 'fr', name: 'Français' },
+  { code: 'sw', name: 'Kiswahili' },
+];
+
+/** BCP 47 tag used for dates (Intl). Numbers and money keep one fixed style everywhere. */
+export const LOCALE: Record<Lang, string> = { en: 'en-GB', fr: 'fr-FR', sw: 'sw-KE' };
+
+export const DICTS: Record<Lang, Partial<Record<Key, string>>> = { en, fr, sw };
+
+export function isLang(v: unknown): v is Lang {
+  return v === 'en' || v === 'fr' || v === 'sw';
+}
+
+/**
+ * Suggested language from the device's list (e.g. navigator.languages):
+ * the first entry that is French, Swahili or English wins; anything else → English.
+ */
+export function detectLang(preferred: readonly string[] | undefined | null): Lang {
+  for (const tag of preferred ?? []) {
+    const base = tag.toLowerCase().split(/[-_]/)[0];
+    if (isLang(base)) return base;
+  }
+  return 'en';
+}
+
+function fill(s: string, vars?: Vars) {
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s;
+}
+
+/** Look up a key; a missing translation falls back to English, then to the key itself. */
+export function translate(lang: Lang, key: Key, vars?: Vars): string {
+  return fill(DICTS[lang][key] ?? en[key] ?? key, vars);
+}
+
+export function makeT(lang: Lang): T {
+  return (key, vars) => translate(lang, key, vars);
+}
+
+export const tEn: T = makeT('en');
+
+/* ---------------- Greetings ---------------- */
+
+export type Period = 'morning' | 'afternoon' | 'evening' | 'night';
+
+export function periodOf(hour: number): Period {
+  if (hour >= 5 && hour < 12) return 'morning';
+  if (hour >= 12 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 22) return 'evening';
+  return 'night';
+}
+
+const POOL: Record<Period, Key[]> = {
+  morning: ['greet.morning.1', 'greet.morning.2', 'greet.morning.3'],
+  afternoon: ['greet.afternoon.1', 'greet.afternoon.2', 'greet.afternoon.3'],
+  evening: ['greet.evening.1', 'greet.evening.2'],
+  night: ['greet.night.1', 'greet.night.2'],
+};
+
+/**
+ * A greeting for the device's local hour. The variant changes once a day
+ * (stable across renders and navigation), chosen by date and person.
+ */
+export function greeting(lang: Lang, at: Date, name: string | null | undefined, seed = ''): string {
+  const pool = POOL[periodOf(at.getHours())];
+  const day = Math.floor((at.getTime() - at.getTimezoneOffset() * 60_000) / 86_400_000);
+  let h = day;
+  for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const key = pool[h % pool.length]!;
+  const who = name?.trim();
+  const text = translate(lang, key, { name: who || '' });
+  // Without a name, drop the dangling ", " / " {name}" cleanly.
+  return who ? text : text.replace(/,?\s+(?=[.?!]|$)/, '').replace(/\s+,/, ',').replace(/,\s*\./, '.').trim();
+}
+
+/* ---------------- Engine and server messages ---------------- */
+
+// Business rules and the server answer in English (that is what is stored and
+// logged). On screen, known messages are shown in the chosen language; an
+// unknown message is shown as it came.
+const ERRORS: [RegExp, Key, string[]][] = [
+  [/^This day is already closed\. Ask a manager to reopen it\.$/, 'err.dayClosed', []],
+  [/^This day was started at another location, not (.+)\.$/, 'err.otherLocation', ['place']],
+  [/^(.+): no selling price set\.$/, 'err.noPrice', ['label']],
+  [/^(.+): enter the wholesale price\.$/, 'err.wholesalePrice', ['label']],
+  [/^(.+): sold \+ kept \+ lost must equal the (\d+) held\.$/, 'err.heldSum', ['label', 'n']],
+  [/^(.+): wholesale pieces cannot be more than pieces sold\.$/, 'err.wholesaleMore', ['label']],
+  [/^Quantity cannot be negative\.$/, 'err.negative', []],
+  [/^Sales at (.+) are recorded in (\w+)\.$/, 'err.salesCurrency', ['place', 'currency']],
+  [/^Not signed in\.$/, 'err.notSignedIn', []],
+  [/^Invalid entry\.$/, 'err.invalid', []],
+  [/^No connection to the server\.$/, 'err.noServer', []],
+  [/^Wrong code\. (\d+) tries left on this device\.$/, 'err.wrongCodeLocal', ['n']],
+  [/^Too many wrong codes\. Connect to the internet and sign in again\.$/, 'err.tooManyLocal', []],
+  [/^That name and code do not match\.$/, 'err.noMatch', []],
+  [/^Enter your name and your 4–8 digit code\.$/, 'err.enterNameCode', []],
+  [/^Too many wrong attempts from this network\. Try again in an hour\.$/, 'err.networkLimit', []],
+  [/^This account is locked after too many wrong codes\. Ask the owner to unlock it\.$/, 'err.locked', []],
+  [/^This account is now locked\. Ask the owner to unlock it\.$/, 'err.nowLocked', []],
+  [/^Too many wrong codes\. Wait before trying again\.$/, 'err.wait', []],
+  [/^Too many wrong codes\. Try again in (\d+) minutes\.$/, 'err.waitMinutes', ['n']],
+  [/^This account is switched off\. Ask the owner\.$/, 'err.switchedOff', []],
+  [/^This device was blocked by the owner\.$/, 'err.deviceBlocked', []],
+  [/^The owner has not allowed this device for you\.$/, 'err.deviceNotAllowed', []],
+  [/^This device is not recognised\. Reset the app on this device and sign in again\.$/, 'err.deviceUnknown', []],
+  [/^Please sign in\.$/, 'err.signIn', []],
+  [/^Your session has ended\. Please sign in again\.$/, 'err.sessionEnded', []],
+  [/^This device is no longer allowed\. Ask the owner\.$/, 'err.deviceNoLonger', []],
+  [/^The setup key is not correct\.$/, 'err.setupKey', []],
+  [/^Fill in the setup key, your name and a code\.$/, 'err.setupFill', []],
+  [/^Setup is already done\. For recovery, enter the existing owner’s name\.$/, 'err.setupDone', []],
+  [/^Work day not found\.$/, 'err.workDayNotFound', []],
+  [/^The record to cancel was not found\.$/, 'err.recordNotFound', []],
+];
+
+export function localizeError(lang: Lang, message: string | null | undefined): string {
+  if (!message) return '';
+  if (lang === 'en') return message;
+  for (const [re, key, names] of ERRORS) {
+    const m = re.exec(message);
+    if (m) return translate(lang, key, Object.fromEntries(names.map((n, i) => [n, m[i + 1]!])));
+  }
+  return message;
+}
