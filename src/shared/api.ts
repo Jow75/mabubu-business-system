@@ -115,6 +115,8 @@ export interface DeviceRow {
   createdAt: string;
   lastSeenAt: string | null;
   revokedAt: string | null;
+  /** Set when the device has been permanently retired (kept for history, cannot sign in). */
+  retiredAt: string | null;
   access: DeviceAccessRow[];
 }
 

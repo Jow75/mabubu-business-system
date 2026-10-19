@@ -236,6 +236,78 @@ describe('sign-in protection', () => {
   });
 });
 
+describe('device retirement (lifecycle distinct from temporary blocking)', () => {
+  beforeEach(async () => {
+    await setupOwner();
+    await seedCatalogue();
+  });
+
+  const devicesOf = async () => (await call<PeopleResponse>('GET', '/api/admin/people', undefined, owner.token)).body.devices;
+  const eventTypes = () =>
+    (env.DB.raw.prepare('SELECT kind FROM auth_events ORDER BY id').all() as { kind: string }[]).map((e) => e.kind);
+
+  it('retiring a device blocks it, ends its sessions, flags it retired, and logs the event', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    expect((await call('GET', '/api/auth/me', undefined, a.token)).status).toBe(200);
+
+    const r = await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { retired: true }, owner.token);
+    expect(r.status).toBe(200);
+
+    // Its live session is gone.
+    expect((await call('GET', '/api/auth/me', undefined, a.token)).status).toBe(401);
+    // A fresh sign-in on that identity is refused as blocked (retired implies blocked).
+    const retry = await signIn('Amina', '4770', a.dev);
+    expect(retry.status).toBe(403);
+    expect(retry.body.error).toBe('device_blocked');
+
+    const d = (await devicesOf()).find((x) => x.id === a.dev.deviceId)!;
+    expect(d.retiredAt).not.toBeNull();
+    expect(d.revokedAt).not.toBeNull();
+    expect(eventTypes()).toContain('device_retired');
+  });
+
+  it('reactivating a retired device clears both flags and lets an approved person back in', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { retired: true }, owner.token);
+
+    const r = await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { retired: false }, owner.token);
+    expect(r.status).toBe(200);
+
+    const d = (await devicesOf()).find((x) => x.id === a.dev.deviceId)!;
+    expect(d.retiredAt).toBeNull();
+    expect(d.revokedAt).toBeNull();
+    expect(eventTypes()).toContain('device_reactivated');
+
+    // The person previously approved on it can sign in again (like unblock).
+    expect((await signIn('Amina', '4770', a.dev)).status).toBe(200);
+  });
+
+  it('a plain unblock never resurrects a retired device', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { retired: true }, owner.token);
+
+    // Sending { blocked:false } must not clear the retirement — it stays retired and blocked.
+    await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { blocked: false }, owner.token);
+    const d = (await devicesOf()).find((x) => x.id === a.dev.deviceId)!;
+    expect(d.retiredAt).not.toBeNull();
+    expect(d.revokedAt).not.toBeNull();
+    expect((await signIn('Amina', '4770', a.dev)).status).toBe(403);
+  });
+
+  it('refuses to retire the device the owner is signed in on', async () => {
+    const r = await call('PATCH', `/api/admin/devices/${ownerDev.deviceId}`, { retired: true }, owner.token);
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toBe('own_device');
+  });
+
+  it('only a person who can manage users may retire a device', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    const s = await approvedWorker('Said', '5829');
+    const r = await call('PATCH', `/api/admin/devices/${a.dev.deviceId}`, { retired: true }, s.token);
+    expect(r.status).toBe(403);
+  });
+});
+
 describe('owner recovery on a lost / unrecognised device', () => {
   beforeEach(async () => {
     await setupOwner();

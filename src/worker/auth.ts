@@ -379,7 +379,9 @@ export async function setup(env: Env, request: Request): Promise<Response> {
     );
   }
   const dev = await resolveDevice(env, body, request, ip, user.id);
-  if (dev.device.revoked_at) stmts.push(env.DB.prepare('UPDATE devices SET revoked_at = NULL WHERE id = ?').bind(dev.device.id));
+  // Owner recovery fully reactivates the recovering device: clear both the
+  // blocked and retired flags so it never ends up active-but-flagged-retired.
+  if (dev.device.revoked_at) stmts.push(env.DB.prepare('UPDATE devices SET revoked_at = NULL, retired_at = NULL WHERE id = ?').bind(dev.device.id));
   stmts.push(
     ...dev.stmts,
     env.DB.prepare(

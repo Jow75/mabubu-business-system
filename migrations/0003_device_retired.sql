@@ -1,0 +1,12 @@
+-- Device lifecycle: a third, permanent state alongside active and temporarily
+-- blocked. A device is now one of:
+--   * active            revoked_at IS NULL AND retired_at IS NULL
+--   * temporarily blocked revoked_at IS NOT NULL AND retired_at IS NULL  (can be unblocked)
+--   * retired           retired_at IS NOT NULL                            (kept for history only)
+-- Retired implies blocked: retiring always sets revoked_at too, so the existing
+-- auth checks (which deny any device with revoked_at set) already refuse a
+-- retired device without change. Retirement is reversed only by an explicit,
+-- owner-confirmed reactivation, which clears both columns. The row is never
+-- hard-deleted, so historical operations that reference the device stay
+-- intelligible.
+ALTER TABLE devices ADD COLUMN retired_at TEXT;

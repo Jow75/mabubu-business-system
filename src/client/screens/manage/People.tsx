@@ -141,6 +141,25 @@ export function PeoplePage() {
 
 function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]; nameOf: (id: string) => string; onChange: () => void; myDevice: string }) {
   const t = useT();
+  const [confirm, setConfirm] = useState<{ device: DeviceRow; action: 'retire' | 'reactivate' } | null>(null);
+  const active = devices.filter((d) => !d.retiredAt);
+  const retired = devices.filter((d) => d.retiredAt);
+  const allowedNames = (d: DeviceRow) =>
+    d.access
+      .filter((a) => a.status === 'approved')
+      .map((a) => nameOf(a.userId))
+      .join(', ') || '—';
+
+  const runConfirm = async () => {
+    if (!confirm) return;
+    const { device, action } = confirm;
+    if (await call('PATCH', `/admin/devices/${device.id}`, { retired: action === 'retire' })) {
+      toast(action === 'retire' ? t('pp.retiredToast') : t('pp.reactivatedToast'));
+      setConfirm(null);
+      onChange();
+    }
+  };
+
   return (
     <section className="card">
       <div className="card-head">
@@ -159,33 +178,34 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
             </tr>
           </thead>
           <tbody>
-            {devices.map((d) => (
+            {active.map((d) => (
               <tr key={d.id} style={d.revokedAt ? { opacity: 0.55 } : undefined}>
                 <td>
                   {d.label || uaSummary(d.userAgent, t)}
                   {d.id === myDevice && <span className="pill indigo" style={{ marginLeft: 6 }}>{t('pp.thisDevice')}</span>}
+                  {d.revokedAt && <span className="pill red" style={{ marginLeft: 6 }}>{t('pp.blockedStatus')}</span>}
                 </td>
                 <td className="mono">{d.code}</td>
-                <td>
-                  {d.access
-                    .filter((a) => a.status === 'approved')
-                    .map((a) => nameOf(a.userId))
-                    .join(', ') || '—'}
-                </td>
+                <td>{allowedNames(d)}</td>
                 <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
                 <td>
                   {d.id !== myDevice && (
-                    <button
-                      className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
-                      onClick={async () => {
-                        if (await call('PATCH', `/admin/devices/${d.id}`, { blocked: !d.revokedAt })) {
-                          toast(d.revokedAt ? t('pp.unblocked') : t('pp.blocked'));
-                          onChange();
-                        }
-                      }}
-                    >
-                      {d.revokedAt ? t('pp.unblock') : t('pp.block')}
-                    </button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
+                        onClick={async () => {
+                          if (await call('PATCH', `/admin/devices/${d.id}`, { blocked: !d.revokedAt })) {
+                            toast(d.revokedAt ? t('pp.unblocked') : t('pp.blocked'));
+                            onChange();
+                          }
+                        }}
+                      >
+                        {d.revokedAt ? t('pp.unblock') : t('pp.block')}
+                      </button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setConfirm({ device: d, action: 'retire' })}>
+                        {t('pp.retire')}
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -193,6 +213,66 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
           </tbody>
         </table>
       </div>
+      {retired.length > 0 && (
+        <details className="retired-devices" style={{ marginTop: 14 }}>
+          <summary className="section-title" style={{ cursor: 'pointer' }}>
+            {t('pp.retiredDevices')} ({retired.length})
+          </summary>
+          <p className="hint" style={{ margin: '6px 0 2px' }}>{t('pp.retiredHint')}</p>
+          <div className="table-wrap" style={{ marginTop: 8 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{t('pp.device')}</th>
+                  <th>{t('pp.code')}</th>
+                  <th>{t('pp.allowed')}</th>
+                  <th>{t('pp.lastSeen')}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {retired.map((d) => (
+                  <tr key={d.id} style={{ opacity: 0.7 }}>
+                    <td>
+                      {d.label || uaSummary(d.userAgent, t)}
+                      <span className="pill" style={{ marginLeft: 6 }}>{t('pp.retired')}</span>
+                    </td>
+                    <td className="mono">{d.code}</td>
+                    <td>{allowedNames(d)}</td>
+                    <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
+                    <td>
+                      <button className="btn btn-sm" onClick={() => setConfirm({ device: d, action: 'reactivate' })}>
+                        {t('pp.reactivate')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+      {confirm && (
+        <Sheet
+          title={confirm.action === 'retire' ? t('pp.retireTitle') : t('pp.reactivateTitle')}
+          onClose={() => setConfirm(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setConfirm(null)}>
+                {t('c.cancel')}
+              </button>
+              <button className={`btn ${confirm.action === 'retire' ? 'btn-danger' : 'btn-primary'}`} onClick={() => void runConfirm()}>
+                {confirm.action === 'retire' ? t('pp.retire') : t('pp.reactivate')}
+              </button>
+            </>
+          }
+        >
+          <div className="note-box">
+            {confirm.device.label || uaSummary(confirm.device.userAgent, t)} <span className="mono muted">{confirm.device.code}</span>
+          </div>
+          <p className="soft">{confirm.action === 'retire' ? t('pp.retireBody') : t('pp.reactivateBody')}</p>
+        </Sheet>
+      )}
     </section>
   );
 }

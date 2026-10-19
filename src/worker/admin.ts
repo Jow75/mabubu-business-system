@@ -68,7 +68,7 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
   requireCap(session, 'users.manage');
   const [users, devices, access] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM users ORDER BY active DESC, name'),
-    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at FROM devices ORDER BY created_at DESC'),
+    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices ORDER BY created_at DESC'),
     env.DB.prepare('SELECT device_id, user_id, status, requested_at, decided_at FROM device_access ORDER BY requested_at DESC'),
   ]);
   const byDevice = new Map<string, DeviceRow['access']>();
@@ -79,7 +79,7 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
   }
   const res: PeopleResponse = {
     people: (users!.results as unknown as UserRow[]).map(toPerson),
-    devices: (devices!.results as { id: string; code: string; label: string; user_agent: string; created_at: string; last_seen_at: string | null; revoked_at: string | null }[]).map((d) => ({
+    devices: (devices!.results as { id: string; code: string; label: string; user_agent: string; created_at: string; last_seen_at: string | null; revoked_at: string | null; retired_at: string | null }[]).map((d) => ({
       id: d.id,
       code: d.code,
       label: d.label,
@@ -87,6 +87,7 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
       createdAt: d.created_at,
       lastSeenAt: d.last_seen_at,
       revokedAt: d.revoked_at,
+      retiredAt: d.retired_at,
       access: byDevice.get(d.id) ?? [],
     })),
   };
@@ -229,20 +230,32 @@ export async function decideAccess(env: Env, session: Session, request: Request)
   return json({ ok: true });
 }
 
-const deviceSchema = z.object({ label: z.string().trim().max(80).optional(), blocked: z.boolean().optional() });
+const deviceSchema = z.object({ label: z.string().trim().max(80).optional(), blocked: z.boolean().optional(), retired: z.boolean().optional() });
 
 export async function updateDevice(env: Env, session: Session, id: string, request: Request): Promise<Response> {
   requireCap(session, 'users.manage');
   const parsed = deviceSchema.safeParse(await readJson(request));
   if (!parsed.success) throw new HttpError(400, 'invalid_request', 'Invalid request.');
   const b = parsed.data;
-  if (b.blocked && id === session.deviceId) throw new HttpError(400, 'own_device', 'You cannot block the device you are using.');
+  if ((b.blocked || b.retired) && id === session.deviceId) throw new HttpError(400, 'own_device', 'You cannot block or retire the device you are using.');
+  if (!(await env.DB.prepare('SELECT 1 AS x FROM devices WHERE id = ?').bind(id).first())) throw new HttpError(404, 'not_found', 'Device not found.');
   const now = nowIso();
   const stmts: D1PreparedStatement[] = [];
   if (b.label !== undefined) stmts.push(env.DB.prepare('UPDATE devices SET label = ? WHERE id = ?').bind(b.label, id));
-  if (b.blocked !== undefined) {
+  if (b.retired !== undefined) {
+    // Retiring also blocks (so the existing auth checks deny it) and ends its
+    // sessions; reactivating clears both flags. The row is never deleted, so
+    // historical operations that reference the device stay intelligible.
     stmts.push(
-      env.DB.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').bind(b.blocked ? now : null, id),
+      env.DB.prepare('UPDATE devices SET retired_at = ?1, revoked_at = ?1 WHERE id = ?2').bind(b.retired ? now : null, id),
+      eventStmt(env, b.retired ? 'device_retired' : 'device_reactivated', { deviceId: id, actorId: session.user.id }),
+    );
+    if (b.retired) stmts.push(env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL').bind(now, id));
+  } else if (b.blocked !== undefined) {
+    // Plain block/unblock applies only to non-retired devices; a retired device
+    // is reactivated with `retired: false`, not unblocked.
+    stmts.push(
+      env.DB.prepare('UPDATE devices SET revoked_at = ? WHERE id = ? AND retired_at IS NULL').bind(b.blocked ? now : null, id),
       eventStmt(env, b.blocked ? 'device_blocked' : 'device_unblocked', { deviceId: id, actorId: session.user.id }),
     );
     if (b.blocked) stmts.push(env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL').bind(now, id));

@@ -10,6 +10,8 @@ coverage/
 # Database backups contain real business data and PIN hashes — never commit.
 mabubu-backup-*
 *.sql
+# …but schema migrations are source, not data, and must be tracked.
+!migrations/*.sql
 
 # Private notes and local data — never commit
 *discusion with AI.txt
