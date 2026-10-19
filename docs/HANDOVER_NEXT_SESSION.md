@@ -2,7 +2,58 @@
 
 Last updated 19 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
 
-## 19 Oct session — onboarding bug fix + duplicate cleanup
+## 19 Oct session (2) — owner locked out on own laptop: recovery, PIN clarity, device cleanup
+
+Context: the owner cleared the site's browser data on their laptop, then could
+not sign back in — correct code, but the app said the device was new and sat on
+"waiting for the owner" with no way out, because the only owner was the one
+waiting. See `docs/AUTH_AND_RECOVERY.md` for the full model.
+
+**Root cause (confirmed in code and in the live database).** The device identity
+(`deviceId` + `deviceSecret`) lives only in IndexedDB (`mabubu-device`). Clearing
+site data deletes it, so the app makes a new identity and the server correctly
+treats the laptop as a new device. Ordinary login then returns `pending`, and the
+sign-in screen had **no owner-recovery route out of the waiting screen**. The live
+auth log showed exactly this: the owner's current laptop device was `pending`
+since 18 Oct 23:36 and had been polling unapproved. (This is not the duplicate-data
+bug — that was already fixed and verified; reference data is clean: 3 places,
+5 size groups.)
+
+**Live data: what was actually there.** 2 users only — George Muraguri (owner) and
+Jijo (worker); there is **no second George**. 4 devices: Jijo's Android, the
+owner's current laptop, and **two superseded "Windows computer" laptop identities**
+from earlier site-data clears (all three laptop rows were tied to George, which is
+what read as "another George"). Backup taken first:
+`mabubu-backup-2026-10-19-auth-precleanup.sql` (git-ignored, not in repo).
+
+**Done to the live database (owner-authorised, history preserved):**
+- Approved the owner's current laptop so the lockout ends (the waiting screen logs
+  in by itself; if closed, reopening signs in).
+- Retired the two superseded laptop identities: blocked, their access revoked,
+  dormant sessions revoked. Rows, ops and auth log kept. Jijo's Android and the
+  owner's current laptop untouched. Final: 1 owner, 1 worker, 2 active devices
+  (owner laptop + Jijo Android), 2 retired laptop rows.
+
+**Done in code (client only — no server/schema/migration change):**
+- **Owner recovery UX.** The "waiting for the owner" screen now offers "Are you the
+  owner? → Recover owner access", and the setup screen relabels itself as
+  **Recover owner access** once a business exists. Both use the existing
+  `SETUP_TOKEN` recovery path, which already approves the current device, never
+  creates a second owner and never re-seeds (see `src/worker/auth.ts setup()`).
+- **PIN length clarity on the "type your name" path.** That path previously showed
+  four empty circles with no role (the earlier fix only covered the tap-a-saved-
+  profile path). `PinPad` now takes the role; when the role is not known yet it
+  shows "Workers 4 digits · owner & managers 6–8", and a dashed circle after the
+  minimum shows a longer code is accepted. No change to the accepted range/policy.
+- i18n keys added in `en.ts`, `fr.ts`, `sw.ts`. New tests in `tests/worker.test.ts`
+  cover recovery on a lost device, wrong key, no-bypass, and no worker→owner
+  escalation.
+
+Checks: `npm run typecheck && npm test && npm run build` all clean, **142 tests**.
+**Not verified:** a physical Android phone. The owner's own laptop sign-in after
+approval is expected to work on reopen but had not polled again at hand-off time.
+
+## 19 Oct session (1) — onboarding bug fix + duplicate cleanup
 
 Context: see `docs/FIX_PROMPT_onboarding_and_duplicates.md` (the owner's report of duplicated places and size groups after re-running setup).
 

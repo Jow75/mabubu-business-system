@@ -1,6 +1,6 @@
 # Build status — 19 Oct 2026 (live on Cloudflare)
 
-Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked. The owner account exists (George Muraguri) with one worker (Jijo). On 19 Oct an onboarding bug that duplicated places and size groups was fixed and deployed, and the duplicate records were cleaned from the live database after a backup — see [HANDOVER_NEXT_SESSION.md](HANDOVER_NEXT_SESSION.md) (19 Oct section). The owner's and worker's own devices need a one-time sign-out / sign-in to re-sync the cleaned data.
+Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked. The owner account exists (George Muraguri) with one worker (Jijo); there is no second owner. On 19 Oct two things were fixed: (1) an onboarding bug that duplicated places and size groups (reference data is now clean: 3 places, 5 size groups); and (2) the owner being locked out of their own laptop after clearing browser data, with no way to self-recover. Owner recovery is now an explicit flow, the sign-in code-length guidance is clear, and the live device list was cleaned (one owner laptop + Jijo's Android active; two superseded laptop identities retired, history preserved). Backups were taken before each live change. See [HANDOVER_NEXT_SESSION.md](HANDOVER_NEXT_SESSION.md) and [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md).
 
 ## Working and tested
 

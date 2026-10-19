@@ -161,7 +161,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         <h2 className="page-title">{profile.name}</h2>
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
-      <PinPad onSubmit={submit} busy={busy} error={error} minLength={MIN_PIN_LENGTH[profile.role]} />
+      <PinPad onSubmit={submit} busy={busy} error={error} role={profile.role} />
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => void store.removeProfile(profile.userId)}>
         {t('auth.removeProfile', { name: profile.name })}
       </button>
@@ -232,7 +232,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
             <h2 className="page-title">{name}</h2>
             <span className="muted">{t('auth.enterCode')}</span>
           </div>
-          <PinPad onSubmit={submit} busy={busy} error={error} />
+          <PinPad onSubmit={submit} busy={busy} error={error} role={null} />
         </div>
       )}
     </div>
@@ -278,6 +278,16 @@ function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; c
       </div>
       {msg && <div className="note-box">{msg}</div>}
       <p className="hint">{t('auth.autoCheck')}</p>
+      <div className="card selvedge" style={{ padding: '14px 16px', marginTop: 4 }}>
+        <strong>{t('auth.ownerStuckTitle')}</strong>
+        <p className="soft" style={{ margin: '6px 0 0' }}>
+          {t('auth.recoverOwnerHint')}
+        </p>
+        <button type="button" className="btn" style={{ marginTop: 12 }} onClick={() => store.goTo('setup')}>
+          <Icon name="key" size={17} /> {t('auth.recoverOwner')}
+        </button>
+      </div>
+      <p className="hint">{t('auth.storageTip')}</p>
     </div>
   );
 }

@@ -1324,6 +1324,10 @@ button.list-item {
   background: var(--indigo);
   border-color: var(--indigo);
 }
+.pin-dots span.opt {
+  border-style: dashed;
+  opacity: 0.5;
+}
 .pin-dots.shake {
   animation: shake 0.35s;
 }

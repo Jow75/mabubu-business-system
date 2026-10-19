@@ -236,6 +236,65 @@ describe('sign-in protection', () => {
   });
 });
 
+describe('owner recovery on a lost / unrecognised device', () => {
+  beforeEach(async () => {
+    await setupOwner();
+  });
+
+  it('re-links a new device with the setup key — approved at once, no second owner, other devices untouched', async () => {
+    // Cleared storage → a brand-new device identity. Ordinary login is stuck pending.
+    const fresh = device('Owner new laptop');
+    const pending = await signIn('Jowg', '470915', fresh);
+    expect(pending.status).toBe(202);
+    expect(pending.body.status).toBe('pending');
+
+    // The setup key recovers the owner on THIS device and returns a working session.
+    const rec = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...fresh });
+    expect(rec.status).toBe(200);
+    expect(rec.body).toMatchObject({ status: 'ok', created: false });
+    if (rec.body.status !== 'ok') throw new Error('recovery failed');
+    const me = await call<{ user: { role: string } }>('GET', '/api/auth/me', undefined, rec.body.token);
+    expect(me.body.user.role).toBe('owner');
+
+    // Exactly one owner and one user — recovery never creates a second owner.
+    expect((env.DB.raw.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").get() as { n: number }).n).toBe(1);
+    expect((env.DB.raw.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
+
+    // The previously-approved device still works (recovery did not revoke it).
+    expect((await signIn('Jowg', '470915', ownerDev)).status).toBe(200);
+  });
+
+  it('refuses recovery with a wrong setup key and leaves the device unapproved', async () => {
+    const fresh = device('Owner new laptop');
+    const bad = await call('POST', '/api/setup', { setupToken: 'totally-the-wrong-key-123', name: 'Jowg', pin: '470915', ...fresh });
+    expect(bad.status).toBe(401);
+    expect((await signIn('Jowg', '470915', fresh)).status).toBe(202); // still pending
+  });
+
+  it('does not let a new device bypass owner approval without the setup key', async () => {
+    // Even if a setup token is smuggled into the login body, login never approves a new device.
+    const sneaky = device('Unknown');
+    const r = await call<LoginResponse>('POST', '/api/auth/login', { name: 'Jowg', pin: '470915', setupToken: SETUP_TOKEN, ...sneaky });
+    expect(r.status).toBe(202);
+    expect(r.body.status).toBe('pending');
+  });
+
+  it('a worker cannot use the setup key to become an owner', async () => {
+    await seedCatalogue();
+    const w = await createPerson('Zawadi', 'worker', '4062', 'loc-com');
+    // A 4-digit worker code is rejected by the owner PIN policy before anything else.
+    const weak = await call('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Zawadi', pin: '4062', ...device('Zawadi laptop') });
+    expect(weak.status).toBe(400);
+    expect((weak.body as { error: string }).error).toBe('weak_pin');
+    // Even with an owner-strength code, the setup key only recovers the OWNER account,
+    // never a worker: the name is not an owner, so it is refused as not_owner.
+    const elevate = await call('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Zawadi', pin: '419283', ...device('Zawadi laptop') });
+    expect(elevate.status).toBe(400);
+    expect((elevate.body as { error: string }).error).toBe('not_owner');
+    expect((env.DB.raw.prepare('SELECT role FROM users WHERE id = ?').get(w.id) as { role: string }).role).toBe('worker');
+  });
+});
+
 describe('sync', () => {
   beforeEach(async () => {
     await setupOwner();

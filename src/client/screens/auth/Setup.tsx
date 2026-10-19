@@ -1,13 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { store } from '../../lib/store';
-import { ApiError } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { pinPolicyError } from '../../../shared/permissions';
 import { Icon } from '../../ui/Icon';
 import { Field } from '../../ui/kit';
 import { AuthLayout } from './Welcome';
 import { errText, useT } from '../../lib/i18n';
 
-/** First setup (creates the owner) or owner recovery, using the server's SETUP_TOKEN. */
+/**
+ * First setup (creates the owner) or owner recovery, using the server's
+ * SETUP_TOKEN. The server decides which one happened — this screen only reframes
+ * the wording. When an owner already exists (`needsSetup === false`), entering
+ * the key re-links and approves this device; it never creates a second owner and
+ * never re-seeds the starter data.
+ */
 export function Setup() {
   const t = useT();
   const [token, setToken] = useState('');
@@ -16,6 +22,19 @@ export function Setup() {
   const [pin2, setPin2] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null while unknown (offline or still loading): fall back to the neutral,
+  // both-purpose wording rather than guessing.
+  const [recover, setRecover] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api<{ needsSetup: boolean }>('GET', '/setup/status')
+      .then((s) => alive && setRecover(!s.needsSetup))
+      .catch(() => alive && setRecover(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const isRecover = recover === true;
   const policy = pin ? pinPolicyError('owner', pin) : null;
   const mismatch = pin2 && pin !== pin2;
   return (
@@ -41,12 +60,12 @@ export function Setup() {
           <Icon name="left" size={17} /> {t('c.back')}
         </button>
         <div>
-          <div className="eyebrow">{t('setup.eyebrow')}</div>
+          <div className="eyebrow">{isRecover ? t('setup.recoverEyebrow') : t('setup.eyebrow')}</div>
           <h2 className="page-title" style={{ marginTop: 6 }}>
-            {t('setup.title')}
+            {isRecover ? t('setup.recoverTitle') : t('setup.title')}
           </h2>
           <p className="soft" style={{ marginTop: 8 }}>
-            {t('setup.lead')}
+            {isRecover ? t('setup.recoverLead') : t('setup.lead')}
           </p>
         </div>
         <Field label={t('setup.key')} htmlFor="tok">
@@ -65,7 +84,7 @@ export function Setup() {
         </div>
         {error && <div className="error-box">{error}</div>}
         <button className="btn btn-primary btn-lg" disabled={busy || !token || !name || !pin || Boolean(policy) || pin !== pin2}>
-          {busy ? t('setup.busy') : t('setup.create')}
+          {busy ? t('setup.busy') : isRecover ? t('setup.recoverCreate') : t('setup.create')}
         </button>
       </form>
     </AuthLayout>
