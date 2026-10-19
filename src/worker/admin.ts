@@ -100,6 +100,10 @@ export async function createPerson(env: Env, session: Session, request: Request)
   const parsed = createSchema.safeParse(await readJson(request));
   if (!parsed.success) throw new HttpError(400, 'invalid_request', parsed.error.issues[0]?.message ?? 'Check the form.');
   const b = parsed.data;
+  // Only an owner may mint another owner. Today this is already guaranteed
+  // (users.manage is owner-only, so only owners reach here), but an explicit
+  // check keeps the escalation boundary from depending on that invariant alone.
+  if (b.role === 'owner' && session.user.role !== 'owner') throw new HttpError(403, 'forbidden', 'Only an owner can add another owner.');
   const policy = pinPolicyError(b.role, b.pin);
   if (policy) throw new HttpError(400, 'weak_pin', policy);
   const nameKey = normalizeName(b.name);
@@ -137,6 +141,8 @@ export async function updatePerson(env: Env, session: Session, id: string, reque
   const parsed = updateSchema.safeParse(await readJson(request));
   if (!parsed.success) throw new HttpError(400, 'invalid_request', parsed.error.issues[0]?.message ?? 'Check the form.');
   const b = parsed.data;
+  // Only an owner may promote anyone to owner (defence in depth; see createPerson).
+  if (b.role === 'owner' && session.user.role !== 'owner') throw new HttpError(403, 'forbidden', 'Only an owner can make someone an owner.');
   const u = await getUser(env, id);
   const losingOwner = u.role === 'owner' && u.active && ((b.role && b.role !== 'owner') || b.active === false);
   if (losingOwner && (await activeOwnerCount(env)) <= 1) {

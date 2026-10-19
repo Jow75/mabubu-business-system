@@ -230,6 +230,25 @@ describe('sign-in protection', () => {
     expect(r.status).toBe(400);
   });
 
+  it('cannot escalate a manager by writing an owner-only capability into their grants', async () => {
+    const m = await createPerson('Mama', 'manager', '472913', null);
+    // Even when the owner-only capability is written straight into the record,
+    // it must never become effective for a non-owner.
+    const patched = await call<PersonRow>('PATCH', `/api/admin/people/${m.id}`, { grants: ['users.manage'] }, owner.token);
+    expect(patched.body.caps).not.toContain('users.manage');
+
+    const dev = device('Mama laptop');
+    expect((await signIn('Mama', '472913', dev)).status).toBe(202);
+    await call('POST', '/api/admin/access', { deviceId: dev.deviceId, userId: m.id, decision: 'approve' }, owner.token);
+    const ok = await signIn('Mama', '472913', dev);
+    if (ok.body.status !== 'ok') throw new Error('expected approval');
+    expect(ok.body.user.caps).not.toContain('users.manage');
+
+    // So the manager's session is refused by every people/device admin endpoint.
+    expect((await call('GET', '/api/admin/people', undefined, ok.body.token)).status).toBe(403);
+    expect((await call('PATCH', `/api/admin/devices/${dev.deviceId}`, { retired: true }, ok.body.token)).status).toBe(403);
+  });
+
   it('rejects requests from another website', async () => {
     const r = await call('POST', '/api/sync/push', { ops: [], clientNow: new Date().toISOString() }, owner.token, { origin: 'https://evil.example' });
     expect(r.status).toBe(403);
