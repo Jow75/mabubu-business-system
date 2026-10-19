@@ -2,6 +2,52 @@
 
 Last updated 19 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
 
+## 19 Oct session (3) — retired-device lifecycle (built, tested, deployed) + start of the QA/pre-release pass
+
+Context: the owner opened a testing/auditing/pre-release pass (QA, security,
+financial correctness, demo/sync safety, docs, then workflow + Android). First
+deliverable: make the two superseded Windows laptops stop looking like
+temporarily-blocked devices. See commit `47c895e`.
+
+**What changed (code — commit `47c895e`, pushed to `main`):** devices had only
+one off-switch (`revoked_at`). Added a third lifecycle state so a device is
+*active*, *temporarily blocked*, or *retired*.
+- Migration `0003_device_retired.sql` adds `devices.retired_at`. Retired implies
+  blocked, so the existing auth checks already refuse a retired device — **no
+  auth change**. Owner recovery clears `retired_at` when it reactivates its own
+  device.
+- `/admin/devices` accepts `{ retired }`: retiring blocks + ends sessions + logs
+  `device_retired`; reactivating clears both flags + logs `device_reactivated`.
+  Cannot act on your own device; still needs `users.manage`; a plain unblock
+  never resurrects a retired device.
+- People screen: retired devices live in a **collapsed "Retired devices"**
+  section with a confirmed **Reactivate** (no Unblock). en/fr/sw strings added
+  (not native-reviewed). 5 new worker tests (147 total). typecheck/test/build clean.
+- `.gitignore` now un-ignores `migrations/*.sql` — the blanket `*.sql` backup
+  rule would otherwise have dropped this migration from the repo.
+
+**Done to production (owner-authorised, backup first, history preserved):**
+- Backup: `mabubu-backup-2026-10-19-pre-retired-migration.sql` (git-ignored, not
+  in repo; 2 users / 4 devices / 30 ops / 21 entities). **Copy it off the laptop.**
+- Applied migration `0003` to remote D1, then deployed. **Version ID
+  `6bd4ba0f-b080-4927-8c8d-6c20872d2f30`.**
+- Retired `WNY-S7J` and `ZZU-23X` (set `retired_at`; both were already blocked
+  with access revoked). Added two `device_retired` audit events (actor = owner).
+  Final: `WNY-S7J`/`ZZU-23X` blocked+retired; `YB7-EN2` (Jijo Android) and
+  `WR8-WYS` (owner laptop) active. No hard-deletes; ops/entities unchanged.
+- Smoke test on the live URL: `GET /` 200; `/api/setup/status` → `needsSetup:false`;
+  unauthenticated `/api/admin/people` → 401.
+
+**Note:** the owner laptop and Jijo's phone pick up the new client automatically
+the next time each is opened online (service worker update).
+
+**Next in this pass (owner's order):** security review → demo isolation + sync
+safety → financial correctness → testing/pre-release docs (incl. versioning &
+release-readiness checklist) → owner/manager/worker workflow testing + Android.
+Each as its own tested, committed, reported checkpoint. Keep the app in its
+documented testing/pre-release phase; do not declare `1.0.0` without the owner's
+explicit approval.
+
 ## 19 Oct session (2) — owner locked out on own laptop: recovery, PIN clarity, device cleanup
 
 Context: the owner cleared the site's browser data on their laptop, then could
