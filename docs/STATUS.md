@@ -2,6 +2,8 @@
 
 Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked. The owner account exists (George Muraguri) with one worker (Jijo); there is no second owner. On 19 Oct two things were fixed: (1) an onboarding bug that duplicated places and size groups (reference data is now clean: 3 places, 5 size groups); and (2) the owner being locked out of their own laptop after clearing browser data, with no way to self-recover. Owner recovery is now an explicit flow, the sign-in code-length guidance is clear, and the live device list was cleaned (one owner laptop + Jijo's Android active; two superseded laptop identities retired, history preserved). Backups were taken before each live change. See [HANDOVER_NEXT_SESSION.md](HANDOVER_NEXT_SESSION.md) and [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md).
 
+**Release phase:** testing / pre-release (version `0.1.0`). A QA/pre-release pass is under way — see [QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md) for the versioning policy, the canonical business configuration to preserve, the tested/partial/untested checklist, security and performance findings, and the criteria for a stable 1.0.0. Do not declare 1.0.0 without the owner's explicit approval.
+
 ## Working and tested
 
 | Area | What works | How it was checked |

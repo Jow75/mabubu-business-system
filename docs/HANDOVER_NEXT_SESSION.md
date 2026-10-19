@@ -41,12 +41,18 @@ one off-switch (`revoked_at`). Added a third lifecycle state so a device is
 **Note:** the owner laptop and Jijo's phone pick up the new client automatically
 the next time each is opened online (service worker update).
 
-**Next in this pass (owner's order):** security review → demo isolation + sync
-safety → financial correctness → testing/pre-release docs (incl. versioning &
-release-readiness checklist) → owner/manager/worker workflow testing + Android.
-Each as its own tested, committed, reported checkpoint. Keep the app in its
-documented testing/pre-release phase; do not declare `1.0.0` without the owner's
-explicit approval.
+**Progress in this QA/pre-release pass** (each its own tested, committed checkpoint):
+1. Retired-device lifecycle — built, deployed (`47c895e`, version `6bd4ba0f`).
+2. Security review — no Critical/High; owner-role escalation boundary hardened (`9699c53`).
+3. Demo isolation + sync safety — verified + regression test (`24a1525`).
+4. Financial correctness — money + vendor-balance property tests (`e16358d`).
+5. Testing/pre-release docs — `docs/QA_AND_RELEASE_READINESS.md` (versioning policy, canonical config, tested/partial/untested checklist, findings, 1.0.0 criteria).
+
+**Still to do (owner's order):** comprehensive owner/manager/worker end-to-end
+workflow testing (demo + a controlled live check) and **physical Android**
+verification. Keep the app in its documented testing/pre-release phase; do not
+declare `1.0.0` without the owner's explicit approval. See
+`docs/QA_AND_RELEASE_READINESS.md` for the full picture.
 
 ## 19 Oct session (2) — owner locked out on own laptop: recovery, PIN clarity, device cleanup
 
