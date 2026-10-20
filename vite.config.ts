@@ -27,7 +27,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // jsPDF's optional HTML/SVG helpers are never used by the app; don't make phones download them.
-        globIgnores: ['**/pdf-optional-*.js'],
+        // Font subsets for scripts the app's languages (en/fr/sw) never use: ~110 kB
+        // phones would precache for nothing. The CSS still declares them, so a
+        // browser fetches one online in the rare case a name needs it.
+        globIgnores: ['**/pdf-optional-*.js', '**/*-{vietnamese,cyrillic,greek}-*.woff2'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
