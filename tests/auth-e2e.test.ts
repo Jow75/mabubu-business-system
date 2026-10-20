@@ -20,6 +20,8 @@ const n = (sql: string) => (env.DB.raw.prepare(sql).get() as { n: number }).n;
 
 /** While set, downloads wait: lets a test keep a sync "running". */
 let holdPull: Promise<void> | null = null;
+/** Simulated upload trouble: the server is down, or it saves but the reply is lost. */
+let pushMode: 'ok' | 'fail' | 'lose-reply' = 'ok';
 
 type StoreModule = typeof import('../src/client/lib/store');
 let store: StoreModule['store'];
@@ -57,7 +59,10 @@ beforeAll(() => {
   vi.stubGlobal('document', { ...events, visibilityState: 'hidden' });
   vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
     if (holdPull && input.startsWith('/api/sync/pull')) await holdPull;
-    return handle(new Request(`https://mabubu.test${input}`, init), env);
+    if (input.startsWith('/api/sync/push') && pushMode === 'fail') return new Response(JSON.stringify({ error: 'server_error', message: 'Down.' }), { status: 500 });
+    const res = await handle(new Request(`https://mabubu.test${input}`, init), env);
+    if (input.startsWith('/api/sync/push') && pushMode === 'lose-reply') throw new TypeError('connection dropped after the server saved it');
+    return res;
   });
 });
 
@@ -228,5 +233,59 @@ describe('worker on a new device', () => {
     // A worker cannot record management data, even from the device.
     const vendor = await store.submit('vendor.upsert', { id: 'v-x', name: 'X', phone: '', notes: '', active: true });
     expect(vendor.ok).toBe(false);
+  });
+});
+
+describe('sync failures never look like success, and never duplicate', () => {
+  it('a failed upload keeps the record pending and says so; a lost reply is not uploaded twice', async () => {
+    store.lock();
+    await vi.waitFor(() => expect(store.getSnapshot().phase).toBe('welcome'));
+    // This browser is a new device again after the worker test; recover as the owner.
+    await store.setup(SETUP_TOKEN, 'George', '470915');
+    await vi.waitFor(() => expect(store.getSnapshot().sync.state).toBe('idle'), { timeout: 10_000 });
+
+    // 1. The server is down for the upload.
+    pushMode = 'fail';
+    const a = await store.submit('vendor.upsert', { id: 'ven-sync-a', name: 'Sync test A', phone: '', notes: '', active: true });
+    expect(a.ok).toBe(true);
+    await store.syncNow();
+    await vi.waitFor(() => expect(store.getSnapshot().sync.state).toBe('error'), { timeout: 10_000 });
+    expect(store.getSnapshot().sync.pending).toBeGreaterThan(0);
+    expect(store.getSnapshot().records.get(a.ok ? a.op.id : '')?.status).toBe('pending');
+    expect(n("SELECT COUNT(*) AS n FROM ops WHERE type = 'vendor.upsert'")).toBe(0);
+
+    // 2. The server saves it but the reply is lost on the way back.
+    pushMode = 'lose-reply';
+    await store.syncNow();
+    await vi.waitFor(() => expect(n("SELECT COUNT(*) AS n FROM ops WHERE type = 'vendor.upsert'")).toBe(1), { timeout: 10_000 });
+    expect(store.getSnapshot().records.get(a.ok ? a.op.id : '')?.status).toBe('pending');
+
+    // 3. Back to normal: the retry is recognised as already saved — still one record.
+    pushMode = 'ok';
+    await store.syncNow();
+    await vi.waitFor(() => expect(store.getSnapshot().sync.pending).toBe(0), { timeout: 10_000 });
+    expect(store.getSnapshot().records.get(a.ok ? a.op.id : '')?.status).toBe('applied');
+    expect(n("SELECT COUNT(*) AS n FROM ops WHERE type = 'vendor.upsert'")).toBe(1);
+  });
+
+  it('entering the demo twice does not duplicate it, and a real sign-out leaves the demo alone', async () => {
+    const { DEMO_USERS } = await import('../src/shared/demo-data');
+    store.lock();
+    await vi.waitFor(() => expect(store.getSnapshot().phase).toBe('welcome'));
+    await store.openDemo(DEMO_USERS[0]!);
+    const first = store.getSnapshot().records.size;
+    store.lock();
+    await vi.waitFor(() => expect(store.getSnapshot().phase).toBe('welcome'));
+    await store.openDemo(DEMO_USERS[0]!);
+    expect(store.getSnapshot().records.size).toBe(first);
+    store.lock();
+    await vi.waitFor(() => expect(store.getSnapshot().phase).toBe('welcome'));
+    // Remove the real owner from this device…
+    const real = store.getSnapshot().profiles.find((p) => !p.demo)!;
+    await store.removeProfile(real.userId);
+    // …the demo is still there, unchanged.
+    await store.openDemo(DEMO_USERS[0]!);
+    expect(store.getSnapshot().records.size).toBe(first);
+    expect(store.getSnapshot().demo).toBe(true);
   });
 });

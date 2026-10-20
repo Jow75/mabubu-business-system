@@ -1,6 +1,7 @@
 // Interface languages: detection, completeness, fallback, greetings, error
 // wording, and proof that the chosen language never changes business results.
 
+import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DICTS, detectLang, greeting, localizeError, makeT, periodOf, translate, type Key, type Lang } from '../src/shared/i18n';
 import { en } from '../src/shared/i18n/en';
@@ -183,5 +184,48 @@ describe('the language never changes business results', () => {
     expect(fr).toMatch(/17/);
     expect(fr).toMatch(/2026/);
     expect(fr).not.toBe(enDate);
+  });
+});
+
+describe('every fixed message from the server and the rules is translated', () => {
+  // Messages only an operator ever sees (server misconfiguration or a broken
+  // client) stay in English on purpose.
+  const OPERATOR_ONLY = new Set([
+    'The server secret PIN_PEPPER is not set (needs at least 32 characters).',
+    'Setup is switched off on this server (SETUP_TOKEN is not set).',
+    'Request body is not valid JSON.',
+    'Not found.',
+    'Cross-site request refused.',
+    'Nothing to upload.',
+  ]);
+  const lit = String.raw`'((?:[^'\\]|\\.)+)'`;
+  const patterns = [
+    new RegExp(String.raw`new HttpError\(\d+, '[a-z_]+', ` + lit, 'g'),
+    new RegExp(String.raw`(?:invalid|notFound)\(` + lit + String.raw`\)`, 'g'),
+    new RegExp(String.raw`new Fail\('[a-z_]+', ` + lit + String.raw`\)`, 'g'),
+  ];
+  const files = [...readdirSync('src/worker').map((f) => `src/worker/${f}`), 'src/shared/engine.ts'];
+  const messages = new Set<string>();
+  for (const f of files) for (const re of patterns) for (const m of readFileSync(f, 'utf8').matchAll(re)) messages.add(m[1]!.replace(/\\'/g, "'"));
+
+  it('finds the messages (sanity check)', () => {
+    expect(messages.size).toBeGreaterThan(60);
+  });
+
+  it.each(['fr', 'sw'] as Lang[])('%s: none falls back to English', (lang) => {
+    const untranslated = [...messages].filter((m) => !OPERATOR_ONLY.has(m) && localizeError(lang, m) === m);
+    expect(untranslated).toEqual([]);
+  });
+});
+
+describe('composed and generic messages', () => {
+  it('translates a session-ended message together with its reason', () => {
+    const msg = 'Your session has ended. Please sign in again. Your saved records stay on this device until you sign in again.';
+    expect(localizeError('fr', msg)).toBe(`${translate('fr', 'err.sessionEnded')} ${translate('fr', 'err.savedStay')}`);
+    expect(localizeError('sw', msg)).not.toContain('Your saved records');
+  });
+  it('translates generic server errors', () => {
+    expect(localizeError('fr', 'Server error (502).')).toBe(translate('fr', 'err.serverStatus', { n: '502' }));
+    expect(localizeError('sw', 'Something went wrong on the server.')).toBe(translate('sw', 'err.serverWrong'));
   });
 });

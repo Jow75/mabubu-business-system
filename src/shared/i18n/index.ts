@@ -131,11 +131,62 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^No connection\. Showing the last rates saved on this device\.$/, 'err.ratesOffline', []],
   [/^Could not get rates\.$/, 'err.ratesFailed', []],
   [/^Too many wrong codes on this device\.$/, 'err.tooManyDevice', []],
+  [/^Something went wrong on the server\.$/, 'err.serverWrong', []],
+  [/^Server error \((\d+)\)\.$/, 'err.serverStatus', ['n']],
+  [/^You do not have permission for this\.$/, 'err.noPermission', []],
+  [/^You do not have permission for this action\.$/, 'err.noPermissionAction', []],
+  [/^You do not have permission to download this report\.$/, 'err.noPermissionReport', []],
+  [/^Person not found\.$/, 'err.personNotFound', []],
+  [/^Unknown person\.$/, 'err.unknownPerson', []],
+  [/^Only an owner can add another owner\.$/, 'err.ownerAddsOwner', []],
+  [/^Only an owner can make someone an owner\.$/, 'err.ownerMakesOwner', []],
+  [/^That name is already used\. Add a surname or an initial\.$/, 'err.nameTakenHint', []],
+  [/^That name is already used\.$/, 'err.nameTaken', []],
+  [/^There must always be at least one active owner\.$/, 'err.lastOwner', []],
+  [/^Unknown location\.$/, 'err.unknownLocation', []],
+  [/^Invalid request\.$/, 'err.invalidRequest', []],
+  [/^Device not found\.$/, 'err.deviceNotFound', []],
+  [/^You cannot block or retire the device you are using\.$/, 'err.ownDevice', []],
+  [/^The business was just set up from another device\. Try again to recover owner access\.$/, 'err.setupRace', []],
+  [/^Another device was saving at the same moment\. Try again\.$/, 'err.busy', []],
+  [/^Unknown vendor\.$/, 'err.unknownVendor', []],
+  [/^Unknown garment type\.$/, 'err.unknownGarment', []],
+  [/^Unknown size category\.$/, 'err.unknownSize', []],
+  [/^This record is changed by editing, not cancelling\.$/, 'err.editNotCancel', []],
+  [/^This kind of record is changed by editing, not cancelling\.$/, 'err.editNotCancelKind', []],
+  [/^Pick two different currencies\.$/, 'err.twoCurrencies', []],
+  [/^Purchase not found\.$/, 'err.purchaseNotFound', []],
+  [/^Cancel the collections, inspections, returns and payments of this purchase first\.$/, 'err.purchaseDependents', []],
+  [/^This purchase was not waiting for collection\.$/, 'err.notAwaiting', []],
+  [/^This purchase was not delivered for inspection\.$/, 'err.notInspection', []],
+  [/^Some of these rejected pieces were already returned to the vendor\. Cancel the return first\.$/, 'err.rejectedReturned', []],
+  [/^This purchase was cancelled\.$/, 'err.purchaseCancelled', []],
+  [/^This purchase belongs to another vendor\.$/, 'err.otherVendor', []],
+  [/^Origin and destination must be different\.$/, 'err.sameRoute', []],
+  [/^Shipment not found\.$/, 'err.shipmentNotFound', []],
+  [/^Cancel this shipment’s receipts and cost lines first\.$/, 'err.shipmentDependents', []],
+  [/^This shipment was cancelled\.$/, 'err.shipmentCancelled', []],
+  [/^The cost being replaced is not an active cost line of this shipment\.$/, 'err.costNotActive', []],
+  [/^Cost line not found\.$/, 'err.costNotFound', []],
+  [/^This cost was replaced by a later one\. Cancel the later one first\.$/, 'err.costReplaced', []],
+  [/^Explain the adjustment in the note\.$/, 'err.explainAdjust', []],
+  [/^This day is not closed by this record\.$/, 'err.notThisClose', []],
+  [/^Only a closed day can be reviewed\.$/, 'err.reviewClosedOnly', []],
+  [/^Records can only be created in your own name\.$/, 'err.ownName', []],
+  [/^Only a manager can cancel this record\.$/, 'err.managerCancels', []],
+  [/^This purchase was already recorded\.$/, 'err.purchaseExists', []],
+  [/^This shipment was already recorded\.$/, 'err.shipmentExists', []],
+  [/^This record was already cancelled\.$/, 'err.alreadyCancelled', []],
+  [/^Request is too large\.$/, 'err.tooLarge', []],
 ];
+
+/** Appended by the app when a session ends; the reason before it is translated on its own. */
+const SAVED_STAY = ' Your saved records stay on this device until you sign in again.';
 
 export function localizeError(lang: Lang, message: string | null | undefined): string {
   if (!message) return '';
   if (lang === 'en') return message;
+  if (message.endsWith(SAVED_STAY)) return `${localizeError(lang, message.slice(0, -SAVED_STAY.length))} ${translate(lang, 'err.savedStay')}`;
   for (const [re, key, names] of ERRORS) {
     const m = re.exec(message);
     if (m) return translate(lang, key, Object.fromEntries(names.map((n, i) => [n, m[i + 1]!])));
