@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { store, useApp } from '../../lib/store';
 import { ApiError } from '../../lib/api';
 import type { Profile } from '../../lib/db';
 import { DEMO_USERS } from '../../../shared/demo-data';
-import { MIN_PIN_LENGTH } from '../../../shared/permissions';
+import { MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
 import { DeraMark, Icon } from '../../ui/Icon';
 import { Monogram } from '../../ui/kit';
 import { PinPad } from './PinPad';
@@ -52,7 +52,7 @@ function RouteArt() {
   );
 }
 
-type Mode = { kind: 'list' } | { kind: 'pin'; profile: Profile } | { kind: 'other' } | { kind: 'pending'; name: string; pin: string; code: string } | { kind: 'demo' };
+type Mode = { kind: 'list' } | { kind: 'pin'; profile: Profile } | { kind: 'other' } | { kind: 'pending'; name: string; pin: string; code: string; role: Role } | { kind: 'demo' };
 
 export function Welcome() {
   const { profiles, online } = useApp();
@@ -94,11 +94,11 @@ export function Welcome() {
           <FooterLinks online={online} onDemo={() => setMode({ kind: 'demo' })} />
         </div>
       )}
-      {mode.kind === 'pin' && <PinStep profile={mode.profile} onBack={() => setMode({ kind: 'list' })} onPending={(name, pin, code) => setMode({ kind: 'pending', name, pin, code })} />}
+      {mode.kind === 'pin' && <PinStep profile={mode.profile} onBack={() => setMode({ kind: 'list' })} onPending={(name, pin, code, role) => setMode({ kind: 'pending', name, pin, code, role })} />}
       {mode.kind === 'other' && (
         <OtherStep
           onBack={real.length ? () => setMode({ kind: 'list' }) : null}
-          onPending={(name, pin, code) => setMode({ kind: 'pending', name, pin, code })}
+          onPending={(name, pin, code, role) => setMode({ kind: 'pending', name, pin, code, role })}
           onDemo={() => setMode({ kind: 'demo' })}
         />
       )}
@@ -132,7 +132,9 @@ function errorText(e: unknown, t: T): string {
   return t('c.somethingWrong');
 }
 
-function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () => void; onPending: (name: string, pin: string, code: string) => void }) {
+type OnPending = (name: string, pin: string, code: string, role: Role) => void;
+
+function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () => void; onPending: OnPending }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +144,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
       setError(null);
       try {
         const r = await store.unlock(profile, pin);
-        if (r?.status === 'pending') onPending(profile.name, pin, r.deviceCode);
+        if (r?.status === 'pending') onPending(profile.name, pin, r.deviceCode, r.role);
       } catch (e) {
         setError(errorText(e, t));
       } finally {
@@ -162,14 +164,47 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
       <PinPad onSubmit={submit} busy={busy} error={error} role={profile.role} />
-      <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => void store.removeProfile(profile.userId)}>
-        {t('auth.removeProfile', { name: profile.name })}
-      </button>
+      <RemoveProfile profile={profile} onRemoved={onBack} />
     </div>
   );
 }
 
-function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null; onPending: (name: string, pin: string, code: string) => void; onDemo: () => void }) {
+/** Removing a person from this device asks first, and warns before unsent records are lost. */
+function RemoveProfile({ profile, onRemoved }: { profile: Profile; onRemoved: () => void }) {
+  const t = useT();
+  const [unsent, setUnsent] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (unsent === null) {
+    return (
+      <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => void store.unsentCount(profile.userId).then(setUnsent)}>
+        {t('auth.removeProfile', { name: profile.name })}
+      </button>
+    );
+  }
+  return (
+    <div className={unsent > 0 ? 'error-box stack-sm' : 'note-box stack-sm'} role="alert">
+      <span>{unsent > 0 ? t('auth.removeUnsent', { name: profile.name, n: unsent }) : t('auth.removeConfirm', { name: profile.name })}</span>
+      <div className="row">
+        <button
+          className={unsent > 0 ? 'btn btn-sm btn-danger' : 'btn btn-sm'}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            await store.removeProfile(profile.userId);
+            onRemoved();
+          }}
+        >
+          {unsent > 0 ? t('auth.removeAnyway') : t('auth.removeYes')}
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setUnsent(null)}>
+          {t('c.cancel')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null; onPending: OnPending; onDemo: () => void }) {
   const { online } = useApp();
   const t = useT();
   const [name, setName] = useState('');
@@ -182,7 +217,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
       setError(null);
       try {
         const r = await store.signIn(name.trim(), pin);
-        if (r.status === 'pending') onPending(name.trim(), pin, r.deviceCode);
+        if (r.status === 'pending') onPending(name.trim(), pin, r.deviceCode, r.role);
       } catch (e) {
         setError(errorText(e, t));
       } finally {
@@ -239,9 +274,18 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
   );
 }
 
-function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; code: string; onBack: () => void }) {
+/** How often the waiting screen re-checks: often at first, then gently, then it stops. */
+const POLL_FAST_MS = 8_000;
+const POLL_SLOW_MS = 30_000;
+const POLL_FAST_FOR_MS = 5 * 60_000;
+const POLL_STOP_AFTER_MS = 30 * 60_000;
+
+function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: string; code: string; role: Role; onBack: () => void }) {
   const t = useT();
   const [msg, setMsg] = useState<string | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const started = useRef(Date.now());
+  const owner = role === 'owner';
   const check = useCallback(async () => {
     try {
       const r = await store.signIn(name, pin);
@@ -251,25 +295,49 @@ function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; c
     }
   }, [name, pin, t]);
   useEffect(() => {
-    const t = setInterval(() => {
-      if (document.visibilityState === 'visible') void check();
-    }, 8000);
-    return () => clearInterval(t);
-  }, [check]);
+    if (stopped) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      const age = Date.now() - started.current;
+      if (age > POLL_STOP_AFTER_MS) {
+        setStopped(true);
+        return;
+      }
+      timer = setTimeout(
+        () => {
+          if (document.visibilityState === 'visible') void check();
+          next();
+        },
+        age < POLL_FAST_FOR_MS ? POLL_FAST_MS : POLL_SLOW_MS,
+      );
+    };
+    next();
+    return () => clearTimeout(timer);
+  }, [check, stopped]);
+  const recheck = () => {
+    started.current = Date.now();
+    setStopped(false);
+    void check();
+  };
   return (
     <div className="stack" style={{ gap: 20 }}>
       <div>
         <div className="eyebrow">{t('auth.newDevice')}</div>
         <h2 className="page-title" style={{ marginTop: 6 }}>
-          {t('auth.waitingOwner')}
+          {owner ? t('auth.ownerNewDeviceTitle') : t('auth.waitingOwner')}
         </h2>
         <p className="soft" style={{ marginTop: 8 }}>
-          {t('auth.pendingBody')}
+          {owner ? t('auth.ownerNewDeviceBody') : t('auth.pendingBody')}
         </p>
       </div>
       <div className="device-code">{code}</div>
+      {owner && (
+        <button type="button" className="btn btn-primary btn-lg btn-wrap" onClick={() => store.goTo('setup', { name, pin })}>
+          <Icon name="key" size={18} /> {t('auth.useRecoveryKey')}
+        </button>
+      )}
       <div className="row">
-        <button className="btn btn-primary" onClick={() => void check()}>
+        <button className={owner ? 'btn' : 'btn btn-primary'} onClick={recheck}>
           <Icon name="refresh" size={18} /> {t('auth.checkAgain')}
         </button>
         <button className="btn btn-ghost" onClick={onBack}>
@@ -277,18 +345,26 @@ function PendingStep({ name, pin, code, onBack }: { name: string; pin: string; c
         </button>
       </div>
       {msg && <div className="note-box">{msg}</div>}
-      <p className="hint">{t('auth.autoCheck')}</p>
-      <div className="card selvedge" style={{ padding: '14px 16px', marginTop: 4 }}>
-        <strong>{t('auth.ownerStuckTitle')}</strong>
-        <p className="soft" style={{ margin: '6px 0 0' }}>
-          {t('auth.recoverOwnerHint')}
-        </p>
-        <button type="button" className="btn" style={{ marginTop: 12 }} onClick={() => store.goTo('setup')}>
-          <Icon name="key" size={17} /> {t('auth.recoverOwner')}
+      <p className="hint">{stopped ? t('auth.autoCheckStopped') : owner ? t('auth.ownerAutoCheck') : t('auth.autoCheck')}</p>
+      <p className="hint">{t('auth.whyNewDevice')}</p>
+    </div>
+  );
+}
+
+/** Shown when the browser will not let the app keep anything on this device. */
+export function StorageBlocked() {
+  const t = useT();
+  return (
+    <AuthLayout>
+      <div className="stack" style={{ gap: 16 }}>
+        <div className="eyebrow">{t('auth.storageBlockedEyebrow')}</div>
+        <h2 className="page-title">{t('auth.storageBlockedTitle')}</h2>
+        <p className="soft">{t('auth.storageBlockedBody')}</p>
+        <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => location.reload()}>
+          <Icon name="refresh" size={18} /> {t('auth.tryAgain')}
         </button>
       </div>
-      <p className="hint">{t('auth.storageTip')}</p>
-    </div>
+    </AuthLayout>
   );
 }
 

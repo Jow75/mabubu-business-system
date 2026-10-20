@@ -31,9 +31,14 @@ export interface SetupRequest extends DeviceIdentity {
 
 export type LoginResponse =
   // `created` is set only by /setup: true on genuine first-time owner creation,
-  // false on owner recovery. The client uses it to show first-run setup only once.
-  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser; created?: boolean }
-  | { status: 'pending'; deviceCode: string; userName: string };
+  // false on owner recovery. `starterNeeded` is also set only by /setup: true
+  // when the business has no records at all yet (first creation, or a first
+  // setup that was interrupted before the starter places were saved). The
+  // client shows the starter-setup screen only when it is true.
+  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser; created?: boolean; starterNeeded?: boolean }
+  // `role` is returned only after the code was verified, so the app can tell an
+  // owner (who can recover with the setup key) from a worker (who must wait).
+  | { status: 'pending'; deviceCode: string; userName: string; role: Role };
 
 /** Error body returned with a non-2xx status. */
 export interface ApiErrorBody {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { store } from '../../lib/store';
+import { store, useApp } from '../../lib/store';
 import { api, ApiError } from '../../lib/api';
 import { pinPolicyError } from '../../../shared/permissions';
 import { Icon } from '../../ui/Icon';
@@ -16,10 +16,13 @@ import { errText, useT } from '../../lib/i18n';
  */
 export function Setup() {
   const t = useT();
+  // Arriving from the "new device" screen, the owner's name and the code the
+  // server just verified are carried over, so only the recovery key is needed.
+  const { recoverFor } = useApp();
   const [token, setToken] = useState('');
-  const [name, setName] = useState('');
-  const [pin, setPin] = useState('');
-  const [pin2, setPin2] = useState('');
+  const [name, setName] = useState(recoverFor?.name ?? '');
+  const [pin, setPin] = useState(recoverFor?.pin ?? '');
+  const [pin2, setPin2] = useState(recoverFor?.pin ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // null while unknown (offline or still loading): fall back to the neutral,
@@ -68,14 +71,15 @@ export function Setup() {
             {isRecover ? t('setup.recoverLead') : t('setup.lead')}
           </p>
         </div>
+        {recoverFor && <div className="note-box">{t('setup.prefilled')}</div>}
         <Field label={t('setup.key')} htmlFor="tok">
-          <input id="tok" className="input mono" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" required />
+          <input id="tok" className="input mono" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" autoFocus={Boolean(recoverFor)} required />
         </Field>
         <Field label={t('auth.yourName')} htmlFor="nm" hint={t('setup.recoveryHint')}>
           <input id="nm" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         <div className="form-grid">
-          <Field label={t('setup.code')} htmlFor="p1" hint={policy ? errText(policy) : t('setup.codeHint')}>
+          <Field label={t('setup.code')} htmlFor="p1" hint={policy ? errText(policy) : isRecover ? t('setup.recoverCodeHint') : t('setup.codeHint')}>
             <input id="p1" className="input" inputMode="numeric" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} required />
           </Field>
           <Field label={t('setup.repeat')} htmlFor="p2" hint={mismatch ? t('setup.mismatch') : undefined}>

@@ -7,7 +7,7 @@ import type { Key } from '../shared/i18n';
 import { LanguageChoice } from './screens/auth/Language';
 import { DeraMark, Icon, type IconName } from './ui/Icon';
 import { LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
-import { Welcome } from './screens/auth/Welcome';
+import { StorageBlocked, Welcome } from './screens/auth/Welcome';
 import { Setup } from './screens/auth/Setup';
 import { CloseDay, ReturnGarments, TakeGarments } from './screens/sales/SalesDay';
 import { WorkerHistory, WorkerToday } from './screens/worker/WorkerHome';
@@ -101,7 +101,7 @@ function useIdleLock(active: boolean) {
 }
 
 export function App() {
-  const { phase, user, firstRun, prefs } = useApp();
+  const { phase, user, firstRun, prefs, storageError } = useApp();
   // Applied during render so dates on this very render use the chosen language.
   applyLang(prefs.lang ?? 'en');
   const t = useT();
@@ -110,6 +110,7 @@ export function App() {
   let body: ReactNode;
   if (phase === 'boot') body = <div className="empty" style={{ minHeight: '100dvh', justifyContent: 'center' }}>{t('c.opening')}</div>;
   else if (!prefs.lang) body = <LanguageChoice />;
+  else if (storageError) body = <StorageBlocked />;
   else if (phase === 'setup') body = <Setup />;
   else if (phase === 'welcome' || !user) body = <Welcome />;
   else if (firstRun) body = <StarterSetup />;

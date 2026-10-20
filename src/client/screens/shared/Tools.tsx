@@ -100,6 +100,7 @@ export function SyncCenter() {
               <dd>{persisted === null ? '—' : persisted ? t('c.yes') : t('me.storageNo')}</dd>
             </dl>
           )}
+          {!demo && persisted === false && <div className="note-box">{t('me.storageWarn')}</div>}
           {sync.lastError && <div className="error-box">{errText(sync.lastError)}</div>}
           {pending.length > 0 && (
             <div className="stack-sm">

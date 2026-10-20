@@ -247,7 +247,7 @@ export async function login(env: Env, request: Request): Promise<Response> {
     );
   }
   await env.DB.batch(stmts);
-  const res: LoginResponse = { status: 'pending', deviceCode: device.code, userName: user.name };
+  const res: LoginResponse = { status: 'pending', deviceCode: device.code, userName: user.name, role: user.role };
   return json(res, 202);
 }
 
@@ -339,6 +339,7 @@ export async function setup(env: Env, request: Request): Promise<Response> {
   const count = (await env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>())?.n ?? 0;
   const now = nowIso();
   let user: UserRow;
+  let pinChanged = false;
   const stmts: D1PreparedStatement[] = [];
   if (count === 0) {
     const id = uuidv7();
@@ -364,11 +365,15 @@ export async function setup(env: Env, request: Request): Promise<Response> {
         `INSERT INTO users (id, name, name_key, role, grants, revokes, location_id, pin_hmac, pin_set_at, active, created_at, updated_at)
          VALUES (?, ?, ?, 'owner', '[]', '[]', NULL, ?, ?, 1, ?, ?)`,
       ).bind(id, user.name, user.name_key, user.pin_hmac, now, now, now),
+      // Two first-setup requests racing each other must not create two owners:
+      // the batch is atomic, so this aborts it if anyone else got in first.
+      env.DB.prepare('INSERT INTO guard (v) SELECT 1 WHERE (SELECT COUNT(*) FROM users) > 1'),
     );
   } else {
     const owner = await env.DB.prepare("SELECT * FROM users WHERE name_key = ? AND role = 'owner'").bind(normalizeName(body.name)).first<UserRow>();
     if (!owner) throw new HttpError(400, 'not_owner', 'Setup is already done. For recovery, enter the existing owner’s name.');
     user = { ...owner, pin_hmac: await pinHash(env.PIN_PEPPER, owner.id, body.pin) };
+    pinChanged = !safeEqual(user.pin_hmac, owner.pin_hmac);
     stmts.push(
       env.DB.prepare('UPDATE users SET pin_hmac = ?, pin_set_at = ?, failed_count = 0, locked_until = NULL, hard_locked = 0, active = 1, updated_at = ? WHERE id = ?').bind(
         user.pin_hmac,
@@ -390,9 +395,23 @@ export async function setup(env: Env, request: Request): Promise<Response> {
     ).bind(dev.device.id, user.id, now),
   );
   const s = await newSessionStmts(env, user.id, dev.device.id);
-  await env.DB.batch([...stmts, ...s.stmts, eventStmt(env, count === 0 ? 'setup_owner' : 'setup_recover_owner', { userId: user.id, deviceId: dev.device.id, ip })]);
-  // `created` tells the client whether this was a first-time creation (seed the
-  // starter data once) or a recovery (never re-seed — see the duplicate-data bug).
-  const res: LoginResponse = { status: 'ok', token: s.token, expiresAt: s.expiresAt, user: sessionUser(user), created: count === 0 };
+  // Recovery may set a new owner code; record whether it did, so the sign-in
+  // log shows it (never the code itself).
+  const detail = count === 0 ? {} : { pinChanged };
+  try {
+    await env.DB.batch([...stmts, ...s.stmts, eventStmt(env, count === 0 ? 'setup_owner' : 'setup_recover_owner', { userId: user.id, deviceId: dev.device.id, ip, detail })]);
+  } catch (e) {
+    if (count === 0 && /CHECK constraint failed|UNIQUE constraint failed: users/i.test(String((e as Error)?.message ?? e))) {
+      throw new HttpError(409, 'setup_race', 'The business was just set up from another device. Try again to recover owner access.');
+    }
+    throw e;
+  }
+  // `created` tells the client whether this was a first-time creation or a
+  // recovery. `starterNeeded` says whether the starter places and size groups
+  // can still be offered: only while the business has no records at all, so an
+  // interrupted first setup can finish, and a recovery never re-seeds a
+  // business that already has data (see the duplicate-data bug).
+  const hasRecords = Boolean(await env.DB.prepare('SELECT 1 AS x FROM ops LIMIT 1').first());
+  const res: LoginResponse = { status: 'ok', token: s.token, expiresAt: s.expiresAt, user: sessionUser(user), created: count === 0, starterNeeded: !hasRecords };
   return json(res);
 }

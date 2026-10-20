@@ -49,6 +49,10 @@ export interface Snapshot {
   version: number;
   firstRun: boolean;
   persisted: boolean | null;
+  /** Name and code carried from the "new device" screen into owner recovery. */
+  recoverFor: { name: string; pin: string } | null;
+  /** The browser refused local storage (private window, storage blocked). */
+  storageError: boolean;
 }
 
 export type SubmitResult = { ok: true; op: AnyOp; flags: Flag[] } | { ok: false; error: string };
@@ -97,12 +101,21 @@ class Store {
     version: 0,
     firstRun: false,
     persisted: null,
+    recoverFor: null,
+    storageError: false,
   };
   private listeners = new Set<() => void>();
   private db: UserDb | null = null;
   private profile: Profile | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncing: Promise<void> | null = null;
+  private syncAgain = false;
+  /**
+   * Bumped whenever the signed-in session changes (open, lock, demo). Work that
+   * started under an older session — a sync still waiting on a slow network —
+   * must not write its person, records or profile into the new one.
+   */
+  private epoch = 0;
   private kick: ReturnType<typeof setTimeout> | null = null;
   private localOrder = 0;
 
@@ -128,7 +141,17 @@ class Store {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this.requestSync();
     });
-    const device = await getDevice();
+    let device: DeviceRecord;
+    let profiles: Profile[];
+    try {
+      device = await getDevice();
+      profiles = await this.loadProfiles();
+    } catch {
+      // Without IndexedDB there is nowhere to keep this device's identity or
+      // any record, so say so instead of hanging on the opening screen.
+      this.set({ storageError: true, phase: 'welcome' });
+      return;
+    }
     // Ask to keep this device's storage as early as possible, before anyone
     // signs in. The device identity and the signed-in profile live only in
     // IndexedDB; if the browser evicts it, the device becomes unrecognised and
@@ -136,7 +159,6 @@ class Store {
     // boot makes that eviction far less likely. (Some browsers only grant it
     // after real use, so we ask again after sign-in too.)
     void this.requestPersistence();
-    const profiles = await this.loadProfiles();
     let phase: Phase = 'welcome';
     if (!profiles.some((p) => !p.demo) && navigator.onLine) {
       try {
@@ -153,8 +175,9 @@ class Store {
     return (await deviceDb.profiles.toArray()).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
   }
 
-  goTo(phase: 'setup' | 'welcome') {
-    this.set({ phase });
+  /** `recoverFor` carries the owner's name and verified code into recovery. */
+  goTo(phase: 'setup' | 'welcome', recoverFor: { name: string; pin: string } | null = null) {
+    this.set({ phase, recoverFor });
   }
 
   /* ---------------- sign-in ---------------- */
@@ -196,10 +219,12 @@ class Store {
     const res = await api<LoginResponse>('POST', '/setup', { setupToken, name, pin, deviceId: device.deviceId, deviceSecret: device.deviceSecret, deviceLabel: device.label });
     if (res.status === 'ok') {
       await this.afterOnlineAuth(res, pin);
-      // Only show the starter setup on a genuine first creation. Owner recovery
-      // (re-running setup to re-link a device) must never re-seed places and
-      // size groups — that is what produced the duplicate reference data.
-      if (res.created) this.set({ firstRun: true });
+      // Only show the starter setup while the business has no records: owner
+      // recovery on a business with data must never re-seed places and size
+      // groups — that is what produced the duplicate reference data. The server
+      // decides (`starterNeeded`), which also lets a first setup that was
+      // interrupted before anything was saved finish its starter step.
+      this.set({ recoverFor: null, ...(res.starterNeeded ?? res.created ? { firstRun: true } : {}) });
     }
   }
 
@@ -232,10 +257,13 @@ class Store {
   }
 
   private async open(profile: Profile) {
+    const epoch = ++this.epoch;
     await deviceDb.profiles.put(profile);
+    if (epoch !== this.epoch) return;
     this.profile = profile;
     this.db = new UserDb(userDbName(profile.userId, false));
-    const [records, directory] = await Promise.all([this.db.ops.toArray(), kvGet<UserRef[]>(this.db, 'directory')]);
+    const [records, directory, profiles] = await Promise.all([this.db.ops.toArray(), kvGet<UserRef[]>(this.db, 'directory'), this.loadProfiles()]);
+    if (epoch !== this.epoch) return;
     const map = new Map(records.map((r) => [r.id, r]));
     this.localOrder = records.reduce((m, r) => Math.max(m, r.localOrder), 0);
     const dir = directory ?? [{ id: profile.user.id, name: profile.user.name, role: profile.user.role, active: true, locationId: profile.user.locationId }];
@@ -246,7 +274,7 @@ class Store {
       records: map,
       directory: dir,
       ledger: this.rebuild(map, dir, profile.user),
-      profiles: await this.loadProfiles(),
+      profiles,
       sync: { ...this.snap.sync, state: navigator.onLine ? 'idle' : 'offline', lastError: null, ...this.counts(map) },
     });
     if (this.snap.persisted === null) void this.requestPersistence();
@@ -255,19 +283,42 @@ class Store {
   }
 
   lock() {
+    const epoch = ++this.epoch;
     this.stopTimer();
     this.db?.close();
     this.db = null;
     this.profile = null;
-    void this.loadProfiles().then((profiles) =>
-      this.set({ phase: 'welcome', user: null, demo: false, records: new Map(), ledger: new Ledger(), directory: [], firstRun: false, profiles }),
-    );
+    void this.loadProfiles()
+      .catch(() => [] as Profile[])
+      .then((profiles) => {
+        // Someone may already have signed in again; do not undo that.
+        if (epoch === this.epoch) this.set({ phase: 'welcome', user: null, demo: false, records: new Map(), ledger: new Ledger(), directory: [], firstRun: false, profiles });
+      });
   }
 
-  /** Sign out on the server and forget this person on this device. */
+  /** Records this person saved on this device that have not reached the server. */
+  async unsentCount(userId: string): Promise<number> {
+    const p = await deviceDb.profiles.get(userId);
+    if (!p || p.demo) return 0;
+    const db = new UserDb(userDbName(userId, false));
+    try {
+      return await db.ops.where('status').equals('pending').count();
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * Sign out on the server and forget this person on this device. This deletes
+   * their local copy, including records not yet sent — the screen asks first
+   * (see `unsentCount`).
+   */
   async removeProfile(userId: string) {
     const p = await deviceDb.profiles.get(userId);
     if (!p) return;
+    // End the session first, so a sync still running for this person cannot
+    // write the profile back after it is deleted.
+    if (this.profile?.userId === userId) this.lock();
     if (p.token && !p.demo) {
       try {
         await api('POST', '/auth/logout', {}, p.token);
@@ -277,9 +328,9 @@ class Store {
     }
     await deviceDb.profiles.delete(userId);
     if (!p.demo) await new UserDb(userDbName(userId, false)).delete();
-    if (this.profile?.userId === userId) this.lock();
-    else this.set({ profiles: await this.loadProfiles() });
+    this.set({ profiles: await this.loadProfiles() });
   }
+
 
   dismissFirstRun() {
     this.set({ firstRun: false });
@@ -403,7 +454,12 @@ class Store {
   }
 
   async syncNow(): Promise<void> {
-    if (this.syncing) return this.syncing;
+    if (this.syncing) {
+      // A sync is running, but it chose what to upload before this request
+      // (for example a record saved a moment ago). Run once more after it.
+      this.syncAgain = true;
+      return this.syncing;
+    }
     if (!this.snap.user || !this.db) return;
     if (this.snap.demo) return this.demoSync();
     if (!navigator.onLine) {
@@ -412,6 +468,10 @@ class Store {
     }
     this.syncing = this.doSync().finally(() => {
       this.syncing = null;
+      if (this.syncAgain) {
+        this.syncAgain = false;
+        this.requestSync(0);
+      }
     });
     return this.syncing;
   }
@@ -420,9 +480,15 @@ class Store {
     const db = this.db!;
     const profile = this.profile!;
     const token = profile.token;
+    const epoch = this.epoch;
+    const stale = () => epoch !== this.epoch;
     this.set({ sync: { ...this.snap.sync, state: 'syncing' } });
     try {
-      let records = new Map(this.snap.records);
+      // `records` is this sync's working copy, taken now. Anything saved while
+      // the sync runs is not in it, so the end of the sync merges only what the
+      // sync itself changed (`touched`) into the then-current records.
+      const records = new Map(this.snap.records);
+      const touched = new Map<string, LocalOp>();
       let changed = false;
 
       // 1. Upload records saved on this device.
@@ -430,6 +496,9 @@ class Store {
       for (let i = 0; i < pending.length; i += PUSH_BATCH) {
         const chunk = pending.slice(i, i + PUSH_BATCH);
         const res = await api<PushResponse>('POST', '/sync/push', { ops: chunk.map((r) => r.op), clientNow: new Date().toISOString() }, token);
+        // Uploaded records stay uploaded (the server ignores a repeat); if the
+        // person changed meanwhile, stop here without touching the new session.
+        if (stale()) return;
         const updates: LocalOp[] = [];
         res.results.forEach((r, idx) => {
           const local = chunk[idx];
@@ -437,7 +506,10 @@ class Store {
           updates.push({ ...local, status: r.status, seq: r.seq, serverTime: r.serverTime, error: r.error, flags: r.flags.length ? r.flags : local.flags });
         });
         await db.ops.bulkPut(updates);
-        for (const u of updates) records.set(u.id, u);
+        for (const u of updates) {
+          records.set(u.id, u);
+          touched.set(u.id, u);
+        }
         changed = true;
       }
 
@@ -448,6 +520,7 @@ class Store {
       let newFromServer = false;
       for (let page = 0; page < 200; page++) {
         const res = await api<PullResponse>('GET', `/sync/pull?since=${since}`, undefined, token);
+        if (stale()) return;
         const incoming: LocalOp[] = res.ops.map((o) => {
           const { seq, serverTime, actorName, clockSkewMs, status, error, flags, voidedBy: _v, ...op } = o;
           const existing = records.get(o.id);
@@ -467,7 +540,10 @@ class Store {
         });
         if (incoming.length) {
           await db.ops.bulkPut(incoming);
-          for (const r of incoming) records.set(r.id, r);
+          for (const r of incoming) {
+            records.set(r.id, r);
+            touched.set(r.id, r);
+          }
           changed = true;
         }
         since = res.next;
@@ -478,26 +554,33 @@ class Store {
         if (!res.more) break;
       }
 
+      if (stale()) return;
       if (JSON.stringify(me) !== JSON.stringify(this.snap.user)) {
         const updated = { ...profile, user: me, name: me.name, role: me.role };
         await deviceDb.profiles.put(updated);
+        if (stale()) return;
         this.profile = updated;
       }
-      const syncInfo: SyncInfo = { state: 'idle', lastSyncAt: new Date().toISOString(), lastError: null, ...this.counts(records) };
-      if (newFromServer || directory !== this.snap.directory || me !== this.snap.user) {
+      const merged = new Map(this.snap.records);
+      for (const [id, r] of touched) merged.set(id, r);
+      const syncInfo: SyncInfo = { state: 'idle', lastSyncAt: new Date().toISOString(), lastError: null, ...this.counts(merged) };
+      const directoryChanged = JSON.stringify(directory) !== JSON.stringify(this.snap.directory);
+      const meChanged = JSON.stringify(me) !== JSON.stringify(this.snap.user);
+      if (newFromServer || directoryChanged || meChanged) {
         this.set({ user: me, directory });
-        this.refresh(records, { sync: syncInfo, online: true });
+        this.refresh(merged, { sync: syncInfo, online: true });
       } else if (changed) {
         // Only our own records changed state; keep the current projection.
-        for (const r of records.values()) {
+        for (const r of touched.values()) {
           const lr = this.snap.ledger.ops.get(r.id);
           if (lr && r.status === 'applied' && lr.status === 'pending') this.snap.ledger.ops.set(r.id, { ...lr, status: 'applied' });
         }
-        if ([...records.values()].some((r) => r.status === 'rejected' && this.snap.records.get(r.id)?.status === 'pending')) {
-          this.refresh(records, { sync: syncInfo, online: true });
-        } else this.set({ records, sync: syncInfo, online: true });
+        if ([...touched.values()].some((r) => r.status === 'rejected' && this.snap.records.get(r.id)?.status === 'pending')) {
+          this.refresh(merged, { sync: syncInfo, online: true });
+        } else this.set({ records: merged, sync: syncInfo, online: true });
       } else this.set({ sync: syncInfo, online: true });
     } catch (e) {
+      if (stale()) return;
       const err = e instanceof ApiError ? e : new ApiError(500, 'error', String(e));
       if (err.status === 401) {
         await this.sessionEnded(err.message);
@@ -519,7 +602,9 @@ class Store {
   /* ---------------- demo mode ---------------- */
 
   async openDemo(user: SessionUser): Promise<null> {
+    const epoch = ++this.epoch;
     const { seedDemo, DEMO_USERS } = await import('./demo');
+    if (epoch !== this.epoch) return null;
     this.db = new UserDb(DEMO_DB);
     if (!(await kvGet<boolean>(this.db, 'seeded'))) await seedDemo(this.db);
     const records = new Map((await this.db.ops.toArray()).map((r) => [r.id, r]));

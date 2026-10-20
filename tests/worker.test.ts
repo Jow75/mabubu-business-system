@@ -637,3 +637,141 @@ describe('vendor payments sync', () => {
     expect(purchaseBalances(L).get('pur-1')!.balance).toBe(0);
   });
 });
+
+describe('account lifecycle: a returning account is not a returning device', () => {
+  beforeEach(async () => {
+    await setupOwner();
+    await seedCatalogue();
+  });
+
+  const count = (sql: string, ...p: string[]) => (env.DB.raw.prepare(sql).get(...p) as { n: number }).n;
+  const events = (kind: string) => env.DB.raw.prepare('SELECT detail FROM auth_events WHERE kind = ? ORDER BY id').all(kind) as { detail: string }[];
+
+  it('tells the owner (only after a correct code) that a pending device is theirs, so they can recover', async () => {
+    const fresh = device('Owner laptop after clearing data');
+    const p = await signIn('Jowg', '470915', fresh);
+    expect(p.status).toBe(202);
+    expect(p.body).toMatchObject({ status: 'pending', role: 'owner' });
+    // A wrong code reveals nothing about the role.
+    const wrong = await signIn('Jowg', '111111', device('x'));
+    expect(wrong.status).toBe(401);
+    expect(wrong.body).not.toHaveProperty('role');
+  });
+
+  it('a worker and a manager on a new device are pending with their own role, and sign in once approved', async () => {
+    const w = await createPerson('Amina', 'worker', '4770', 'loc-com');
+    const m = await createPerson('Mama', 'manager', '472913', null);
+    for (const [person, name, pin, role] of [
+      [w, 'Amina', '4770', 'worker'],
+      [m, 'Mama', '472913', 'manager'],
+    ] as const) {
+      const dev = device(`${name} phone`);
+      expect((await signIn(name, pin, dev)).body).toMatchObject({ status: 'pending', role });
+      await call('POST', '/api/admin/access', { deviceId: dev.deviceId, userId: person.id, decision: 'approve' }, owner.token);
+      const ok = await signIn(name, pin, dev);
+      expect(ok.status).toBe(200);
+      if (ok.body.status !== 'ok') throw new Error('expected ok');
+      expect(ok.body.user.role).toBe(role);
+    }
+  });
+
+  it('repeated polling from the waiting screen never duplicates the device, the request or the log entry', async () => {
+    await createPerson('Amina', 'worker', '4770', 'loc-com');
+    const dev = device('Amina phone');
+    for (let i = 0; i < 6; i++) expect((await signIn('Amina', '4770', dev)).status).toBe(202);
+    expect(count('SELECT COUNT(*) AS n FROM devices WHERE id = ?', dev.deviceId)).toBe(1);
+    expect(count('SELECT COUNT(*) AS n FROM device_access WHERE device_id = ?', dev.deviceId)).toBe(1);
+    expect(count("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'device_requested' AND device_id = ?", dev.deviceId)).toBe(1);
+  });
+
+  it('recovery records whether the owner code changed, and a changed code replaces the old one', async () => {
+    const same = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...device('Recover A') });
+    expect(same.status).toBe(200);
+    const changed = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '903172', ...device('Recover B') });
+    expect(changed.status).toBe(200);
+    expect(events('setup_recover_owner').map((e) => JSON.parse(e.detail))).toEqual([{ pinChanged: false }, { pinChanged: true }]);
+    expect((await signIn('Jowg', '470915', ownerDev)).status).toBe(401);
+    expect((await signIn('Jowg', '903172', ownerDev)).status).toBe(200);
+  });
+
+  it('recovery on a business with records never offers the starter setup again, and leaves everyone else alone', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    const snapshot = () => (env.DB.raw.prepare('SELECT id, name, role, active, location_id FROM users ORDER BY id').all() as Record<string, unknown>[]).map((u) => JSON.stringify(u));
+    const entities = () => count('SELECT COUNT(*) AS n FROM entities');
+    const before = { users: snapshot(), entities: entities(), ops: count('SELECT COUNT(*) AS n FROM ops') };
+    const rec = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...device('Owner new laptop') });
+    expect(rec.body).toMatchObject({ status: 'ok', created: false, starterNeeded: false });
+    expect({ users: snapshot(), entities: entities(), ops: count('SELECT COUNT(*) AS n FROM ops') }).toEqual(before);
+    // The worker's approved device and session are untouched.
+    expect((await call('GET', '/api/auth/me', undefined, a.token)).status).toBe(200);
+  });
+
+  it('an expired or revoked session ends; the same approved device signs in again without a new approval', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    env.DB.raw.prepare('UPDATE sessions SET expires_at = ? WHERE user_id = ?').run('2000-01-01T00:00:00.000Z', a.id);
+    const r = await call<{ error: string }>('GET', '/api/auth/me', undefined, a.token);
+    expect(r.status).toBe(401);
+    expect(r.body.error).toBe('session_ended');
+    expect((await signIn('Amina', '4770', a.dev)).status).toBe(200);
+
+    const s = await approvedWorker('Said', '5829');
+    await call('POST', '/api/admin/access', { deviceId: s.dev.deviceId, userId: s.id, decision: 'revoke' }, owner.token);
+    expect((await call('GET', '/api/auth/me', undefined, s.token)).status).toBe(401);
+    const again = await signIn('Said', '5829', s.dev);
+    expect(again.status).toBe(403);
+    expect((again.body as { error: string }).error).toBe('device_denied');
+  });
+
+  it('a switched-off person cannot sign in, and a duplicate name is refused', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    await call('PATCH', `/api/admin/people/${a.id}`, { active: false }, owner.token);
+    const r = await signIn('Amina', '4770', a.dev);
+    expect(r.status).toBe(403);
+    expect((r.body as { error: string }).error).toBe('disabled');
+    const dup = await call('POST', '/api/admin/people', { name: '  amina ', role: 'worker', pin: '5937', locationId: 'loc-com', grants: [], revokes: [], allowOnDeviceId: null }, owner.token);
+    expect(dup.status).toBe(409);
+  });
+
+  it('a worker cannot create people, promote themselves, approve devices or export', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    expect((await call('POST', '/api/admin/people', { name: 'Boss', role: 'owner', pin: '583920', locationId: null, grants: [], revokes: [], allowOnDeviceId: null }, a.token)).status).toBe(403);
+    expect((await call('PATCH', `/api/admin/people/${a.id}`, { role: 'owner' }, a.token)).status).toBe(403);
+    expect((await call('POST', '/api/admin/access', { deviceId: a.dev.deviceId, userId: a.id, decision: 'approve' }, a.token)).status).toBe(403);
+    expect((await call('GET', '/api/admin/export', undefined, a.token)).status).toBe(403);
+    expect(count("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'")).toBe(1);
+  });
+});
+
+describe('first setup is server-authoritative and happens once', () => {
+  it('two first-setup requests racing each other cannot create two owners', async () => {
+    await setupOwner();
+    // Simulate the race: these requests read "no users yet" before the first
+    // owner's batch landed.
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    env.DB.prepare = ((sql: string) =>
+      sql === 'SELECT COUNT(*) AS n FROM users' ? { bind: () => ({}), first: async () => ({ n: 0 }) } : realPrepare(sql)) as typeof env.DB.prepare;
+    const other = await call<{ error: string }>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Someone Else', pin: '640281', ...device('Other laptop') });
+    const sameName = await call<{ error: string }>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '640281', ...device('Third laptop') });
+    env.DB.prepare = realPrepare;
+    expect(other.status).toBe(409);
+    expect(other.body.error).toBe('setup_race');
+    expect(sameName.status).toBe(409);
+    expect((env.DB.raw.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").get() as { n: number }).n).toBe(1);
+    expect((env.DB.raw.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
+  });
+
+  it('a first setup interrupted before any record was saved can still finish its starter step — once', async () => {
+    const first = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...ownerDev });
+    expect(first.body).toMatchObject({ created: true, starterNeeded: true });
+    // The response was lost (tab closed); the owner tries again. That is a
+    // recovery, but with no records yet the starter step is still offered.
+    const retry = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...ownerDev });
+    expect(retry.body).toMatchObject({ status: 'ok', created: false, starterNeeded: true });
+    if (retry.body.status !== 'ok') throw new Error('expected ok');
+    owner = { token: retry.body.token, id: retry.body.user.id };
+    await seedCatalogue();
+    const third = await call<LoginResponse>('POST', '/api/setup', { setupToken: SETUP_TOKEN, name: 'Jowg', pin: '470915', ...ownerDev });
+    expect(third.body).toMatchObject({ created: false, starterNeeded: false });
+    expect((env.DB.raw.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
+  });
+});
