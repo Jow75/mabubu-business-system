@@ -1,6 +1,47 @@
 # Handover — next session
 
-Last updated 19 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 20 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 20 Oct session — second QA pass (deployed: `d78753fe`, `6b124483`, `d20cecee`)
+
+Full record: `docs/QA_AND_RELEASE_READINESS.md`. Commits `5533d88` (auth
+lifecycle + store sync fixes), `6f4cf0d` (phone layout/accessibility, staging),
+`2ccedb7` (financial reconciliation), `7905821` (translations, review sheet),
+`444a88b` (smaller offline cache). 193 tests.
+
+- **Production deploys (each after a verified export to
+  `Documents\mabubu-backups\`, outside the repo):** `d78753fe` = escalation
+  guard; `6b124483` = auth/sync fixes; `d20cecee` = UX/i18n/precache. No
+  migration; data unchanged after each (counts checked). One `setup_wrong_key`
+  sign-in-log entry on 20 Oct ~11:41 UTC came from a deliberate smoke check.
+- **Owner laptop:** forgot itself again on 20 Oct (new pending identity
+  `MCS-MH4`, same Chrome). The app never deletes the identity; the browser
+  cleared it. Owner must recover with the key and fix the Chrome setting (QA §6).
+- **Staging:** `wrangler.jsonc` env `staging` → Worker `mabubu-staging`, D1
+  `mabubu-staging` (`7a3d9fe8-…`), own secrets; synthetic demo-catalogue data;
+  test owner "Test Owner", test worker "Test Worker" (codes and staging key in
+  `Documents\mabubu-backups\STAGING-ONLY-setup-key.txt`). Never copy production
+  data there. Setting secrets from Windows PowerShell 5.1 by piping corrupts
+  them — paste interactively, or pipe from Git Bash with `printf '%s'`.
+- **Not done:** physical Android (no phone paired), native-speaker review,
+  production rollback (rehearsed on staging only).
+
+### Android test plan (needs the owner's phone)
+
+1. Owner: phone on the same Wi-Fi as the laptop; Settings → Developer options →
+   **Wireless debugging** on → "Pair device with pairing code". In a **separate
+   PowerShell window on the laptop** (not in the chat) run
+   `& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" pair <IP:port>`
+   and type the 6-digit code there. Then tell the agent "paired".
+2. Agent: `adb mdns services` / `adb connect`, `adb devices -l`; record model,
+   Android and Chrome versions only.
+3. Use **staging** with "Test Worker"; approve the phone as Test Owner. Drive
+   Chrome through `adb forward tcp:9222 localabstract:chrome_devtools_remote`
+   (the same DevTools scripts as the emulated run), or guide the owner step by step.
+4. Steps: French → install to home screen → reopen → sign in → take 10 /
+   return 2 → airplane mode → close day → check "saved on this device" →
+   network on → one closing on the server, no duplicates → restart → final state.
+5. `adb disconnect`; owner turns Wireless debugging off.
 
 ## 19 Oct session (3) — retired-device lifecycle (built, tested, deployed) + start of the QA/pre-release pass
 
@@ -122,14 +163,16 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 
 ## Where things are
 
-| Item | State |
+| Item | State (20 Oct 2026) |
 |---|---|
-| Code | Branch `main`, pushed to private GitHub `Jow75/mabubu-business-system`. Run `git log --oneline -5` for the latest commit. No force-pushes; no automatic deploy from GitHub |
-| Live app | https://mabubu.mabubu-family.workers.dev (Cloudflare Worker `mabubu`, free plan) |
-| Database | D1 `mabubu`, id `99eb0bfa-4c87-4afc-be5f-3cb0faf397ef` (WEUR). Migrations 0001–0002 applied. **No owner yet, so no business records.** |
-| Secrets | `PIN_PEPPER`, `SETUP_TOKEN` set in Cloudflare only. The owner was shown the setup key in Notepad and asked to write it down and delete `Documents\MABUBU-SETUP-KEY.txt` |
-| Wrangler login | Logged in on the owner's laptop (`npx wrangler whoami`) |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 132 tests, build includes the offline check |
+| Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
+| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `d20cecee` |
+| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0003; real records (owner + Jijo) |
+| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging`, D1 `mabubu-staging`, synthetic data |
+| Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
+| Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
+| Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 193 tests |
 
 ## Done in the 18 Oct session
 

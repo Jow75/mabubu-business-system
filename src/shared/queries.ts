@@ -211,7 +211,12 @@ export interface VendorAccount {
   paid: number;
   /** Positive: we owe the vendor. Negative: the vendor holds our credit. */
   balance: number;
-  /** Payments not (yet) covering any purchase: an advance or overpayment. */
+  /**
+   * What is left of payments not tied to a purchase after they paid the oldest
+   * unpaid purchases (an advance). A payment tied to one purchase that pays too
+   * much stays on that purchase (negative purchase balance); `balance` shows it
+   * as credit either way. See ADR-002.
+   */
   unallocated: number;
   purchases: PurchaseBalance[];
   payments: PaymentRecord[];

@@ -1,6 +1,8 @@
-# Build status — 19 Oct 2026 (live on Cloudflare)
+# Build status — 20 Oct 2026 (live on Cloudflare)
 
-Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and checked. The owner account exists (George Muraguri) with one worker (Jijo); there is no second owner. On 19 Oct two things were fixed: (1) an onboarding bug that duplicated places and size groups (reference data is now clean: 3 places, 5 size groups); and (2) the owner being locked out of their own laptop after clearing browser data, with no way to self-recover. Owner recovery is now an explicit flow, the sign-in code-length guidance is clear, and the live device list was cleaned (one owner laptop + Jijo's Android active; two superseded laptop identities retired, history preserved). Backups were taken before each live change. See [HANDOVER_NEXT_SESSION.md](HANDOVER_NEXT_SESSION.md) and [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md).
+Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker version `d20cecee` (main `444a88b`), database migrations 0001–0003. One owner (George Muraguri), one worker (Jijo, recording real days on his Android). A staging copy with synthetic data runs at https://mabubu-staging.mabubu-family.workers.dev for device and sync tests.
+
+**20 Oct QA pass (second):** deployed the owner-escalation guard; audited the whole sign-in / device / recovery lifecycle and fixed the confusing "waiting for the owner" screen for the owner (the live log showed the laptop forgot itself again on 20 Oct — see [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md) §3); fixed a sync bug where a record saved during a sync vanished from the screen until reopening (risk of re-entry and a duplicate); made "remove from this device" safe; fixed phone layout in French/Swahili, accessibility labels and touch targets; translated every server message; reconciled finances against hand-worked figures and replayed production read-only (exact match); rehearsed backup restore and Worker rollback (staging). 193 tests. Details and the release checklist: [QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md).
 
 **Release phase:** testing / pre-release (version `0.1.0`). A QA/pre-release pass is under way — see [QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md) for the versioning policy, the canonical business configuration to preserve, the tested/partial/untested checklist, security and performance findings, and the criteria for a stable 1.0.0. Do not declare 1.0.0 without the owner's explicit approval.
 
@@ -22,13 +24,14 @@ Live address: **https://mabubu.mabubu-family.workers.dev** — deployed and chec
 
 ## Not done yet (in priority order)
 
-1. **Owner first sign-in** on the live address with the setup key, then add people and approve their phones ([DEPLOY.md](DEPLOY.md)).
-2. **Try it on a real Android phone** (not done yet): install, choose French, go offline, record a day, come back online and check it syncs.
-3. **A French speaker and a Swahili speaker from the family read the screens** and list any wording to change (the translations have not been reviewed by a native speaker).
-4. Downloads (PDF / Excel / CSV) are still in English.
-5. Two payment features from the owner's decisions: hold a payment as credit while purchases are unpaid; move an existing payment to another purchase (ADR-002).
-6. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
-7. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
+1. **Owner: recover the laptop** (it is waiting as new device `MCS-MH4`) with the recovery key, retire the old identity `WR8-WYS`, and fix the Chrome setting that clears site data ([QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md) §6).
+2. **Try it on a real Android phone** against staging (not done yet): install, choose French, go offline, record a day, come back online and check it syncs. Plan in the handover.
+3. **A French speaker and a Swahili speaker from the family read the screens**, using [LANGUAGE_REVIEW.md](LANGUAGE_REVIEW.md) (nothing has been reviewed by a native speaker yet).
+4. Owner decides: a take arriving after its day was closed is refused today; overpaying one purchase stays as credit (QA doc §5).
+5. Downloads (PDF / Excel / CSV) are still in English.
+6. Two payment features from the owner's decisions: hold a payment as credit while purchases are unpaid; move an existing payment to another purchase (ADR-002).
+7. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
+8. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
 
 ## Decisions waiting for the owner
 

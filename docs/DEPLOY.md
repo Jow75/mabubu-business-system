@@ -75,3 +75,41 @@ Safe recovery rule: never restore over a database that has newer records you wan
 ## If usage grows
 
 If the free limits are ever reached, Cloudflare's **Workers Paid** plan is **$5/month** and nothing changes in the app. Do not switch unless the owner decides to.
+
+## Staging (test copy with synthetic data)
+
+`npm run deploy:staging` deploys the same build to the Worker `mabubu-staging`
+with its own database `mabubu-staging` and its own secrets
+(`npx wrangler secret put <NAME> --env staging`); migrations:
+`npm run db:migrate:staging`. Address:
+https://mabubu-staging.mabubu-family.workers.dev. Only synthetic data; never
+copy production records there.
+
+**Setting a secret on Windows:** paste the value when Wrangler asks. Do not pipe
+it from Windows PowerShell 5.1 (`"x" | npx wrangler secret put …`): the value
+arrives with extra characters and the key "does not match". From Git Bash,
+`printf '%s' "$VALUE" | npx wrangler secret put NAME` is safe.
+
+## Rolling back (rehearsed on staging, 20 Oct 2026)
+
+1. `npx wrangler deployments list` — the current and earlier versions.
+2. `npx wrangler versions list` — check **Source**: a "Secret Change" creates a
+   new version. **Never roll back to a version older than a secret change**: the
+   old secret comes back with it (on staging this broke sign-in, as expected).
+   Production's secrets were set before its first code version, so all its
+   versions are safe targets today.
+3. `npx wrangler rollback <version-id> --message "why" --yes`.
+4. Check: open the app (the page names a different `assets/index-….js`),
+   `GET /api/health`, `GET /api/setup/status`, sign in.
+5. Roll forward the same way when fixed.
+
+A Worker rollback changes code only: **never** the D1 schema or records. Every
+version since `6bd4ba0f` expects migrations 0001–0003; older ones ignore the
+one column 0003 added. A data problem is corrected in the app (cancel with a
+reason), or in a disaster restored from Time Travel / an export **into a new
+database** after exporting the current one — never over newer records.
+
+**Restore check:** an export can be proven complete without Cloudflare by loading
+it into a fresh SQLite database (Node's `node:sqlite`, `db.exec(file)`) and
+comparing counts and `PRAGMA integrity_check`. (`wrangler d1 execute --local
+--file` fails on this laptop for any file; that is a tool problem.)
