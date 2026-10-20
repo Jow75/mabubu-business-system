@@ -83,9 +83,9 @@ export function CurrencyConverter() {
             </select>
           </Field>
         </div>
-        <Field label={t('cv.amountIn', { currency: from })}>
+        <Field label={t('cv.amountIn', { currency: from })} htmlFor="cv-amount">
           <div style={{ position: 'relative' }}>
-            <input className="input big" inputMode={CURRENCIES[from].exp ? 'decimal' : 'numeric'} value={text} onChange={(e) => setText(e.target.value)} style={{ paddingRight: 64 }} />
+            <input id="cv-amount" className="input big" inputMode={CURRENCIES[from].exp ? 'decimal' : 'numeric'} value={text} onChange={(e) => setText(e.target.value)} style={{ paddingRight: 64 }} />
             <span className="muted" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontWeight: 650 }}>
               {CURRENCIES[from].prefix}
             </span>

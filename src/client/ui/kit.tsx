@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { formatLocalCount, formatMoney, parseMoney, type Currency, CURRENCIES } from '../../shared/money';
 import type { GarmentType } from '../../shared/model';
@@ -217,11 +217,21 @@ export function Monogram({ name, id, small }: { name: string; id: string; small?
   );
 }
 
+/** A labelled form field. When the child is a single text input, text area, select or money input
+ * without its own id, the label is linked to it automatically, so screen readers announce it. */
 export function Field({ label, hint, children, htmlFor }: { label: string; hint?: ReactNode; children: ReactNode; htmlFor?: string }) {
+  const autoId = useId();
+  let control = children;
+  let forId = htmlFor;
+  if (!forId && isValidElement(children) && (['input', 'textarea', 'select'].includes(children.type as string) || children.type === MoneyInput)) {
+    const own = (children.props as { id?: string }).id;
+    forId = own ?? autoId;
+    if (!own) control = cloneElement(children as ReactElement<{ id?: string }>, { id: autoId });
+  }
   return (
     <div className="field">
-      <label htmlFor={htmlFor}>{label}</label>
-      {children}
+      <label htmlFor={forId}>{label}</label>
+      {control}
       {hint && <span className="hint">{hint}</span>}
     </div>
   );

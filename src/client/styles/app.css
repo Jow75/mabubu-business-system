@@ -325,6 +325,14 @@ h3 {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  /* Never wider than the page: longer French/Swahili options wrap instead. */
+  min-width: 0;
+  max-width: 100%;
+}
+.head-actions > *,
+.head-actions .select {
+  min-width: 0;
+  max-width: 100%;
 }
 .topbar {
   display: none;
@@ -677,6 +685,7 @@ h3 {
   border: 1px solid var(--rule);
   max-width: 100%;
   overflow-x: auto;
+  flex-wrap: wrap;
 }
 .seg button {
   border: 0;
@@ -1132,6 +1141,18 @@ button.list-item {
   cursor: pointer;
   white-space: nowrap;
 }
+/* In the phone header a long status ("Hors ligne · 1 enregistré(s) sur cet
+   appareil") wraps beside the logo instead of pushing the page sideways. */
+.topbar .brand {
+  flex-shrink: 0;
+}
+.topbar .sync,
+.sidebar .sync {
+  white-space: normal;
+  min-width: 0;
+  text-align: left;
+  line-height: 1.25;
+}
 .sync.ok .dot {
   color: var(--mangrove);
 }
@@ -1427,6 +1448,12 @@ button.list-item {
   background: var(--lagoon-tint);
   color: var(--lagoon);
 }
+/* A closed day disables Take/Return/Close; it must look unavailable too. */
+.action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 .action small {
   display: block;
   font-weight: 500;
@@ -1674,4 +1701,15 @@ button.list-item {
   font-style: italic;
   font-size: 16px;
   color: var(--ink-3);
+}
+
+/* Phones: small buttons and toggles get a finger-sized height (≥ 40px). */
+@media (max-width: 600px) {
+  .btn-sm,
+  .seg button {
+    min-height: 40px;
+  }
+  .topbar .sync {
+    min-height: 36px;
+  }
 }

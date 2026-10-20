@@ -24,5 +24,22 @@
       "migrations_dir": "migrations"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Staging: a separate Worker (mabubu-staging) and a separate database with
+  // synthetic test data only, for device and sync tests that must not touch
+  // real records. Deploy with `npm run deploy:staging`. Never copy production
+  // data here. Its own secrets: `npx wrangler secret put <NAME> --env staging`.
+  "env": {
+    "staging": {
+      "name": "mabubu-staging",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "mabubu-staging",
+          "database_id": "7a3d9fe8-d321-43e8-88c5-2788be63c64b",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
+  }
 }

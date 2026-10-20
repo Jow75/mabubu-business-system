@@ -101,7 +101,7 @@ export function ReportsPage() {
       )}
       <PlaceNotice hidden={hiddenDays} what="what.closedDays" />
       <div className="row-between">
-        <span className="row" style={{ gap: 10 }}>
+        <span className="row" style={{ gap: 10, minWidth: 0, maxWidth: '100%' }}>
           <span className="muted">{t('rp.convertWith')}</span>
           <Seg value={basis} onChange={setBasis} options={[{ value: 'transaction', label: t('rp.recorded') }, { value: 'market', label: t('rp.marketNow') }]} />
         </span>
