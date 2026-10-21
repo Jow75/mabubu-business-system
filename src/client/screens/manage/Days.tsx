@@ -5,7 +5,7 @@ import { href, navigate } from '../../lib/router';
 import { dayLines } from '../../../shared/queries';
 import { REVIEW_FILTERS, dayTotals, salesDaysReport, salesLinesReport, selectDays, workerRecordsReport, type DayFilter, type ReviewFilter } from '../../../shared/reports';
 import { K, type WorkerDay } from '../../../shared/model';
-import { businessDate, fmtDate, fmtDateShort, fmtDuration, fmtTime } from '../../../shared/time';
+import { businessDate, fmtDate, fmtDateShort, fmtDateTime, fmtDuration, fmtTime } from '../../../shared/time';
 import { rich, useT } from '../../lib/i18n';
 import type { Key } from '../../../shared/i18n';
 import { reportCtx } from '../../lib/report-ctx';
@@ -250,12 +250,20 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
             )}
             {day?.status === 'settled' && (
               <>
-                <button className="btn btn-primary" onClick={() => setReview('approved')}>
-                  <Icon name="check" size={18} /> {t('days.approve')}
-                </button>
-                <button className="btn" onClick={() => setReview('queried')}>
-                  <Icon name="flag" size={18} /> {t('days.ask')}
-                </button>
+                {day.review?.decision === 'approved' ? (
+                  <span className="pill green" title={t('days.approvedOnce')}>
+                    <Icon name="check" size={15} /> {t('c.approved')}
+                  </span>
+                ) : (
+                  <>
+                    <button className="btn btn-primary" onClick={() => setReview('approved')}>
+                      <Icon name="check" size={18} /> {t('days.approve')}
+                    </button>
+                    <button className="btn" onClick={() => setReview('queried')}>
+                      <Icon name="flag" size={18} /> {day.review ? t('days.askAgain') : t('days.ask')}
+                    </button>
+                  </>
+                )}
                 {s && <VoidButton opId={s.opId} label={t('void.reopen')} small={false} reopen />}
               </>
             )}
@@ -332,8 +340,9 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                 {s.note && <div className="note-box">{t('days.workerNote', { note: s.note })}</div>}
                 {day.review && (
                   <div className={day.review.decision === 'approved' ? 'info-box' : 'note-box'}>
-                    {t(day.review.decision === 'approved' ? 'days.reviewedApproved' : 'days.reviewedQueried', { name: lk.personName(day.review.by) })}
+                    {t(day.review.decision === 'approved' ? 'days.approvedOn' : 'days.queriedOn', { name: lk.personName(day.review.by), when: fmtDateTime(day.review.at) })}
                     {day.review.note && <>: “{day.review.note}”</>}
+                    {day.review.decision === 'approved' && <div className="hint">{t('days.approvedOnce')}</div>}
                   </div>
                 )}
               </>
@@ -399,6 +408,7 @@ function FragmentKV({ k, v }: { k: string; v: ReactNode }) {
 function ReviewSheet({ workerId, date, decision, onClose }: { workerId: string; date: string; decision: 'approved' | 'queried'; onClose: () => void }) {
   const t = useT();
   const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
   return (
     <Sheet
       title={decision === 'approved' ? t('days.approveTitle') : t('days.askTitle')}
@@ -410,9 +420,12 @@ function ReviewSheet({ workerId, date, decision, onClose }: { workerId: string; 
           </button>
           <button
             className="btn btn-primary"
-            disabled={decision === 'queried' && !note.trim()}
+            disabled={busy || (decision === 'queried' && !note.trim())}
             onClick={async () => {
-              if (await save(() => store.submit('worker.review', { workerId, workDate: date, decision, note: note.trim() }), decision === 'approved' ? t('days.approvedToast') : t('days.questionToast'))) onClose();
+              setBusy(true);
+              const ok = await save(() => store.submit('worker.review', { workerId, workDate: date, decision, note: note.trim() }), decision === 'approved' ? t('days.approvedToast') : t('days.questionToast'));
+              setBusy(false);
+              if (ok) onClose();
             }}
           >
             {t('c.save')}

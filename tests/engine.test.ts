@@ -383,6 +383,61 @@ describe('prices and profit', () => {
   });
 });
 
+describe('a closed day is approved once (owner report, 21 Oct 2026: "I was able to approve twice")', () => {
+  const date = '2026-10-17';
+  function closedDay() {
+    const L = seeded();
+    buyCollected(L, 'pur-r', hafsa, [{ garmentTypeId: HAF, qty: 20, unitCost: 8000 }]);
+    shipToComoros(L, 'shp-r', [{ garmentTypeId: HAF, qty: 20 }]);
+    ok(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: date, lines: [{ garmentTypeId: HAF, qty: 5 }] }, 'amina'), 'amina');
+    const settle = op('worker.settle', { workerId: 'u-amina', locationId: com, workDate: date, currency: 'KMF', lines: [{ garmentTypeId: HAF, held: 5, sold: 5, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 0, lost: 0 }], cash: 5000, mobile: 0, expenses: [], note: '' }, 'amina');
+    ok(L, settle, 'amina');
+    return { L, settle };
+  }
+  const review = (decision: 'approved' | 'queried', note = '', who: 'manager' | 'owner' = 'manager') => op('worker.review', { workerId: 'u-amina', workDate: date, decision, note }, who);
+  const dayOf = (L: ReturnType<typeof seeded>) => L.get(K.day('u-amina', date)) as WorkerDay;
+
+  it('refuses a second approval and a question after approval, by anyone; the first approval stands', () => {
+    const { L } = closedDay();
+    ok(L, review('approved', 'all good'), 'manager');
+    const again = fails(L, review('approved', 'again'), 'manager');
+    expect(again.code).toBe('conflict');
+    expect(again.error).toMatch(/already approved/);
+    expect(fails(L, review('queried', 'why?'), 'manager').error).toMatch(/already approved/);
+    expect(fails(L, review('approved', 'owner too', 'owner'), 'owner').code).toBe('conflict');
+    expect(dayOf(L).review).toMatchObject({ decision: 'approved', note: 'all good', by: 'u-manager' });
+  });
+
+  it('a question can be followed up, and then the day is approved once', () => {
+    const { L } = closedDay();
+    ok(L, review('queried', 'Where is the 500 for lunch?'), 'manager');
+    ok(L, review('queried', 'Please answer the first question'), 'manager');
+    ok(L, review('approved', 'Answered in person'), 'manager');
+    expect(fails(L, review('approved'), 'manager').code).toBe('conflict');
+    expect(dayOf(L).review).toMatchObject({ decision: 'approved', note: 'Answered in person' });
+  });
+
+  it('reopening clears the approval; the new closing is approved once again', () => {
+    const { L, settle } = closedDay();
+    ok(L, review('approved'), 'manager');
+    ok(L, op('op.void', { targetId: settle.id, reason: 'Recount after approval' }, 'manager'), 'manager');
+    expect(dayOf(L).review).toBeNull();
+    ok(L, op('worker.settle', { workerId: 'u-amina', locationId: com, workDate: date, currency: 'KMF', lines: [{ garmentTypeId: HAF, held: 5, sold: 4, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 1, lost: 0 }], cash: 4000, mobile: 0, expenses: [], note: '' }, 'amina'), 'amina');
+    ok(L, review('approved', 'second closing'), 'manager');
+    expect(fails(L, review('approved'), 'manager').code).toBe('conflict');
+    expect(dayOf(L).review?.note).toBe('second closing');
+  });
+
+  it('records saved before the rule (three approvals of one day, as in production) still replay on every device', () => {
+    const { L } = closedDay();
+    // Replay = records the server already accepted (actor null), as a device rebuilds them.
+    for (const note of ['', 'ALL DONE 2', 'ALL GOOD 3']) ok(L, review('approved', note), null);
+    expect(dayOf(L)).toMatchObject({ status: 'settled', review: { decision: 'approved', note: 'ALL GOOD 3' } });
+    // New input after the fix is refused.
+    expect(fails(L, review('approved', 'a fourth'), 'manager').code).toBe('conflict');
+  });
+});
+
 describe('worker day: closed, reopened, next day (Amina scenario)', () => {
   it('a closed day blocks take and return for the worker; a manager reopens it; the next date opens by itself', () => {
     const L = seeded();

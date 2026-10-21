@@ -82,6 +82,17 @@ describe('saving a record refreshes every view straight away (Bug D)', () => {
     await vi.waitFor(() => expect(store.getSnapshot().sync.pending).toBe(0), { timeout: 3000 });
   });
 
+  it('two quick taps on Approve record one approval (saves run one after another)', async () => {
+    const today = businessDate();
+    const approve = () => store.submit('worker.review', { workerId: 'demo-said', workDate: today, decision: 'approved', note: '' });
+    const [a, b] = await Promise.all([approve(), approve()]);
+    expect([a.ok, b.ok].sort()).toEqual([false, true]);
+    expect([a, b].find((r) => !r.ok)).toMatchObject({ error: 'This day was already approved.' });
+    const reviews = [...store.getSnapshot().records.values()].filter((r) => r.op.type === 'worker.review' && (r.op.payload as { workerId: string; workDate: string }).workerId === 'demo-said' && (r.op.payload as { workDate: string }).workDate === today);
+    expect(reviews).toHaveLength(1);
+    await vi.waitFor(() => expect(store.getSnapshot().sync.pending).toBe(0), { timeout: 3000 });
+  });
+
   it('reopening the app does not bring the old balance back', async () => {
     store.lock();
     await vi.waitFor(() => expect(store.getSnapshot().phase).toBe('welcome'));

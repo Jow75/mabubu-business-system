@@ -172,6 +172,7 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^Explain the adjustment in the note\.$/, 'err.explainAdjust', []],
   [/^This day is not closed by this record\.$/, 'err.notThisClose', []],
   [/^Only a closed day can be reviewed\.$/, 'err.reviewClosedOnly', []],
+  [/^This day was already approved\.$/, 'err.alreadyApproved', []],
   [/^Records can only be created in your own name\.$/, 'err.ownName', []],
   [/^Only a manager can cancel this record\.$/, 'err.managerCancels', []],
   [/^This purchase was already recorded\.$/, 'err.purchaseExists', []],

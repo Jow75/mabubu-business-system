@@ -706,6 +706,11 @@ const handlers: Handlers = {
     const p = op.payload;
     const day = tx.edit<WorkerDay>(K.day(p.workerId, p.workDate));
     if (!day || day.status !== 'settled') throw invalid('Only a closed day can be reviewed.');
+    // A closing is approved once: after that, neither a second approval nor a
+    // question is accepted. Reopening the day clears the approval, and the new
+    // closing is reviewed afresh. A replay keeps what the server already
+    // accepted (repeat approvals saved before this rule existed).
+    if (!tx.replay && day.review?.decision === 'approved') throw new Fail('conflict', 'This day was already approved.');
     day.review = { opId: op.id, decision: p.decision, note: p.note, by: op.actorId, at: op.deviceTime };
   },
 };

@@ -383,8 +383,21 @@ class Store {
     return Boolean(this.snap.user?.caps.includes(cap));
   }
 
+  /**
+   * Saves run one after another, so each is checked against the ones before it:
+   * two quick taps on Save cannot both pass the check (a second approval, a
+   * duplicate take) before the first is applied.
+   */
+  private saving: Promise<unknown> = Promise.resolve();
+
   /** Validate, save on this device, apply, then sync in the background. */
-  async submit<T extends OpType>(type: T, payload: PayloadOf<T>): Promise<SubmitResult> {
+  submit<T extends OpType>(type: T, payload: PayloadOf<T>): Promise<SubmitResult> {
+    const run = this.saving.then(() => this.submitNow(type, payload));
+    this.saving = run.catch(() => undefined);
+    return run;
+  }
+
+  private async submitNow<T extends OpType>(type: T, payload: PayloadOf<T>): Promise<SubmitResult> {
     const user = this.snap.user;
     const device = this.snap.device;
     if (!user || !device || !this.db) return { ok: false, error: 'Not signed in.' };

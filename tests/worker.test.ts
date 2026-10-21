@@ -477,6 +477,27 @@ describe('sync', () => {
     expect(bal.q).toBe(0);
   });
 
+  it('accepts one approval per closing; a repeat approval is refused, changes nothing, and is not stored twice on retry', async () => {
+    await seedCatalogue();
+    const a = await approvedWorker('Amina', '4770');
+    const d = a.dev.deviceId;
+    const day = { workerId: a.id, locationId: 'loc-com', workDate: '2026-10-17' };
+    await pushOps(a.token, [
+      mk('worker.issue', { ...day, lines: [{ garmentTypeId: 'gt-haf', qty: 5 }] }, a.id, d),
+      mk('worker.settle', { ...day, currency: 'KMF', lines: [{ garmentTypeId: 'gt-haf', held: 5, sold: 5, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 0, lost: 0 }], cash: 5000, mobile: 0, expenses: [], note: '' }, a.id, d),
+    ]);
+    const first = mk('worker.review', { workerId: a.id, workDate: day.workDate, decision: 'approved', note: 'ok' }, owner.id, ownerDev.deviceId);
+    const second = mk('worker.review', { workerId: a.id, workDate: day.workDate, decision: 'approved', note: 'again' }, owner.id, ownerDev.deviceId);
+    const r = await pushOps(owner.token, [first, second]);
+    expect(r.body.results.map((x) => x.status)).toEqual(['applied', 'rejected']);
+    expect(r.body.results[1]!.error).toMatch(/already approved/);
+    const stored = JSON.parse((env.DB.raw.prepare('SELECT data FROM entities WHERE key = ?').get(`day:${a.id}:${day.workDate}`) as { data: string }).data);
+    expect(stored.review).toMatchObject({ decision: 'approved', note: 'ok' });
+    const retry = await pushOps(owner.token, [second]);
+    expect(retry.body.results[0]).toMatchObject({ status: 'rejected', duplicate: true });
+    expect((env.DB.raw.prepare("SELECT COUNT(*) AS n FROM ops WHERE type = 'worker.review'").get() as { n: number }).n).toBe(2);
+  });
+
   it('server balances equal a replay of the downloaded records', async () => {
     await seedCatalogue();
     const a = await approvedWorker('Amina', '4770');
