@@ -8,6 +8,7 @@ import { LocalCountToggle, Monogram, PageHead, Seg, Stepper } from '../../ui/kit
 import { errText, useT } from '../../lib/i18n';
 import { LanguageSwitch } from '../auth/Language';
 import { LatePill } from '../../ui/Late';
+import { InstallSection } from '../../ui/Install';
 
 /** Optional banknote counter. Never part of the sales flow. */
 export function CashCounter() {
@@ -148,6 +149,8 @@ export function SyncCenter() {
           )}
         </div>
       </section>
+
+      {!demo && <InstallSection />}
 
       <section className="card card-pad stack">
         <span className="section-title">{t('me.display')}</span>

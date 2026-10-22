@@ -7,6 +7,9 @@ import '@fontsource-variable/jetbrains-mono/index.css';
 import './styles/app.css';
 import { App } from './App';
 import { store } from './lib/store';
+import { watchInstall } from './lib/install';
+
+watchInstall();
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));

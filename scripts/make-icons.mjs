@@ -79,6 +79,10 @@ function draw(size, maskable) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
+// "any" icons are the rounded tile (desktop shortcut, taskbar, Start menu);
+// the maskable one is full bleed with the dera inside the safe zone, for
+// Android's own icon shapes.
 writeFileSync('public/icon-192.png', draw(192, false));
-writeFileSync('public/icon-512.png', draw(512, true));
+writeFileSync('public/icon-512.png', draw(512, false));
+writeFileSync('public/icon-maskable-512.png', draw(512, true));
 console.log('Icons written to public/');

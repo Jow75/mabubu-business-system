@@ -12,6 +12,7 @@ import type { Key } from '../../../shared/i18n';
 import { useGreeting } from '../../ui/Greeting';
 import { Icon } from '../../ui/Icon';
 import { Money, Monogram, PageHead, Seg, Stat } from '../../ui/kit';
+import { InstallBanner } from '../../ui/Install';
 
 export function ScopeSwitch() {
   const { prefs } = useApp();
@@ -113,6 +114,7 @@ export function Overview() {
         }
         actions={<ScopeSwitch />}
       />
+      {!demo && <InstallBanner />}
 
       <div className="grid cols-4">
         <Stat label={t('ov.ready')} value={data.totals.avail.toLocaleString('en-US')} sub={scope ? t('ov.piecesIn', { place: lk.locName(scope) }) : t('ov.piecesAll')} />
