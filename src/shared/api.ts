@@ -1,8 +1,16 @@
 // Request/response contracts between the app and the server.
 
 import type { Capability, Role } from './permissions';
-import type { AnyOp, Flag } from './ops';
+import type { AnyOp, Flag, LateReview } from './ops';
 import type { UserRef } from './model';
+
+/**
+ * Sync protocol spoken by this app. 2 = understands late records and payment
+ * allocations: the server sends op.resolve and payment.allocate records only to
+ * clients that ask with `proto=2`, so an older app still in a phone's cache
+ * never meets a record type it cannot replay.
+ */
+export const SYNC_PROTO = 2;
 
 export interface SessionUser {
   id: string;
@@ -62,6 +70,8 @@ export interface PushResult {
   error: string | null;
   flags: Flag[];
   duplicate: boolean;
+  /** 'waiting': refused because its day was closed, kept for a manager's decision (a late record). */
+  review?: LateReview | null;
 }
 
 export interface PushResponse {
@@ -78,6 +88,8 @@ export type PulledOp = AnyOp & {
   error: string | null;
   flags: Flag[];
   voidedBy: string | null;
+  review: LateReview | null;
+  resolvedBy: string | null;
 };
 
 export interface PullResponse {

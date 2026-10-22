@@ -264,6 +264,10 @@ export const payloadSchemas = {
   }),
 
   'op.void': z.object({ targetId: zId, reason: zText(300).min(3, 'Give a short reason') }),
+  /** A manager's decision on a late record (one that reached the server after its day was closed). */
+  'op.resolve': z
+    .object({ targetId: zId, decision: z.enum(['accept', 'reject']), reason: zText(300) })
+    .refine((p) => p.decision === 'accept' || p.reason.length >= 3, { message: 'Say why it is not accepted', path: ['reason'] }),
 } as const;
 
 export type OpType = keyof typeof payloadSchemas;
@@ -305,6 +309,13 @@ export type OpEnvelope<T extends OpType = OpType> = {
 
 export type AnyOp = { [K in OpType]: OpEnvelope<K> }[OpType];
 
+/**
+ * A late record: a worker record that reached the server after its sales day
+ * had been closed. It is stored (status "rejected", nothing counted) and waits
+ * for a manager, who accepts or rejects it with an op.resolve. See ADR-004.
+ */
+export type LateReview = 'waiting' | 'accepted' | 'rejected';
+
 /** Server-added facts about an operation. */
 export interface OpServerMeta {
   seq: number;
@@ -314,6 +325,9 @@ export interface OpServerMeta {
   status: 'applied' | 'rejected';
   error: string | null;
   flags: Flag[];
+  review: LateReview | null;
+  /** The op.resolve that decided a late record. */
+  resolvedBy: string | null;
 }
 
 export interface Flag {
@@ -363,7 +377,7 @@ export function parsePayload<T extends OpType>(type: T, raw: unknown): { ok: tru
 /* Visibility & subject (used by the server download filter)           */
 /* ------------------------------------------------------------------ */
 
-const VIS_BY_TYPE: Record<Exclude<OpType, 'op.void'>, VisClass> = {
+const VIS_BY_TYPE: Record<Exclude<OpType, 'op.void' | 'op.resolve'>, VisClass> = {
   'location.upsert': 'ref',
   'size.upsert': 'ref',
   'garment.upsert': 'ref',
@@ -388,8 +402,19 @@ const VIS_BY_TYPE: Record<Exclude<OpType, 'op.void'>, VisClass> = {
 };
 
 export function visibilityOf(op: AnyOp): { vis: VisClass | null; subjectId: string | null } {
-  if (op.type === 'op.void') return { vis: null, subjectId: null }; // inherits target's
+  if (op.type === 'op.void' || op.type === 'op.resolve') return { vis: null, subjectId: null }; // inherits target's
   const vis = VIS_BY_TYPE[op.type];
   const subjectId = vis === 'worker' ? (op.payload as { workerId: string }).workerId : null;
   return { vis, subjectId };
+}
+
+/**
+ * The record whose visibility a record inherits: a cancellation or a decision
+ * on a late record is seen by whoever may see what it is about (followed
+ * through a decision on a late cancellation, too).
+ */
+export function subjectOf(op: AnyOp, find: (id: string) => AnyOp | undefined): AnyOp | undefined {
+  let cur: AnyOp | undefined = op;
+  for (let i = 0; i < 3 && cur && (cur.type === 'op.void' || cur.type === 'op.resolve'); i++) cur = find(cur.payload.targetId);
+  return cur;
 }

@@ -10,6 +10,7 @@ import { errText, useT } from '../../lib/i18n';
 import type { Key } from '../../../shared/i18n';
 import { Empty, Monogram, PageHead, Seg } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
+import { LatePill } from '../../ui/Late';
 import { DownloadButton } from '../../ui/Reporting';
 import { activityReport, selectActivity, type ActivityFilter } from '../../../shared/reports';
 import { reportCtx } from '../../lib/report-ctx';
@@ -95,7 +96,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
                     {fmtTime(o.op.deviceTime)}
                   </span>
                   <span className="tl-rail">
-                    <span className={`tl-knot ${o.status === 'rejected' ? 'red' : o.voidedBy ? 'muted' : flags.some((f) => f.code !== 'CASH_VARIANCE') ? 'saffron' : ''}`} />
+                    <span className={`tl-knot ${o.status === 'rejected' ? (o.review === 'waiting' ? 'saffron' : 'red') : o.voidedBy ? 'muted' : flags.some((f) => f.code !== 'CASH_VARIANCE') ? 'saffron' : ''}`} />
                   </span>
                   <div className="stack-sm">
                     <span className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
@@ -121,7 +122,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
                     <span className="row" style={{ gap: 6 }}>
                       <span className="pill">{t(`grp.${OP_GROUP[o.op.type]}` as Key)}</span>
                       {rec?.status === 'pending' && <span className="pill saffron">{t('act.notOnServer')}</span>}
-                      {o.status === 'rejected' && <span className="pill red">{t('act.refused', { error: errText(rec?.error) })}</span>}
+                      {o.review ? <LatePill rec={o} /> : o.status === 'rejected' && <span className="pill red">{t('act.refused', { error: errText(rec?.error) })}</span>}
                       {o.voidedBy && <span className="pill">{t('c.cancelled')}</span>}
                       {!o.op.createdOnline && <span className="pill lagoon">{t('act.offline')}</span>}
                       {delay !== null && delay > 10 * 60_000 && (

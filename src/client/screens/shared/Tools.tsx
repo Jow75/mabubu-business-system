@@ -7,6 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { LocalCountToggle, Monogram, PageHead, Seg, Stepper } from '../../ui/kit';
 import { errText, useT } from '../../lib/i18n';
 import { LanguageSwitch } from '../auth/Language';
+import { LatePill } from '../../ui/Late';
 
 /** Optional banknote counter. Never part of the sales flow. */
 export function CashCounter() {
@@ -56,7 +57,8 @@ export function SyncCenter() {
   const t = useT();
   const mine = [...records.values()].filter((r) => r.op.actorId === user!.id);
   const pending = mine.filter((r) => r.status === 'pending').sort((a, b) => a.localOrder - b.localOrder);
-  const rejected = mine.filter((r) => r.status === 'rejected');
+  const lateWaiting = mine.filter((r) => r.status === 'rejected' && r.review === 'waiting');
+  const rejected = mine.filter((r) => r.status === 'rejected' && r.review !== 'waiting' && r.review !== 'accepted');
   return (
     <div className="page" style={{ maxWidth: 720 }}>
       <PageHead eyebrow={t('me.eyebrow')} title={t('nav.account')} />
@@ -113,6 +115,18 @@ export function SyncCenter() {
               ))}
             </div>
           )}
+          {lateWaiting.length > 0 && (
+            <div className="stack-sm">
+              <span className="eyebrow">{t('me.lateWaiting')}</span>
+              <span className="hint">{t('me.lateWaitingHint')}</span>
+              {lateWaiting.map((r) => (
+                <div key={r.id} className="note-box row-between" style={{ alignItems: 'flex-start' }}>
+                  <span>{describeOp(r.op, lk, ledger, t)}</span>
+                  <span className="muted mono">{fmtDateTime(r.op.deviceTime)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {rejected.length > 0 && (
             <div className="stack-sm">
               <span className="eyebrow" style={{ color: 'var(--hibiscus)' }}>
@@ -123,7 +137,7 @@ export function SyncCenter() {
                   <span>
                     {describeOp(r.op, lk, ledger, t)}
                     <br />
-                    <small>{errText(r.error)}</small>
+                    {r.review && ledger.getOp(r.id) ? <LatePill rec={ledger.getOp(r.id)!} worker /> : <small>{errText(r.error)}</small>}
                   </span>
                   <button className="btn btn-sm" onClick={() => void store.dismissRejected(r.id)}>
                     {t('me.dismiss')}

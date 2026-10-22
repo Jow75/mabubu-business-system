@@ -7,7 +7,7 @@
 //   the owner's cached records.
 
 import Dexie, { type Table } from 'dexie';
-import type { AnyOp, Flag } from '../../shared/ops';
+import type { AnyOp, Flag, LateReview } from '../../shared/ops';
 import type { SessionUser } from '../../shared/api';
 import type { UserRef } from '../../shared/model';
 
@@ -61,6 +61,10 @@ export interface LocalOp {
   flags: Flag[];
   /** Local insertion order for records not yet on the server. */
   localOrder: number;
+  /** A late record: reached the server after its day was closed; waiting for, or decided by, a manager. */
+  review?: LateReview | null;
+  /** The manager's decision record (op.resolve). */
+  resolvedBy?: string | null;
 }
 
 export interface UserKv {

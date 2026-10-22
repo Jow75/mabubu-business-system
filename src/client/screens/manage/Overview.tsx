@@ -3,8 +3,9 @@ import { useApp, store } from '../../lib/store';
 import { describeOp, useLookups } from '../../lib/lookups';
 import { href, navigate } from '../../lib/router';
 import { stockByLocation, sumRows, vendorAccounts, workerDays } from '../../../shared/queries';
+import { lateRecords } from '../../../shared/late';
 import { addDays, businessDate, fmtDate, fmtDateShort, fmtTime } from '../../../shared/time';
-import type { Purchase, Shipment, WorkerDay } from '../../../shared/model';
+import { K, type Purchase, type Shipment, type WorkerDay } from '../../../shared/model';
 import { formatMoney, type Currency } from '../../../shared/money';
 import { rich, useT } from '../../lib/i18n';
 import type { Key } from '../../../shared/i18n';
@@ -56,7 +57,17 @@ export function Overview() {
 
   // Things a manager should look at
   const attention: { key: string; text: string; to: string; tone: 'red' | 'saffron' | 'lagoon' }[] = [];
-  const rejectedMine = [...records.values()].filter((r) => r.status === 'rejected');
+  // Late records first: real stock movements nobody has decided on yet.
+  if (caps.includes('workers.reconcile')) {
+    const byDay = new Map<string, { workerId: string; workDate: string; n: number }>();
+    for (const l of lateRecords(ledger, { review: 'waiting' })) {
+      if (scope && (ledger.get(K.day(l.workerId, l.workDate)) as WorkerDay | undefined)?.locationId !== scope) continue;
+      const k = K.day(l.workerId, l.workDate);
+      byDay.set(k, { workerId: l.workerId, workDate: l.workDate, n: (byDay.get(k)?.n ?? 0) + 1 });
+    }
+    for (const [k, g] of byDay) attention.push({ key: `late-${k}`, text: t('ov.att.lateRecords', { name: lk.personName(g.workerId), n: g.n, date: fmtDateShort(g.workDate) }), to: `/days/${g.workerId}/${g.workDate}`, tone: 'saffron' });
+  }
+  const rejectedMine = [...records.values()].filter((r) => r.status === 'rejected' && !r.review);
   if (rejectedMine.length) attention.push({ key: 'rej', text: t('ov.att.rejected', { n: rejectedMine.length }), to: '/me', tone: 'red' });
   for (const d of data.days) {
     if (d.status === 'settled' && !d.review && d.settlement!.variance !== 0) {

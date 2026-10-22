@@ -8,7 +8,7 @@
 // leave the records inconsistent (for example, more garments taken than the
 // books say were available) are accepted and flagged for management.
 
-import type { AnyOp, Flag, OpEnvelope, OpType } from './ops';
+import type { AnyOp, Flag, LateReview, OpEnvelope, OpType } from './ops';
 import { tEn, type T } from './i18n';
 import { visibilityOf } from './ops';
 import type { Capability, VisClass } from './permissions';
@@ -42,6 +42,10 @@ export interface OpRecord {
   op: AnyOp;
   status: 'applied' | 'rejected' | 'pending';
   voidedBy: string | null;
+  /** Set on a late record (it reached the server after its day was closed): kept, not counted, until a manager decides. */
+  review?: LateReview | null;
+  /** The op.resolve that decided it. */
+  resolvedBy?: string | null;
 }
 
 export interface EngineCtx {
@@ -61,11 +65,22 @@ export interface Effects {
   postings: Posting[];
   flags: Flag[];
   voids: { targetId: string; voidOpId: string }[];
+  resolves: { targetId: string; resolveOpId: string; decision: 'accept' | 'reject' }[];
   vis: VisClass | null;
   subjectId: string | null;
 }
 
-export type ErrorCode = 'invalid' | 'forbidden' | 'not_found' | 'conflict';
+/** `day_closed`: the record's sales day is closed. The server keeps such a worker record for a manager (see HOLDABLE). */
+export type ErrorCode = 'invalid' | 'forbidden' | 'not_found' | 'conflict' | 'day_closed';
+
+/**
+ * Records that, when they reach the server after their day was closed, are
+ * kept as late records for a manager's decision instead of being refused: a
+ * take, a return, a closing, and a worker cancelling their own take or return.
+ * A physical movement must never disappear because the network was slower
+ * than the manager (ADR-004).
+ */
+export const HOLDABLE: readonly OpType[] = ['worker.issue', 'worker.return', 'worker.settle', 'op.void'];
 export type ApplyResult = { ok: true; effects: Effects } | { ok: false; code: ErrorCode; error: string };
 
 class Fail extends Error {
@@ -83,7 +98,7 @@ const notFound = (msg: string) => new Fail('not_found', msg);
 /* Permissions per operation                                           */
 /* ------------------------------------------------------------------ */
 
-const WRITE_CAP: Record<Exclude<OpType, 'op.void' | 'worker.issue' | 'worker.return' | 'worker.settle'>, Capability> = {
+const WRITE_CAP: Record<Exclude<OpType, 'op.void' | 'op.resolve' | 'worker.issue' | 'worker.return' | 'worker.settle'>, Capability> = {
   'location.upsert': 'catalog.manage',
   'size.upsert': 'catalog.manage',
   'vendor.upsert': 'catalog.manage',
@@ -107,6 +122,8 @@ const WRITE_CAP: Record<Exclude<OpType, 'op.void' | 'worker.issue' | 'worker.ret
 const SELF_VOIDABLE: readonly OpType[] = ['worker.issue', 'worker.return'];
 const NOT_VOIDABLE: readonly OpType[] = [
   'op.void',
+  // A decision is final; an accepted late record is cancelled like any other record.
+  'op.resolve',
   'location.upsert',
   'size.upsert',
   'vendor.upsert',
@@ -136,6 +153,11 @@ function authorize(op: AnyOp, ctx: EngineCtx, actor: Actor): void {
       if (target && target.op.actorId === actor.id && SELF_VOIDABLE.includes(target.op.type) && has('sales.self')) return;
       throw new Fail('forbidden', 'Only a manager can cancel this record.');
     }
+    case 'op.resolve': {
+      // Never the worker who sent it: deciding on late stock is a manager's job.
+      if (!has('workers.reconcile')) throw new Fail('forbidden', 'Only a manager can decide on a late record.');
+      return;
+    }
     default: {
       const cap = WRITE_CAP[op.type];
       if (!has(cap)) throw new Fail('forbidden', 'You do not have permission for this action.');
@@ -153,6 +175,7 @@ class Tx {
   postings: Posting[] = [];
   flags: Flag[] = [];
   voids: { targetId: string; voidOpId: string }[] = [];
+  resolves: Effects['resolves'] = [];
 
   constructor(
     readonly ctx: EngineCtx,
@@ -261,7 +284,8 @@ export function rateFor(get: (key: string) => unknown, from: string, to: string,
 /* ------------------------------------------------------------------ */
 
 type Handler<T extends OpType> = (tx: Tx, op: OpEnvelope<T>) => void;
-type Handlers = { [T in Exclude<OpType, 'op.void'>]: Handler<T> };
+type HandledType = Exclude<OpType, 'op.void' | 'op.resolve'>;
+type Handlers = { [T in HandledType]: Handler<T> };
 
 function upsertGuard(tx: Tx) {
   if (tx.sign !== 1) throw invalid('This record is changed by editing, not cancelling.');
@@ -751,7 +775,7 @@ function workerDay(tx: Tx, op: AnyOp, workerId: string, locationId: string, work
     tx.put(key, day);
   }
   if (day.locationId !== locationId) throw invalid(`This day was started at another location, not ${loc.name}.`);
-  if (day.status === 'settled') throw invalid('This day is already closed. Ask a manager to reopen it.');
+  if (day.status === 'settled') throw new Fail('day_closed', 'This day is already closed. Ask a manager to reopen it.');
   return day;
 }
 
@@ -766,32 +790,71 @@ function workerDay(tx: Tx, op: AnyOp, workerId: string, locationId: string, work
 export function applyOp(op: AnyOp, ctx: EngineCtx, actor: Actor | null): ApplyResult {
   try {
     if (actor) authorize(op, ctx, actor);
-    let tx: Tx;
-    let vis: VisClass | null;
-    let subjectId: string | null;
-    if (op.type === 'op.void') {
-      const target = ctx.getOp(op.payload.targetId);
-      if (!target || target.status === 'rejected') throw notFound('The record to cancel was not found.');
-      if (target.voidedBy) throw new Fail('conflict', 'This record was already cancelled.');
-      if (NOT_VOIDABLE.includes(target.op.type)) throw invalid('This kind of record is changed by editing, not cancelling.');
-      tx = new Tx(ctx, target.op, -1, op.id, actor === null);
-      (handlers[target.op.type as Exclude<OpType, 'op.void'>] as Handler<OpType>)(tx, target.op as never);
-      tx.voids.push({ targetId: target.op.id, voidOpId: op.id });
-      ({ vis, subjectId } = visibilityOf(target.op));
-    } else {
-      tx = new Tx(ctx, op, 1, op.id, actor === null);
-      (handlers[op.type] as Handler<OpType>)(tx, op as never);
-      ({ vis, subjectId } = visibilityOf(op));
-    }
+    const replay = actor === null;
+    const { tx, vis, subjectId } = op.type === 'op.resolve' ? decideLate(op, ctx, replay) : applyCore(op, ctx, replay);
     flagNegativeBalances(tx);
     return {
       ok: true,
-      effects: { writes: tx.writes, moves: tx.moves, postings: tx.postings, flags: tx.flags, voids: tx.voids, vis, subjectId },
+      effects: { writes: tx.writes, moves: tx.moves, postings: tx.postings, flags: tx.flags, voids: tx.voids, resolves: tx.resolves, vis, subjectId },
     };
   } catch (e) {
     if (e instanceof Fail) return { ok: false, code: e.code, error: e.message };
     throw e;
   }
+}
+
+interface Applied {
+  tx: Tx;
+  vis: VisClass | null;
+  subjectId: string | null;
+}
+
+/** A record's effects as of now: the record itself, or for a cancellation the reversal of its target. */
+function applyCore(op: AnyOp, ctx: EngineCtx, replay: boolean): Applied {
+  // A decision is never itself a late record (it is not in HOLDABLE).
+  if (op.type === 'op.resolve') throw notFound('The late record was not found.');
+  if (op.type === 'op.void') {
+    const target = ctx.getOp(op.payload.targetId);
+    if (!target || target.status === 'rejected') throw notFound('The record to cancel was not found.');
+    if (target.voidedBy) throw new Fail('conflict', 'This record was already cancelled.');
+    if (NOT_VOIDABLE.includes(target.op.type)) throw invalid('This kind of record is changed by editing, not cancelling.');
+    const tx = new Tx(ctx, target.op, -1, op.id, replay);
+    (handlers[target.op.type as HandledType] as Handler<OpType>)(tx, target.op as never);
+    tx.voids.push({ targetId: target.op.id, voidOpId: op.id });
+    return { tx, ...visibilityOf(target.op) };
+  }
+  const tx = new Tx(ctx, op, 1, op.id, replay);
+  (handlers[op.type] as Handler<OpType>)(tx, op as never);
+  return { tx, ...visibilityOf(op) };
+}
+
+/**
+ * A manager's decision on a late record (ADR-004). Accepting applies the
+ * record now, under its own id, exactly as if it had only just arrived — so a
+ * closed day must be reopened first, and is then closed again with the right
+ * figures. Rejecting changes nothing. Either way the late record, its times
+ * and the decision stay in the history.
+ */
+function decideLate(op: OpEnvelope<'op.resolve'>, ctx: EngineCtx, replay: boolean): Applied {
+  const target = ctx.getOp(op.payload.targetId);
+  if (!target || !target.review) throw notFound('The late record was not found.');
+  const decided = target.resolvedBy ? target.resolvedBy !== op.id : !replay && target.review !== 'waiting';
+  if (decided) throw new Fail('conflict', 'This late record was already decided.');
+  let tx: Tx;
+  if (op.payload.decision === 'accept') {
+    try {
+      ({ tx } = applyCore(target.op, ctx, replay));
+    } catch (e) {
+      if (e instanceof Fail && e.code === 'day_closed') throw invalid('Reopen this day before accepting the late record.');
+      throw e;
+    }
+  } else {
+    tx = new Tx(ctx, target.op, 1, op.id, replay);
+  }
+  tx.resolves.push({ targetId: target.op.id, resolveOpId: op.id, decision: op.payload.decision });
+  // Seen by whoever may see what the late record is about.
+  const about = target.op.type === 'op.void' ? (ctx.getOp(target.op.payload.targetId)?.op ?? target.op) : target.op;
+  return { tx, ...visibilityOf(about) };
 }
 
 export function moveDeltas(moves: readonly Move[]): Map<string, number> {

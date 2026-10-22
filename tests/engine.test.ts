@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { A, K, type Purchase, type Shipment, type WorkerDay } from '../src/shared/model';
 import { purchaseSummary, stockByLocation, vendorBalances, workerHolding, profitReport, garmentJourney } from '../src/shared/queries';
-import { IDS, fails, ok, op, seeded } from './helpers';
+import { dayTotals, selectDays } from '../src/shared/reports';
+import { lateEvidence, lateRecords } from '../src/shared/late';
+import { parsePayload } from '../src/shared/ops';
+import { IDS, actor, fails, ok, op, seeded } from './helpers';
 
 const { msa, dar, com, hafsa, yasmin, hafsaElastic80: HAF, yasminPlain80: YAS, yasminLong150: LONG } = IDS;
 
@@ -435,6 +438,190 @@ describe('a closed day is approved once (owner report, 21 Oct 2026: "I was able 
     expect(dayOf(L)).toMatchObject({ status: 'settled', review: { decision: 'approved', note: 'ALL GOOD 3' } });
     // New input after the fix is refused.
     expect(fails(L, review('approved', 'a fourth'), 'manager').code).toBe('conflict');
+  });
+});
+
+describe('late records: a take that reaches the server after its day was closed (ADR-004)', () => {
+  // Expected numbers are worked out by hand in the comments, never read back from the engine.
+  const date = '2026-10-17';
+  const AM = { workerId: 'u-amina', locationId: com, workDate: date };
+  const settleOp = (held: number, sold: number, carried: number, who: 'amina' | 'manager' = 'amina') =>
+    op('worker.settle', { ...AM, currency: 'KMF', lines: [{ garmentTypeId: HAF, held, sold, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried, lost: 0 }], cash: sold * 1000, mobile: 0, expenses: [], note: '' }, who);
+  /** 20 HAF on the Comoros shelf; Amina took 5 (synced) and the day was closed: 5 held, 5 sold. */
+  function closedWithLateTake() {
+    const L = seeded();
+    buyCollected(L, 'pur-l', hafsa, [{ garmentTypeId: HAF, qty: 20, unitCost: 8000 }]);
+    shipToComoros(L, 'shp-l', [{ garmentTypeId: HAF, qty: 20 }]);
+    const take = op('worker.issue', { ...AM, lines: [{ garmentTypeId: HAF, qty: 5 }] }, 'amina');
+    ok(L, take, 'amina');
+    const close = settleOp(5, 5, 0, 'manager');
+    ok(L, close, 'manager');
+    // Saved on her phone before the closing, offline; it reaches the server only now.
+    const late = op('worker.issue', { ...AM, lines: [{ garmentTypeId: HAF, qty: 3 }] }, 'amina');
+    return { L, take, close, late };
+  }
+  /** What the server does with it: refused only because the day is closed, so kept for a manager. */
+  function hold(L: ReturnType<typeof seeded>, late: ReturnType<typeof op>) {
+    const r = L.apply(late, actor('amina'));
+    expect(r.ok ? 'applied' : r.code).toBe('day_closed');
+    L.recordRejected(late, { review: 'waiting' });
+  }
+  const decide = (targetId: string, decision: 'accept' | 'reject', reason = '', who: 'manager' | 'owner' | 'amina' = 'manager') => op('op.resolve', { targetId, decision, reason }, who);
+  const sales = (L: ReturnType<typeof seeded>) => L.postings.filter((p) => p.kind === 'sale').reduce((s, p) => s + p.amount, 0);
+
+  it('is refused only because the day is closed (code day_closed), and changes nothing while it waits', () => {
+    const { L, late } = closedWithLateTake();
+    hold(L, late);
+    // Shelf 20 − 5 = 15; Amina holds 0 (all 5 sold); 5 sold.
+    expect(L.balance(A.avail(com), HAF)).toBe(15);
+    expect(workerHolding(L, 'u-amina').get(HAF)).toBeUndefined();
+    expect(L.balance(A.sold(com), HAF)).toBe(5);
+    expect(L.getOp(late.id)).toMatchObject({ status: 'rejected', review: 'waiting' });
+  });
+
+  it('accepting while the day is still closed is refused: reopen first (the closing is not silently changed)', () => {
+    const { L, close, late } = closedWithLateTake();
+    hold(L, late);
+    const r = fails(L, decide(late.id, 'accept'), 'manager');
+    expect(r.error).toBe('Reopen this day before accepting the late record.');
+    expect(L.getOp(late.id)?.review).toBe('waiting');
+    expect((L.get(K.day('u-amina', date)) as WorkerDay).settlement?.opId).toBe(close.id);
+  });
+
+  it('Scenario F: reopen, accept, close again — the take counts exactly once and the books balance', () => {
+    const { L, close, late } = closedWithLateTake();
+    hold(L, late);
+    ok(L, op('op.void', { targetId: close.id, reason: 'Reopened to accept a late take' }, 'manager'), 'manager');
+    const accept = decide(late.id, 'accept');
+    ok(L, accept, 'manager');
+    // Shelf 20 − 5 − 3 = 12; Amina holds 5 + 3 = 8 (the voided closing returned her 5).
+    expect(L.balance(A.avail(com), HAF)).toBe(12);
+    expect(workerHolding(L, 'u-amina').get(HAF)).toBe(8);
+    expect(L.getOp(late.id)).toMatchObject({ status: 'applied', review: 'accepted', resolvedBy: accept.id });
+    expect((L.get(K.day('u-amina', date)) as WorkerDay).issued[HAF]).toBe(8);
+    // Closed again with the real figures: of 8, 7 sold and 1 kept.
+    ok(L, settleOp(8, 7, 1), 'amina');
+    // 12 on the shelf + 1 kept by Amina + 7 sold = 20 bought and shipped.
+    expect(L.balance(A.avail(com), HAF)).toBe(12);
+    expect(workerHolding(L, 'u-amina').get(HAF)).toBe(1);
+    expect(L.balance(A.sold(com), HAF)).toBe(7);
+    // Sales count the new closing only: 7 × 1,000, not 5,000 + 7,000.
+    expect(sales(L)).toBe(7_000);
+    expect(dayTotals(selectDays(L, { from: date, to: date, workerId: null, locationId: null, review: 'all' }))).toMatchObject([{ currency: 'KMF', days: 1, sold: 7, sales: 7_000 }]);
+    // The original closing and the decision stay in the history.
+    expect(L.getOp(close.id)?.voidedBy).toBeTruthy();
+    expect(fails(L, decide(late.id, 'accept'), 'manager').error).toBe('This late record was already decided.');
+    // Once accepted it behaves like any take: it cannot be cancelled on a closed day.
+    expect(fails(L, op('op.void', { targetId: late.id, reason: 'mistake' }, 'manager'), 'manager').code).toBe('day_closed');
+  });
+
+  it('Scenario E: rejecting with a reason counts nothing and keeps the record and the reason', () => {
+    const { L, late } = closedWithLateTake();
+    hold(L, late);
+    expect(parsePayload('op.resolve', { targetId: late.id, decision: 'reject', reason: '' }).ok).toBe(false);
+    const reject = decide(late.id, 'reject', 'Counted the shelf: these 3 never left');
+    ok(L, reject, 'manager');
+    expect(L.balance(A.avail(com), HAF)).toBe(15);
+    expect(L.getOp(late.id)).toMatchObject({ status: 'rejected', review: 'rejected', resolvedBy: reject.id });
+    expect(L.getOp(reject.id)?.op.payload).toMatchObject({ reason: 'Counted the shelf: these 3 never left' });
+    expect(fails(L, decide(late.id, 'accept'), 'manager').code).toBe('conflict');
+  });
+
+  it('only a manager decides: the worker who sent it cannot accept her own late record', () => {
+    const { L, close, late } = closedWithLateTake();
+    hold(L, late);
+    ok(L, op('op.void', { targetId: close.id, reason: 'Reopened' }, 'manager'), 'manager');
+    expect(fails(L, decide(late.id, 'accept', '', 'amina'), 'amina').code).toBe('forbidden');
+    expect(L.getOp(late.id)?.review).toBe('waiting');
+  });
+
+  it('the worker’s own late closing (her real figures) can replace the manager’s, after her late return', () => {
+    // On time: took 5. Manager closed it as 5 sold. Late, from her phone: returned 2, then closed 3 sold.
+    const { L, close } = closedWithLateTake();
+    const lateReturn = op('worker.return', { ...AM, lines: [{ garmentTypeId: HAF, qty: 2 }] }, 'amina');
+    const lateClose = settleOp(3, 3, 0);
+    hold(L, lateReturn);
+    hold(L, lateClose);
+    ok(L, op('op.void', { targetId: close.id, reason: 'Her phone has the real figures' }, 'manager'), 'manager');
+    ok(L, decide(lateReturn.id, 'accept'), 'manager');
+    ok(L, decide(lateClose.id, 'accept'), 'manager');
+    // Shelf 20 − 5 + 2 = 17; 3 sold; 17 + 3 = 20. Sales 3 × 1,000.
+    expect(L.balance(A.avail(com), HAF)).toBe(17);
+    expect(L.balance(A.sold(com), HAF)).toBe(3);
+    expect(workerHolding(L, 'u-amina').size).toBe(0);
+    expect(sales(L)).toBe(3_000);
+    expect((L.get(K.day('u-amina', date)) as WorkerDay).settlement?.opId).toBe(lateClose.id);
+  });
+
+  it('a late cancellation by the worker is decided the same way', () => {
+    const L = seeded();
+    buyCollected(L, 'pur-v', hafsa, [{ garmentTypeId: HAF, qty: 20, unitCost: 8000 }]);
+    shipToComoros(L, 'shp-v', [{ garmentTypeId: HAF, qty: 20 }]);
+    const take = op('worker.issue', { ...AM, lines: [{ garmentTypeId: HAF, qty: 4 }] }, 'amina');
+    ok(L, take, 'amina');
+    const close = settleOp(4, 4, 0, 'manager');
+    ok(L, close, 'manager');
+    const lateCancel = op('op.void', { targetId: take.id, reason: 'Typed 4, took none' }, 'amina');
+    hold(L, lateCancel);
+    ok(L, op('op.void', { targetId: close.id, reason: 'Reopened for her cancellation' }, 'manager'), 'manager');
+    ok(L, decide(lateCancel.id, 'accept'), 'manager');
+    expect(L.getOp(take.id)?.voidedBy).toBe(lateCancel.id);
+    expect(L.balance(A.avail(com), HAF)).toBe(20);
+  });
+
+  it('a device rebuilding from the records (late record first, then the server order) reaches the same state', () => {
+    const { L, take, close, late } = closedWithLateTake();
+    hold(L, late);
+    const reopen = op('op.void', { targetId: close.id, reason: 'Reopened' }, 'manager');
+    ok(L, reopen, 'manager');
+    const accept = decide(late.id, 'accept');
+    ok(L, accept, 'manager');
+    const reclose = settleOp(8, 8, 0);
+    ok(L, reclose, 'amina');
+    const R = seeded();
+    buyCollected(R, 'pur-l', hafsa, [{ garmentTypeId: HAF, qty: 20, unitCost: 8000 }]);
+    shipToComoros(R, 'shp-l', [{ garmentTypeId: HAF, qty: 20 }]);
+    // As a fresh device downloads it today: the late record already says "accepted by <decision>".
+    R.recordRejected(late, { review: 'accepted', resolvedBy: accept.id });
+    for (const o of [take, close, reopen, accept, reclose]) ok(R, o, null);
+    expect(Object.fromEntries(R.balances)).toEqual(Object.fromEntries(L.balances));
+    expect(R.get(K.day('u-amina', date))).toEqual(L.get(K.day('u-amina', date)));
+    expect(R.getOp(late.id)).toMatchObject({ status: 'applied', review: 'accepted' });
+  });
+});
+
+describe('late-record evidence: phone clock against the closing (Scenarios B and D)', () => {
+  const at = (s: string) => new Date(s).toISOString();
+  function withTimes(phoneSavedAt: string, skewMs: number, closingReachedAt: string, lateReachedAt: string) {
+    const L = seeded();
+    const close = { ...op('worker.settle', { workerId: 'u-amina', locationId: com, workDate: '2026-10-17', currency: 'KMF', lines: [], cash: 0, mobile: 0, expenses: [], note: '' }, 'manager') };
+    L.ops.set(close.id, { op: close, status: 'applied', voidedBy: null });
+    const late = { ...op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-17', lines: [{ garmentTypeId: HAF, qty: 1 }] }, 'amina'), deviceTime: at(phoneSavedAt) };
+    L.recordRejected(late, { review: 'waiting' });
+    const meta = new Map([
+      [close.id, { serverTime: at(closingReachedAt), clockSkewMs: 0 }],
+      [late.id, { serverTime: at(lateReachedAt), clockSkewMs: skewMs }],
+    ]);
+    return lateEvidence(lateRecords(L)[0]!, L, (id) => meta.get(id));
+  }
+
+  it('a phone 2 hours behind: saved at 09:00 by its clock is about 11:00 — before a 18:00 closing', () => {
+    const ev = withTimes('2026-10-17T06:00:00Z', 2 * 3600_000, '2026-10-17T15:00:00Z', '2026-10-17T18:30:00Z');
+    expect(ev.correctedAt).toBe('2026-10-17T08:00:00.000Z');
+    expect(ev.before).toBe(true);
+    expect(ev.closedAt).toBe('2026-10-17T15:00:00.000Z');
+  });
+
+  it('Scenario B: a take saved after the closing had reached the server is shown as "after"', () => {
+    const ev = withTimes('2026-10-17T16:10:00Z', 0, '2026-10-17T15:00:00Z', '2026-10-17T19:00:00Z');
+    expect(ev.before).toBe(false);
+  });
+
+  it('a phone clock set 3 hours ahead cannot make an after-closing take look early: the measured error is removed', () => {
+    // Saved at 16:10 real time; the phone showed 19:10; the server measured the phone 3 h ahead (skew −3 h).
+    const ev = withTimes('2026-10-17T19:10:00Z', -3 * 3600_000, '2026-10-17T15:00:00Z', '2026-10-17T19:00:00Z');
+    expect(ev.correctedAt).toBe('2026-10-17T16:10:00.000Z');
+    expect(ev.before).toBe(false);
   });
 });
 

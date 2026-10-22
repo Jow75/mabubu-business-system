@@ -9,8 +9,8 @@
 // Free-plan budget per request: ≤ 50 queries and ~10 ms CPU, so state is
 // pre-fetched in a few IN-list queries and written with multi-row statements.
 
-import { applyOp, moveDeltas, type Actor, type EngineCtx, type Effects, type OpRecord } from '../shared/engine';
-import { ENGINE_VERSION, parseOp, visibilityOf, type AnyOp, type Flag } from '../shared/ops';
+import { HOLDABLE, applyOp, moveDeltas, type Actor, type EngineCtx, type Effects, type ErrorCode, type OpRecord } from '../shared/engine';
+import { ENGINE_VERSION, parseOp, subjectOf, visibilityOf, type AnyOp, type Flag, type LateReview } from '../shared/ops';
 import { K, balanceKey, entityKind, splitBalanceKey, type UserRef } from '../shared/model';
 import { readableClasses } from '../shared/permissions';
 import { businessDate, daysBetween, fmtDuration } from '../shared/time';
@@ -133,6 +133,13 @@ interface DbOpRow {
   error: string | null;
   flags: string;
   voided_by: string | null;
+  review: LateReview | null;
+  resolved_by: string | null;
+}
+
+/** An accepted late record counts as applied (its effects were applied by the decision). */
+function rowToRecord(r: DbOpRow): OpRecord {
+  return { op: rowToOp(r), status: r.review === 'accepted' ? 'applied' : r.status, voidedBy: r.voided_by, review: r.review ?? null, resolvedBy: r.resolved_by ?? null };
 }
 
 function rowToOp(r: DbOpRow): AnyOp {
@@ -201,10 +208,15 @@ class PrefetchCtx implements EngineCtx {
       const t = this.getOp(v.targetId);
       if (t) this.overlay.ops.set(v.targetId, { ...t, voidedBy: v.voidOpId });
     }
+    for (const r of effects.resolves) {
+      const t = this.getOp(r.targetId);
+      const accepted = r.decision === 'accept';
+      if (t) this.overlay.ops.set(r.targetId, { ...t, status: accepted ? 'applied' : 'rejected', review: accepted ? 'accepted' : 'rejected', resolvedBy: r.resolveOpId });
+    }
     this.overlay.ops.set(op.id, { op, status: 'applied', voidedBy: null });
   }
-  reject(op: AnyOp) {
-    this.overlay.ops.set(op.id, { op, status: 'rejected', voidedBy: null });
+  reject(op: AnyOp, review: LateReview | null = null) {
+    this.overlay.ops.set(op.id, { op, status: 'rejected', voidedBy: null, review });
   }
 
   async loadOps(env: Env, ids: string[]) {
@@ -214,7 +226,7 @@ class PrefetchCtx implements EngineCtx {
     for (const id of want) this.ops.set(id, null);
     for (const r of results) {
       this.dbOps.set(r.id, r);
-      this.ops.set(r.id, { op: rowToOp(r), status: r.status, voidedBy: r.voided_by });
+      this.ops.set(r.id, rowToRecord(r));
     }
   }
 
@@ -302,6 +314,9 @@ interface Outcome {
   op: AnyOp;
   ok: boolean;
   error: string | null;
+  code: ErrorCode | null;
+  /** Refused only because its sales day is closed: kept as a late record for a manager (ADR-004). */
+  held: boolean;
   effects: Effects | null;
 }
 
@@ -362,18 +377,18 @@ async function processBatch(
   const audit = session.user.caps.includes('audit.view');
   const ctx = new PrefetchCtx();
 
-  // Round 0: duplicates and void targets, then the entities they need.
+  // Round 0: duplicates and the records cancellations / decisions point at, then the entities they need.
   const opIds = new Set<string>();
   for (const { op } of items) {
     opIds.add(op.id);
-    if (op.type === 'op.void') opIds.add(op.payload.targetId);
+    if (op.type === 'op.void' || op.type === 'op.resolve') opIds.add(op.payload.targetId);
   }
   await ctx.loadOps(env, [...opIds]);
   const fresh = items.filter(({ op }) => !ctx.dbOps.has(op.id));
   const keys: string[] = [];
   for (const { op } of fresh) {
     keys.push(...prefetchKeys(op));
-    if (op.type === 'op.void') {
+    if (op.type === 'op.void' || op.type === 'op.resolve') {
       const target = ctx.ops.get(op.payload.targetId);
       if (target) keys.push(...prefetchKeys(target.op));
     }
@@ -386,10 +401,11 @@ async function processBatch(
       const r = applyOp(op, ctx, actor);
       if (r.ok) {
         ctx.commit(op, r.effects);
-        return { op, ok: true, error: null, effects: r.effects };
+        return { op, ok: true, error: null, code: null, held: false, effects: r.effects };
       }
-      ctx.reject(op);
-      return { op, ok: false, error: r.error, effects: null };
+      const held = r.code === 'day_closed' && HOLDABLE.includes(op.type);
+      ctx.reject(op, held ? 'waiting' : null);
+      return { op, ok: false, error: r.error, code: r.code, held, effects: null };
     });
   };
 
@@ -411,6 +427,7 @@ async function processBatch(
       error: row.error,
       flags: audit ? (JSON.parse(row.flags) as Flag[]) : [],
       duplicate: true,
+      review: row.review ?? null,
     };
   }
   if (!fresh.length) return;
@@ -420,12 +437,11 @@ async function processBatch(
     let vis = o.effects?.vis ?? null;
     let subject = o.effects?.subjectId ?? null;
     if (!o.effects) {
-      if (o.op.type === 'op.void') {
-        const t = ctx.getOp(o.op.payload.targetId);
-        if (t) ({ vis, subjectId: subject } = visibilityOf(t.op));
-      } else ({ vis, subjectId: subject } = visibilityOf(o.op));
+      const about = subjectOf(o.op, (id) => ctx.getOp(id)?.op);
+      if (about) ({ vis, subjectId: subject } = visibilityOf(about));
     }
-    const flags = o.ok ? [...(o.effects?.flags ?? []), ...timingFlags(o.op, skewMs, serverNowMs)] : [];
+    // A late record keeps the same timing evidence (clock, offline delay) as an accepted one.
+    const flags = o.ok || o.held ? [...(o.effects?.flags ?? []), ...timingFlags(o.op, skewMs, serverNowMs)] : [];
     return {
       id: o.op.id,
       type: o.op.type,
@@ -446,6 +462,7 @@ async function processBatch(
       flags: JSON.stringify(flags),
       vis,
       subject_id: subject,
+      review: o.held ? 'waiting' : null,
     };
   });
 
@@ -461,13 +478,13 @@ async function processBatch(
   const stmts = [
     env.DB.prepare(
       `INSERT INTO ops (id, type, payload, actor_id, actor_name, device_id, device_time, tz_offset_min, created_online, v,
-                        server_time, clock_skew_ms, status, error, flags, vis, subject_id)
+                        server_time, clock_skew_ms, status, error, flags, vis, subject_id, review)
        SELECT json_extract(value, '$.id'), json_extract(value, '$.type'), json_extract(value, '$.payload'),
               json_extract(value, '$.actor_id'), json_extract(value, '$.actor_name'), json_extract(value, '$.device_id'),
               json_extract(value, '$.device_time'), json_extract(value, '$.tz_offset_min'), json_extract(value, '$.created_online'),
               json_extract(value, '$.v'), json_extract(value, '$.server_time'), json_extract(value, '$.clock_skew_ms'),
               json_extract(value, '$.status'), json_extract(value, '$.error'), json_extract(value, '$.flags'),
-              json_extract(value, '$.vis'), json_extract(value, '$.subject_id')
+              json_extract(value, '$.vis'), json_extract(value, '$.subject_id'), json_extract(value, '$.review')
          FROM json_each(?) ORDER BY key`,
     ).bind(JSON.stringify(opRows)),
   ];
@@ -501,6 +518,18 @@ async function processBatch(
       ).bind(JSON.stringify(voidRows)),
     );
   }
+  const resolveRows = outcomes.flatMap((o) => o.effects?.resolves.map((r) => [r.targetId, r.decision === 'accept' ? 'accepted' : 'rejected', r.resolveOpId]) ?? []);
+  if (resolveRows.length) {
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE ops SET review = (SELECT json_extract(j.value, '$[1]') FROM json_each(?1) j WHERE json_extract(j.value, '$[0]') = ops.id),
+                        resolved_by = (SELECT json_extract(j.value, '$[2]') FROM json_each(?1) j WHERE json_extract(j.value, '$[0]') = ops.id)
+          WHERE id IN (SELECT json_extract(value, '$[0]') FROM json_each(?1)) AND review = 'waiting'`,
+      ).bind(JSON.stringify(resolveRows)),
+      // Abort the whole batch if another device decided one of these late records meanwhile.
+      env.DB.prepare('INSERT INTO guard (v) SELECT 1 WHERE changes() <> ?').bind(resolveRows.length),
+    );
+  }
   stmts.push(env.DB.prepare('SELECT id, seq FROM ops WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(fresh.map((f) => f.op.id))));
 
   let res;
@@ -524,6 +553,7 @@ async function processBatch(
       error: o.error,
       flags: audit ? flags : [],
       duplicate: false,
+      review: o.held ? 'waiting' : null,
     };
   });
 }
@@ -534,24 +564,31 @@ async function processBatch(
 
 const DIRECTORY_CAPS = ['workers.reconcile', 'audit.view', 'users.manage', 'costs.view'] as const;
 
+/** Record types an app that predates sync protocol 2 cannot replay (see SYNC_PROTO). */
+const PROTO2_TYPES = ['op.resolve', 'payment.allocate'];
+
 export async function pull(env: Env, session: Session, url: URL): Promise<Response> {
   const since = Math.max(0, Math.floor(Number(url.searchParams.get('since') ?? '0')) || 0);
   const limit = Math.min(MAX_PULL, Math.max(1, Math.floor(Number(url.searchParams.get('limit') ?? MAX_PULL)) || MAX_PULL));
+  const proto = Math.floor(Number(url.searchParams.get('proto') ?? '1')) || 1;
   const caps = session.user.caps;
   const audit = caps.includes('audit.view') ? 1 : 0;
   const classes = readableClasses(caps);
   const fullDirectory = DIRECTORY_CAPS.some((c) => caps.includes(c));
 
+  // A late record is sent to the people who decide on it (whoever may read
+  // its kind of record) and to the worker it is about, as well as its sender.
   const [maxRes, rowsRes, usersRes] = await env.DB.batch([
     env.DB.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM ops'),
     env.DB.prepare(
       `SELECT * FROM ops
         WHERE seq > ?1 AND (
-              (vis IN (SELECT value FROM json_each(?2)) AND (status = 'applied' OR ?4 = 1))
-           OR (subject_id = ?3 AND status = 'applied') OR actor_id = ?3
+              (vis IN (SELECT value FROM json_each(?2)) AND (status = 'applied' OR ?4 = 1 OR review IS NOT NULL))
+           OR (subject_id = ?3 AND (status = 'applied' OR review IS NOT NULL)) OR actor_id = ?3
            OR (?4 = 1 AND status = 'rejected'))
+          AND (?6 >= 2 OR type NOT IN (SELECT value FROM json_each(?7)))
         ORDER BY seq LIMIT ?5`,
-    ).bind(since, JSON.stringify(classes), session.user.id, audit, limit),
+    ).bind(since, JSON.stringify(classes), session.user.id, audit, limit, proto, JSON.stringify(PROTO2_TYPES)),
     fullDirectory
       ? env.DB.prepare('SELECT id, name, role, active, location_id FROM users ORDER BY name')
       : env.DB.prepare('SELECT id, name, role, active, location_id FROM users WHERE id = ?').bind(session.user.id),
@@ -569,7 +606,8 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
         `{"seq":${r.seq},"id":${s(r.id)},"type":${s(r.type)},"payload":${r.payload},"actorId":${s(r.actor_id)},"actorName":${s(r.actor_name)},` +
         `"deviceId":${s(r.device_id)},"deviceTime":${s(r.device_time)},"tzOffsetMin":${r.tz_offset_min},"createdOnline":${r.created_online ? 'true' : 'false'},` +
         `"v":${r.v},"serverTime":${s(r.server_time)},"clockSkewMs":${audit && r.clock_skew_ms !== null ? r.clock_skew_ms : 'null'},` +
-        `"status":${s(r.status)},"error":${s(r.error)},"flags":${audit ? r.flags : '[]'},"voidedBy":${s(r.voided_by)}}`,
+        `"status":${s(r.status)},"error":${s(r.error)},"flags":${audit ? r.flags : '[]'},"voidedBy":${s(r.voided_by)},` +
+        `"review":${s(r.review ?? null)},"resolvedBy":${s(r.resolved_by ?? null)}}`,
     )
     .join(',');
   const directory = (usersRes!.results as { id: string; name: string; role: UserRef['role']; active: number; location_id: string | null }[]).map(

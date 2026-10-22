@@ -2,7 +2,7 @@
 // Devices rebuild it from their local operation log; tests use it directly.
 
 import { applyOp, moveDeltas, type Actor, type ApplyResult, type EngineCtx, type OpRecord } from './engine';
-import type { AnyOp, Flag } from './ops';
+import type { AnyOp, Flag, LateReview } from './ops';
 import { K, balanceKey, entityKind, type Move, type Posting, type UserRef } from './model';
 
 export interface OpEffectsRecord {
@@ -60,14 +60,21 @@ export class Ledger implements EngineCtx {
       const target = this.ops.get(v.targetId);
       if (target) this.ops.set(v.targetId, { ...target, voidedBy: v.voidOpId });
     }
+    // A decided late record: accepted ones now count (their effects are this
+    // decision's), rejected ones stay refused.
+    for (const r of e.resolves) {
+      const target = this.ops.get(r.targetId);
+      const accepted = r.decision === 'accept';
+      if (target) this.ops.set(r.targetId, { ...target, status: accepted ? 'applied' : 'rejected', review: accepted ? 'accepted' : 'rejected', resolvedBy: r.resolveOpId });
+    }
     this.ops.set(op.id, { op, status, voidedBy: null });
     this.effects.set(op.id, { moves: e.moves, postings: e.postings, flags: e.flags });
     this.order.push(op.id);
   }
 
-  /** Record a rejected operation (kept for the activity log, no effects). */
-  recordRejected(op: AnyOp) {
-    this.ops.set(op.id, { op, status: 'rejected', voidedBy: null });
+  /** Record a rejected operation (kept for the activity log, no effects), or a late record waiting for / decided by a manager. */
+  recordRejected(op: AnyOp, late?: { review?: LateReview | null; resolvedBy?: string | null }) {
+    this.ops.set(op.id, { op, status: 'rejected', voidedBy: null, review: late?.review ?? null, resolvedBy: late?.resolvedBy ?? null });
   }
 
   list<T>(kind: string): T[] {

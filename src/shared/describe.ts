@@ -140,6 +140,13 @@ export function describeOp(op: AnyOp, lk: Lookups, ledger: Ledger, t: T = tEn, d
       const tg = ledger.getOp(op.payload.targetId);
       return t('op.void', { what: tg && depth < 1 ? describeOp(tg.op, lk, ledger, t, depth + 1) : t('op.aRecord'), reason: op.payload.reason });
     }
+    case 'op.resolve': {
+      const tg = ledger.getOp(op.payload.targetId);
+      const what = tg && depth < 1 ? describeOp(tg.op, lk, ledger, t, depth + 1) : t('op.aRecord');
+      return op.payload.decision === 'accept'
+        ? t('op.resolveAccept', { what, note: op.payload.reason ? ` — “${op.payload.reason}”` : '' })
+        : t('op.resolveReject', { what, reason: op.payload.reason });
+    }
   }
 }
 

@@ -12,7 +12,7 @@ import { CONVERSION_BASIS_LABEL, RATE_BASIS_LABEL, type RateUse } from './fx';
 import { ADJUST_LABEL, EXPENSE_LABEL, FLAG_LABEL, INTAKE_LABEL, METHOD_LABEL, OP_GROUP, PAYMENT_LABEL, ROLE_LABEL, SHIP_COST_LABEL } from './labels';
 import { K, parseAccount, type PriceList, type Purchase, type Shipment, type UserRef, type WorkerDay } from './model';
 import { formatMoney, type Currency } from './money';
-import type { AnyOp, Flag, OpType } from './ops';
+import { subjectOf, type AnyOp, type Flag, type LateReview, type OpType } from './ops';
 import type { Capability } from './permissions';
 import { canExport, REPORT_INFO, type ReportId } from './report-catalog';
 import { TIME_NOTE, type Cell, type Column, type ReportDoc, type Table } from './report-doc';
@@ -281,19 +281,25 @@ export function salesLinesReport(ctx: ReportCtx, f: DayFilter): ReportDoc {
 
 const WORKER_TYPES: readonly OpType[] = ['worker.issue', 'worker.return', 'worker.settle', 'worker.review'];
 
+/** A late record's state, in the words of the downloads (ADR-004). */
+export const LATE_TEXT: Record<LateReview, string> = {
+  waiting: 'Late — waiting for a manager',
+  accepted: 'Late — accepted by a manager',
+  rejected: 'Late — not accepted by a manager',
+};
+
 export function workerRecordsReport(ctx: ReportCtx, f: DayFilter): ReportDoc {
-  const d = start('worker-records', ctx, [], ['Every take-out, return, closing and review, including cancelled ones (marked), in the order they were entered.', 'Device time is when the record was saved on the phone; server time is when it reached the server.']);
+  const d = start('worker-records', ctx, [], [
+    'Every take-out, return, closing and review, including cancelled ones (marked), in the order they were entered.',
+    'Device time is when the record was saved on the phone; server time is when it reached the server.',
+    'A late record reached the server after its day was closed; it counts only once a manager accepted it.',
+  ]);
   d.filters = dayFilters(d.lk, f).filter((x) => x.label !== 'Status');
   const rows: Record<string, Cell>[] = [];
   const all = [...ctx.ledger.ops.values()].sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime));
   for (const r of all) {
-    let target = r.op;
-    if (r.op.type === 'op.void') {
-      const t = ctx.ledger.getOp(r.op.payload.targetId);
-      if (!t) continue;
-      target = t.op;
-    }
-    if (!WORKER_TYPES.includes(target.type)) continue;
+    const target = subjectOf(r.op, (id) => ctx.ledger.getOp(id)?.op);
+    if (!target || !WORKER_TYPES.includes(target.type)) continue;
     const p = target.payload as { workerId: string; workDate: string; locationId?: string; lines?: { qty?: number; sold?: number }[] };
     const loc = p.locationId ?? (ctx.ledger.get(K.day(p.workerId, p.workDate)) as WorkerDay | undefined)?.locationId ?? null;
     if (!inRange(p.workDate, f.from, f.to) || (f.workerId && p.workerId !== f.workerId) || (f.locationId && loc !== f.locationId)) continue;
@@ -305,11 +311,18 @@ export function workerRecordsReport(ctx: ReportCtx, f: DayFilter): ReportDoc {
       workDate: p.workDate,
       worker: d.lk.personName(p.workerId),
       by: m?.actorName ?? d.lk.personName(r.op.actorId),
-      action: OP_GROUP[r.op.type] === 'Corrections' ? 'Cancellation' : { 'worker.issue': 'Took to sell', 'worker.return': 'Returned', 'worker.settle': 'Closed the day', 'worker.review': 'Review' }[r.op.type as 'worker.issue'],
+      action:
+        r.op.type === 'op.resolve'
+          ? r.op.payload.decision === 'accept'
+            ? 'Late record accepted'
+            : 'Late record not accepted'
+          : OP_GROUP[r.op.type] === 'Corrections'
+            ? 'Cancellation'
+            : { 'worker.issue': 'Took to sell', 'worker.return': 'Returned', 'worker.settle': 'Closed the day', 'worker.review': 'Review' }[r.op.type as 'worker.issue'],
       detail: describeOp(r.op, d.lk, ctx.ledger),
       pieces,
       cancelled: r.voidedBy ? 'Cancelled' : '',
-      sync: syncText(m) || (r.status === 'pending' ? 'Not synced yet' : r.status === 'rejected' ? 'Not accepted' : 'Synced'),
+      sync: r.review ? LATE_TEXT[r.review] : syncText(m) || (r.status === 'pending' ? 'Not synced yet' : r.status === 'rejected' ? 'Not accepted' : 'Synced'),
       warnings: (m?.flags ?? []).map((x) => FLAG_LABEL[x.code]).join(', '),
     });
   }
@@ -930,7 +943,7 @@ export function activityReport(ctx: ReportCtx, f: ActivityFilter): ReportDoc {
       by: rec?.actorName ?? d.lk.personName(o.op.actorId),
       kind: OP_GROUP[o.op.type],
       what: describeOp(o.op, d.lk, ctx.ledger),
-      status: o.status === 'rejected' ? 'Not accepted' : o.status === 'pending' ? 'Not synced yet' : 'Synced',
+      status: o.review ? LATE_TEXT[o.review] : o.status === 'rejected' ? 'Not accepted' : o.status === 'pending' ? 'Not synced yet' : 'Synced',
       cancelled: o.voidedBy ? 'Yes' : '',
       warnings: (rec?.flags ?? []).map((x) => FLAG_LABEL[x.code]).join(', '),
       id: o.op.id,

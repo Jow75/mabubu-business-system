@@ -339,6 +339,9 @@ export function SyncBadge({ onClick }: { onClick?: () => void }) {
   } else if (sync.rejected > 0) {
     cls = 'bad';
     text = t('sync.attention', { n: sync.rejected });
+  } else if (sync.held > 0 && sync.state !== 'offline' && sync.pending === 0) {
+    cls = 'pending';
+    text = t('sync.held', { n: sync.held });
   } else if (sync.state === 'offline') {
     cls = sync.pending ? 'pending' : 'off';
     text = sync.pending ? t('sync.offlineSaved', { n: sync.pending }) : t('sync.offline');

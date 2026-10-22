@@ -7,7 +7,7 @@ import { Ledger } from '../../shared/ledger';
 import { ENGINE_VERSION, parseOp, type AnyOp, type Flag, type OpType, type PayloadOf } from '../../shared/ops';
 import type { Capability } from '../../shared/permissions';
 import { canSee } from '../../shared/visibility';
-import type { LoginResponse, PullResponse, PushResponse, SessionUser } from '../../shared/api';
+import { SYNC_PROTO, type LoginResponse, type PullResponse, type PushResponse, type SessionUser } from '../../shared/api';
 import type { UserRef } from '../../shared/model';
 import { uuidv7 } from '../../shared/ids';
 import { isLang, type Lang } from '../../shared/i18n';
@@ -24,6 +24,8 @@ export interface SyncInfo {
   lastError: string | null;
   pending: number;
   rejected: number;
+  /** This person's late records still waiting for a manager. */
+  held: number;
 }
 
 export interface Prefs {
@@ -82,7 +84,7 @@ function savePrefs(p: Prefs) {
 
 /** Mirrors the server's download filter, used to show a role's real view in demo mode. */
 export function visibleTo(rec: LocalOp, user: SessionUser, records: Map<string, LocalOp>): boolean {
-  return canSee(rec.op, rec.status, user, (id) => records.get(id)?.op);
+  return canSee(rec.op, rec.status, user, (id) => records.get(id)?.op, rec.review ?? null);
 }
 
 class Store {
@@ -95,7 +97,7 @@ class Store {
     ledger: new Ledger(),
     records: new Map(),
     directory: [],
-    sync: { state: 'idle', lastSyncAt: null, lastError: null, pending: 0, rejected: 0 },
+    sync: { state: 'idle', lastSyncAt: null, lastError: null, pending: 0, rejected: 0, held: 0 },
     prefs: loadPrefs(),
     online: typeof navigator === 'undefined' ? true : navigator.onLine,
     version: 0,
@@ -341,11 +343,16 @@ class Store {
   private counts(records: Map<string, LocalOp>) {
     let pending = 0;
     let rejected = 0;
+    let held = 0;
     for (const r of records.values()) {
       if (r.status === 'pending') pending++;
-      else if (r.status === 'rejected' && r.op.actorId === this.snap.user?.id) rejected++;
+      else if (r.status === 'rejected' && r.op.actorId === this.snap.user?.id) {
+        // A late record waiting for a manager is not a refusal; one a manager turned down is.
+        if (r.review === 'waiting') held++;
+        else if (r.review !== 'accepted') rejected++;
+      }
     }
-    return { pending, rejected };
+    return { pending, rejected, held };
   }
 
   private rebuild(records: Map<string, LocalOp>, directory: UserRef[], user: SessionUser): Ledger {
@@ -353,6 +360,9 @@ class Store {
     L.setUsers(directory);
     const all = [...records.values()];
     const visible = this.snap.demo ? all.filter((r) => visibleTo(r, user, records)) : all;
+    // Refused and late records first: a manager's decision on a late record
+    // (replayed below in server order) must find the record it decides.
+    for (const r of visible) if (r.status === 'rejected') L.recordRejected(r.op, r);
     const applied = visible.filter((r) => r.status === 'applied').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
     for (const r of applied) {
       const res = L.apply(r.op, null);
@@ -366,7 +376,6 @@ class Store {
       const res = L.apply(r.op, actor, 'pending');
       if (!res.ok) L.recordRejected(r.op);
     }
-    for (const r of visible) if (r.status === 'rejected' && !L.ops.has(r.id)) L.recordRejected(r.op);
     return L;
   }
 
@@ -438,10 +447,10 @@ class Store {
     return { ok: true, op, flags: check.effects.flags };
   }
 
-  /** Drop a rejected record from this device after the person has seen it. */
+  /** Drop a rejected record from this device after the person has seen it (never a late record waiting for a manager). */
   async dismissRejected(id: string) {
     const rec = this.snap.records.get(id);
-    if (!rec || rec.status !== 'rejected' || !this.db) return;
+    if (!rec || rec.status !== 'rejected' || rec.review === 'waiting' || !this.db) return;
     await this.db.ops.delete(id);
     const records = new Map(this.snap.records);
     records.delete(id);
@@ -516,7 +525,7 @@ class Store {
         res.results.forEach((r, idx) => {
           const local = chunk[idx];
           if (!local || r.id !== local.id) return;
-          updates.push({ ...local, status: r.status, seq: r.seq, serverTime: r.serverTime, error: r.error, flags: r.flags.length ? r.flags : local.flags });
+          updates.push({ ...local, status: r.status, seq: r.seq, serverTime: r.serverTime, error: r.error, flags: r.flags.length ? r.flags : local.flags, review: r.review ?? null });
         });
         await db.ops.bulkPut(updates);
         for (const u of updates) {
@@ -526,16 +535,19 @@ class Store {
         changed = true;
       }
 
-      // 2. Download everything new since the last sync.
+      // 2. Download everything new since the last sync. The first time this
+      // version syncs, download everything once more: an older version was not
+      // sent late-record decisions or payment allocations (see SYNC_PROTO).
       let since = (await kvGet<number>(db, 'since')) ?? 0;
+      if (((await kvGet<number>(db, 'proto')) ?? 1) < SYNC_PROTO) since = 0;
       let directory = this.snap.directory;
       let me = this.snap.user!;
       let newFromServer = false;
       for (let page = 0; page < 200; page++) {
-        const res = await api<PullResponse>('GET', `/sync/pull?since=${since}`, undefined, token);
+        const res = await api<PullResponse>('GET', `/sync/pull?since=${since}&proto=${SYNC_PROTO}`, undefined, token);
         if (stale()) return;
         const incoming: LocalOp[] = res.ops.map((o) => {
-          const { seq, serverTime, actorName, clockSkewMs, status, error, flags, voidedBy: _v, ...op } = o;
+          const { seq, serverTime, actorName, clockSkewMs, status, error, flags, voidedBy: _v, review, resolvedBy, ...op } = o;
           const existing = records.get(o.id);
           if (!existing) newFromServer = true;
           return {
@@ -549,8 +561,23 @@ class Store {
             error,
             flags,
             localOrder: existing?.localOrder ?? 0,
+            review: review ?? null,
+            resolvedBy: resolvedBy ?? null,
           };
         });
+        // A decision on a late record also settles the record it decides (its
+        // own row on the server changed, but not its place in the download order).
+        for (const r of incoming) {
+          const d = r.op;
+          if (d.type !== 'op.resolve' || r.status !== 'applied') continue;
+          const target = incoming.find((x) => x.id === d.payload.targetId) ?? records.get(d.payload.targetId);
+          if (target && target.resolvedBy !== r.id) {
+            const decided: LocalOp = { ...target, review: d.payload.decision === 'accept' ? 'accepted' : 'rejected', resolvedBy: r.id };
+            const i = incoming.indexOf(target);
+            if (i >= 0) incoming[i] = decided;
+            else incoming.push(decided);
+          }
+        }
         if (incoming.length) {
           await db.ops.bulkPut(incoming);
           for (const r of incoming) {
@@ -566,6 +593,7 @@ class Store {
         await kvSet(db, 'directory', directory);
         if (!res.more) break;
       }
+      await kvSet(db, 'proto', SYNC_PROTO);
 
       if (stale()) return;
       if (JSON.stringify(me) !== JSON.stringify(this.snap.user)) {
@@ -661,7 +689,7 @@ class Store {
     const updates = pending.sort((a, b) => a.localOrder - b.localOrder).map((r) => ({ ...r, status: 'applied' as const, seq: ++seq, serverTime: now, clockSkewMs: 0 }));
     await this.db.ops.bulkPut(updates);
     for (const u of updates) records.set(u.id, u);
-    this.refresh(records, { sync: { state: 'demo', lastSyncAt: now, lastError: null, pending: 0, rejected: 0 } });
+    this.refresh(records, { sync: { state: 'demo', lastSyncAt: now, lastError: null, pending: 0, rejected: 0, held: 0 } });
   }
 
   async resetDemo() {

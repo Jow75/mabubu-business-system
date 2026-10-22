@@ -4,15 +4,18 @@ import { describeOp, useLookups } from '../../lib/lookups';
 import { href, navigate } from '../../lib/router';
 import { dayLines } from '../../../shared/queries';
 import { REVIEW_FILTERS, dayTotals, salesDaysReport, salesLinesReport, selectDays, workerRecordsReport, type DayFilter, type ReviewFilter } from '../../../shared/reports';
+import { lateEvidence, lateRecords, type LateRecord } from '../../../shared/late';
+import { subjectOf } from '../../../shared/ops';
 import { K, type WorkerDay } from '../../../shared/model';
 import { businessDate, fmtDate, fmtDateShort, fmtDateTime, fmtDuration, fmtTime } from '../../../shared/time';
-import { rich, useT } from '../../lib/i18n';
+import { errText, rich, useT } from '../../lib/i18n';
 import type { Key } from '../../../shared/i18n';
 import { reportCtx } from '../../lib/report-ctx';
 import { Icon } from '../../ui/Icon';
-import { Empty, Field, GarmentLabel, Money, Monogram, PageHead, Sheet, save } from '../../ui/kit';
+import { Empty, Field, GarmentLabel, Money, Monogram, PageHead, Sheet, save, toast } from '../../ui/kit';
 import { DateRangeControl, DownloadButton, PlaceNotice, PlaceSelect, useDateRange, useRangeLabel } from '../../ui/Reporting';
 import { VoidButton } from '../../ui/VoidButton';
+import { LatePill } from '../../ui/Late';
 
 function VarianceCell({ d }: { d: WorkerDay }) {
   const t = useT();
@@ -39,6 +42,11 @@ export function DaysPage() {
   const days = useMemo(() => selectDays(ledger, filter), [ledger, version, filter.from, filter.to, filter.workerId, filter.locationId, filter.review]);
   // Days at other places that the place filter hides (so an empty list is never a mystery).
   const hidden = useMemo(() => (prefs.scope ? selectDays(ledger, { ...filter, locationId: null }).length - days.length : 0), [ledger, version, days, prefs.scope]);
+  const lateByDay = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of lateRecords(ledger, { review: 'waiting' })) m.set(K.day(l.workerId, l.workDate), (m.get(K.day(l.workerId, l.workDate)) ?? 0) + 1);
+    return m;
+  }, [ledger, version]);
   const workers = lk.people.filter((p) => p.active);
   const sellCurrency = (lk.loc(prefs.scope)?.kind === 'selling' ? lk.loc(prefs.scope)?.currency : lk.locations.find((l) => l.kind === 'selling')?.currency) ?? 'KMF';
   const all = dayTotals(days);
@@ -150,7 +158,10 @@ export function DaysPage() {
                       <td>
                         <VarianceCell d={d} />
                       </td>
-                      <td>{d.review ? <span className={`pill ${d.review.decision === 'approved' ? 'green' : 'saffron'}`}>{t(d.review.decision === 'approved' ? 'rv.approved' : 'rv.queried')}</span> : d.settlement ? <span className="muted">{t('days.toReview')}</span> : ''}</td>
+                      <td className="nowrap">
+                        {d.review ? <span className={`pill ${d.review.decision === 'approved' ? 'green' : 'saffron'}`}>{t(d.review.decision === 'approved' ? 'rv.approved' : 'rv.queried')}</span> : d.settlement ? <span className="muted">{t('days.toReview')}</span> : ''}
+                        {lateByDay.get(d.key) ? <span className="pill saffron" style={{ marginLeft: 6 }}>{t('late.pill', { n: lateByDay.get(d.key)! })}</span> : null}
+                      </td>
                     </tr>
                   );
                 })}
@@ -208,17 +219,14 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
     () =>
       [...ledger.ops.values()]
         .filter((r) => {
-          const p = r.op.payload as { workerId?: string; workDate?: string; targetId?: string };
-          if (r.op.type === 'op.void') {
-            const tg = ledger.getOp(p.targetId ?? '');
-            const tp = tg?.op.payload as { workerId?: string; workDate?: string } | undefined;
-            return tp?.workerId === workerId && tp?.workDate === date;
-          }
-          return p.workerId === workerId && p.workDate === date;
+          const p = subjectOf(r.op, (id) => ledger.getOp(id)?.op)?.payload as { workerId?: string; workDate?: string } | undefined;
+          return p?.workerId === workerId && p?.workDate === date;
         })
         .sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime)),
     [ledger, version, workerId, date],
   );
+  const waiting = useMemo(() => lateRecords(ledger, { workerId, workDate: date, review: 'waiting' }), [ledger, version, workerId, date]);
+  const canDecide = user!.caps.includes('workers.reconcile');
   const canAudit = user!.caps.includes('audit.view');
   const q = `?worker=${workerId}&date=${date}${day ? `&loc=${day.locationId}` : ''}`;
   const s = day?.settlement;
@@ -254,7 +262,7 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                   <span className="pill green" title={t('days.approvedOnce')}>
                     <Icon name="check" size={15} /> {t('c.approved')}
                   </span>
-                ) : (
+                ) : waiting.length > 0 ? null : (
                   <>
                     <button className="btn btn-primary" onClick={() => setReview('approved')}>
                       <Icon name="check" size={18} /> {t('days.approve')}
@@ -270,6 +278,7 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
           </>
         }
       />
+      {waiting.length > 0 && canDecide && <LateRecords day={day} workerId={workerId} waiting={waiting} />}
       {!day && <Empty icon="calendar" title={t('days.nothing')} />}
       {day && (
         <div className="grid cols-2">
@@ -365,13 +374,15 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                 <div key={r.op.id} className="tl-item">
                   <span className="tl-time">{fmtTime(r.op.deviceTime)}</span>
                   <span className="tl-rail">
-                    <span className={`tl-knot ${r.voidedBy ? 'muted' : r.op.type === 'worker.settle' ? 'green' : r.op.type === 'worker.return' ? 'lagoon' : 'saffron'}`} />
+                    <span className={`tl-knot ${r.status === 'rejected' ? (r.review === 'waiting' ? 'saffron' : 'red') : r.voidedBy ? 'muted' : r.op.type === 'worker.settle' ? 'green' : r.op.type === 'worker.return' ? 'lagoon' : 'saffron'}`} />
                   </span>
                   <div className="stack-sm">
                     <span className="row-between">
                       <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>{describeOp(r.op, lk, ledger, t)}</span>
                       {(r.op.type === 'worker.issue' || r.op.type === 'worker.return') && day?.status === 'open' && <VoidButton opId={r.op.id} label={t('void.cancel')} />}
                     </span>
+                    {r.review && <LatePill rec={r} />}
+                    {r.status === 'rejected' && !r.review && <span className="pill red">{t('act.refused', { error: errText(rec?.error) })}</span>}
                     {canAudit && (
                       <span className="row" style={{ gap: 6 }}>
                         <span className="hint">{t('days.by', { name: rec?.actorName ?? lk.personName(r.op.actorId) })}</span>
@@ -393,6 +404,201 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
       )}
       {review && <ReviewSheet workerId={workerId} date={date} decision={review} onClose={() => setReview(null)} />}
     </div>
+  );
+}
+
+/**
+ * Late records for this day (ADR-004): saved on a phone, but they reached the
+ * server after the day was closed. Nothing counts until a manager decides;
+ * accepting needs an open day, so a closed day is reopened first and then
+ * closed again with the right figures.
+ */
+function LateRecords({ day, workerId, waiting }: { day: WorkerDay | undefined; workerId: string; waiting: LateRecord[] }) {
+  const t = useT();
+  const lk = useLookups();
+  const [rejecting, setRejecting] = useState<LateRecord | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const closed = day?.status === 'settled';
+  const accept = async (list: LateRecord[]) => {
+    setBusy(true);
+    for (const l of list) {
+      if (!(await save(() => store.submit('op.resolve', { targetId: l.rec.op.id, decision: 'accept', reason: '' }), t('late.acceptedToast')))) break;
+    }
+    setBusy(false);
+  };
+  return (
+    <section className="card card-pad stack" style={{ borderLeft: '4px solid var(--saffron)' }}>
+      <div className="row-between">
+        <span className="section-title">{t('late.title')}</span>
+        <span className="pill saffron">{t('late.pill', { n: waiting.length })}</span>
+      </div>
+      <p className="soft" style={{ margin: 0 }}>
+        {closed ? t('late.leadClosed', { name: lk.personName(workerId) }) : t('late.leadOpen')}
+      </p>
+      <div className="list">
+        {waiting.map((l) => (
+          <LateRow key={l.rec.op.id} late={l} workerName={lk.personName(workerId)}>
+            {!closed && (
+              <button className="btn btn-sm" disabled={busy} onClick={() => void accept([l])}>
+                <Icon name="check" size={15} /> {t('late.accept')}
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setRejecting(l)}>
+              {t('late.reject')}
+            </button>
+          </LateRow>
+        ))}
+      </div>
+      <p className="hint" style={{ margin: 0 }}>
+        {t('late.evidence')} {closed && t('late.decideFirst')}
+      </p>
+      <div className="row">
+        {closed && day?.settlement ? (
+          <button className="btn btn-primary" disabled={busy} onClick={() => setReopening(true)}>
+            <Icon name="undo" size={18} /> {t('late.reopenAccept')}
+          </button>
+        ) : (
+          waiting.length > 1 && (
+            <button className="btn btn-primary" disabled={busy} onClick={() => void accept(waiting)}>
+              <Icon name="check" size={18} /> {t('late.acceptAll')}
+            </button>
+          )
+        )}
+      </div>
+      {rejecting && <RejectLateSheet late={rejecting} workerName={lk.personName(workerId)} onClose={() => setRejecting(null)} />}
+      {reopening && day?.settlement && <ReopenAcceptSheet day={day} waiting={waiting} onClose={() => setReopening(false)} />}
+    </section>
+  );
+}
+
+/** One late record with the evidence a manager needs: phone time (corrected by the measured clock error), server time, and when the closing arrived. */
+function LateRow({ late, workerName, children }: { late: LateRecord; workerName: string; children?: ReactNode }) {
+  const { ledger, records } = useApp();
+  const lk = useLookups();
+  const t = useT();
+  const ev = lateEvidence(late, ledger, (id) => records.get(id));
+  const closer = ev.closing ? (records.get(ev.closing.op.id)?.actorName ?? lk.personName(ev.closing.op.actorId)) : null;
+  const skewed = ev.skewMs !== null && Math.abs(ev.skewMs) > 5 * 60_000;
+  return (
+    <div className="list-item" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="stack-sm" style={{ flex: '1 1 260px', minWidth: 0 }}>
+        <span>{describeOp(late.rec.op, lk, ledger, t)}</span>
+        <span className="hint">
+          {t('late.saved', { time: fmtDateTime(ev.savedAt) })}
+          {skewed && <> · {t('late.clock', { delta: fmtDuration(Math.abs(ev.skewMs!)), dir: t(ev.skewMs! > 0 ? 'late.behind' : 'late.ahead'), time: fmtDateTime(ev.correctedAt) })}</>}
+          {ev.reachedAt && <> · {t('late.reached', { time: fmtDateTime(ev.reachedAt) })}</>}
+          {!late.rec.op.createdOnline && <> · {t('act.offline')}</>}
+        </span>
+        {ev.closedAt && closer && <span className="hint">{t('late.closedAt', { time: fmtDateTime(ev.closedAt), name: closer })}</span>}
+        {ev.before !== null && <span className={`pill ${ev.before ? 'lagoon' : 'saffron'}`} style={{ alignSelf: 'flex-start' }}>{ev.before ? t('late.before') : t('late.after', { name: workerName })}</span>}
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function RejectLateSheet({ late, workerName, onClose }: { late: LateRecord; workerName: string; onClose: () => void }) {
+  const { ledger } = useApp();
+  const lk = useLookups();
+  const t = useT();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Sheet
+      title={t('late.rejectTitle')}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            {t('c.cancel')}
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={busy || reason.trim().length < 3}
+            onClick={async () => {
+              setBusy(true);
+              const ok = await save(() => store.submit('op.resolve', { targetId: late.rec.op.id, decision: 'reject', reason: reason.trim() }), t('late.rejectedToast'));
+              setBusy(false);
+              if (ok) onClose();
+            }}
+          >
+            {t('late.rejectConfirm')}
+          </button>
+        </>
+      }
+    >
+      <div className="note-box">{describeOp(late.rec.op, lk, ledger, t)}</div>
+      <p className="soft">{t('late.rejectLead', { name: workerName })}</p>
+      <Field label={t('void.reason')}>
+        <textarea className="textarea" autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('late.rejectPh')} />
+      </Field>
+    </Sheet>
+  );
+}
+
+/** Reopen (cancel the closing, kept with a reason), then accept the late records in the order they were saved. */
+function ReopenAcceptSheet({ day, waiting, onClose }: { day: WorkerDay; waiting: LateRecord[]; onClose: () => void }) {
+  const { ledger, records } = useApp();
+  const lk = useLookups();
+  const t = useT();
+  const [reason, setReason] = useState(t('late.reopenDefault'));
+  const [busy, setBusy] = useState(false);
+  const closingId = day.settlement!.opId;
+  const closer = records.get(closingId)?.actorName ?? lk.personName(ledger.getOp(closingId)?.op.actorId);
+  return (
+    <Sheet
+      title={t('late.reopenTitle')}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            {t('c.cancel')}
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy || reason.trim().length < 3}
+            onClick={async () => {
+              setBusy(true);
+              const reopened = await store.submit('op.void', { targetId: closingId, reason: reason.trim() });
+              if (!reopened.ok) {
+                toast(errText(reopened.error), 'error');
+                setBusy(false);
+                return;
+              }
+              let all = true;
+              for (const l of waiting) {
+                const r = await store.submit('op.resolve', { targetId: l.rec.op.id, decision: 'accept', reason: '' });
+                if (!r.ok) {
+                  toast(errText(r.error), 'error');
+                  all = false;
+                  break;
+                }
+              }
+              setBusy(false);
+              if (all) toast(t('late.reopenedToast'));
+              onClose();
+            }}
+          >
+            {t('late.reopenConfirm')}
+          </button>
+        </>
+      }
+    >
+      <div className="stack-sm">
+        {waiting.map((l) => (
+          <div key={l.rec.op.id} className="note-box">
+            {describeOp(l.rec.op, lk, ledger, t)}
+          </div>
+        ))}
+      </div>
+      <p className="soft">{t('late.reopenLead', { name: closer, n: waiting.length })}</p>
+      <Field label={t('void.reason')}>
+        <textarea className="textarea" value={reason} onChange={(e) => setReason(e.target.value)} />
+      </Field>
+    </Sheet>
   );
 }
 

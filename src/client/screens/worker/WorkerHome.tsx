@@ -10,6 +10,8 @@ import { Icon } from '../../ui/Icon';
 import { Empty, GarmentLabel, Money, Qty, save } from '../../ui/kit';
 import { errText, rich, useT } from '../../lib/i18n';
 import { Greeting } from '../../ui/Greeting';
+import { LatePill } from '../../ui/Late';
+import { lateRecords } from '../../../shared/late';
 
 export function WorkerToday() {
   const { ledger, user, version, records } = useApp();
@@ -31,6 +33,8 @@ export function WorkerToday() {
         .sort((a, b) => b.op.deviceTime.localeCompare(a.op.deviceTime)),
     [ledger, user, version, today],
   );
+  // Records that reached the office after their day was closed, still waiting for a manager (any day).
+  const lateWaiting = useMemo(() => lateRecords(ledger, { workerId: user!.id, review: 'waiting' }), [ledger, user, version]);
 
   return (
     <div className="page" style={{ maxWidth: 720 }}>
@@ -87,6 +91,17 @@ export function WorkerToday() {
         </div>
       )}
 
+      {lateWaiting.length > 0 && (
+        <div className="note-box stack-sm">
+          <span>{t('w.lateNote', { n: lateWaiting.length })}</span>
+          {lateWaiting.map((l) => (
+            <span key={l.rec.op.id} className="hint">
+              {fmtDate(l.workDate)} · {describeOp(l.rec.op, lk, ledger, t)}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="action-grid">
         <button className="action" onClick={() => navigate('/take')} disabled={todayDay?.status === 'settled'}>
           <span className="ico">
@@ -140,13 +155,19 @@ export function WorkerToday() {
                   <div key={r.op.id} className="tl-item">
                     <span className="tl-time">{fmtTime(r.op.deviceTime)}</span>
                     <span className="tl-rail">
-                      <span className={`tl-knot ${r.status === 'rejected' ? 'red' : cancelled ? 'muted' : r.op.type === 'worker.settle' ? 'green' : r.op.type === 'worker.return' ? 'lagoon' : 'saffron'}`} />
+                      <span className={`tl-knot ${r.status === 'rejected' ? (r.review === 'waiting' ? 'saffron' : 'red') : cancelled ? 'muted' : r.op.type === 'worker.settle' ? 'green' : r.op.type === 'worker.return' ? 'lagoon' : 'saffron'}`} />
                     </span>
                     <div className="stack-sm">
                       <span style={cancelled ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>{describeOp(r.op, lk, ledger, t)}</span>
                       <span className="row" style={{ gap: 6 }}>
-                        {pending && <span className="pill saffron">{t('w.savedOnPhone')}</span>}
-                        {r.status === 'rejected' && <span className="pill red">{t('w.notAccepted', { error: errText(rec?.error) })}</span>}
+                        {pending && <span className="pill saffron">{t('w.notSent')}</span>}
+                        {r.review && <LatePill rec={r} worker />}
+                        {r.status === 'applied' && !pending && !r.review && r.op.actorId === user!.id && (
+                          <span className="hint row" style={{ gap: 3 }}>
+                            <Icon name="check" size={14} /> {t('w.sent')}
+                          </span>
+                        )}
+                        {r.status === 'rejected' && !r.review && <span className="pill red">{t('w.notAccepted', { error: errText(rec?.error) })}</span>}
                         {cancelled && <span className="pill">{t('c.cancelled')}</span>}
                         {canCancel && <CancelButton opId={r.op.id} />}
                       </span>

@@ -49,12 +49,13 @@ async function pushOps(token: string, ops: AnyOp[], clientNow = new Date().toISO
   return call<PushResponse>('POST', '/api/sync/push', { ops, clientNow }, token);
 }
 
-async function pullAll(token: string) {
+/** `proto` as the app sends it; without it, the server answers as for an app older than SYNC_PROTO 2. */
+async function pullAll(token: string, proto?: number) {
   const all: PullResponse['ops'] = [];
   let since = 0;
   let last: PullResponse;
   for (;;) {
-    const r = await call<PullResponse>('GET', `/api/sync/pull?since=${since}&limit=7`, undefined, token);
+    const r = await call<PullResponse>('GET', `/api/sync/pull?since=${since}&limit=7${proto ? `&proto=${proto}` : ''}`, undefined, token);
     expect(r.status).toBe(200);
     last = r.body;
     all.push(...last.ops);
@@ -553,6 +554,208 @@ describe('sync', () => {
   it('rejects an unauthenticated upload', async () => {
     expect((await call('POST', '/api/sync/push', { ops: [], clientNow: '' })).status).toBe(401);
     expect((await call('GET', '/api/sync/pull', undefined, 'not-a-real-token-but-long-enough')).status).toBe(401);
+  });
+});
+
+describe('late records: worker records that reach the server after their day was closed (ADR-004)', () => {
+  const DAY = '2026-10-17';
+  const row = (id: string) => env.DB.raw.prepare('SELECT status, review, resolved_by, error, flags, device_time, server_time FROM ops WHERE id = ?').get(id) as { status: string; review: string | null; resolved_by: string | null; error: string | null; flags: string; device_time: string; server_time: string };
+  const qty = (acct: string) => (env.DB.raw.prepare('SELECT COALESCE(SUM(qty), 0) AS q FROM balances WHERE acct = ? AND gt = ?').get(acct, 'gt-haf') as { q: number }).q;
+  const count = (sql: string) => (env.DB.raw.prepare(sql).get() as { n: number }).n;
+
+  /** Mirrors the app's rebuild: refused and late records first, then everything applied in server order. */
+  function replay(pulled: Awaited<ReturnType<typeof pullAll>>) {
+    const L = new Ledger();
+    L.setUsers(pulled.directory);
+    for (const o of pulled.ops) if (o.status === 'rejected') L.recordRejected(o, o);
+    for (const o of pulled.ops) {
+      if (o.status !== 'applied') continue;
+      const r = L.apply(o, null);
+      expect(r.ok, r.ok ? '' : `${o.type}: ${r.error}`).toBe(true);
+    }
+    return L;
+  }
+  const serverBalances = () =>
+    Object.fromEntries((env.DB.raw.prepare('SELECT acct, gt, qty FROM balances WHERE qty <> 0').all() as { acct: string; gt: string; qty: number }[]).map((r) => [balanceKey(r.acct, r.gt), r.qty]));
+
+  async function stockedDay() {
+    await setupOwner();
+    await seedCatalogue();
+    const d = ownerDev.deviceId;
+    await pushOps(owner.token, [
+      mk('purchase.record', { id: 'pur-1', vendorId: 'ven-hafsa', locationId: 'loc-msa', date: '2026-10-10', currency: 'KES', intake: 'collected', lines: [{ garmentTypeId: 'gt-haf', qty: 20, unitCost: 8000 }], note: '' }, owner.id, d),
+      mk('shipment.dispatch', { id: 'shp-1', code: 'AIR-1', fromLocationId: 'loc-msa', toLocationId: 'loc-com', method: 'air', carrier: '', packages: [], lines: [{ garmentTypeId: 'gt-haf', qty: 20 }], date: '2026-10-11', expectedDate: null, note: '' }, owner.id, d),
+      mk('shipment.receive', { shipmentId: 'shp-1', date: '2026-10-12', lines: [{ garmentTypeId: 'gt-haf', received: 20, missing: 0 }], note: '' }, owner.id, d),
+    ]);
+    const a = await approvedWorker('Amina', '4770');
+    const day = { workerId: a.id, locationId: 'loc-com', workDate: DAY };
+    // On time: Amina takes 5. Later the owner closes her day for her: 5 held, 5 sold.
+    expect((await pushOps(a.token, [mk('worker.issue', { ...day, lines: [{ garmentTypeId: 'gt-haf', qty: 5 }] }, a.id, a.dev.deviceId)])).body.results[0]!.status).toBe('applied');
+    const close = mk('worker.settle', { ...day, currency: 'KMF', lines: [{ garmentTypeId: 'gt-haf', held: 5, sold: 5, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 0, lost: 0 }], cash: 5000, mobile: 0, expenses: [], note: '' }, owner.id, d);
+    // Meanwhile her phone, offline, saved a take of 3 — two hours before the closing, by its clock.
+    const late = mk('worker.issue', { ...day, lines: [{ garmentTypeId: 'gt-haf', qty: 3 }] }, a.id, a.dev.deviceId, new Date(Date.now() - 2 * 3600_000).toISOString());
+    expect((await pushOps(owner.token, [close])).body.results[0]!.status).toBe('applied');
+    return { a, day, close, late };
+  }
+
+  it('Scenarios A and C: a take arriving after the closing is kept for a manager, counts nothing, and a retry stores it once', async () => {
+    const { a, late } = await stockedDay();
+    const workerAcct = `worker|loc-com|${a.id}`;
+    // Phone clock 2 hours behind the server when it uploads (Scenario D evidence).
+    const r = await pushOps(a.token, [late], new Date(Date.now() - 2 * 3600_000).toISOString());
+    expect(r.body.results[0]).toMatchObject({ status: 'rejected', review: 'waiting', error: 'This day is already closed. Ask a manager to reopen it.' });
+    expect(row(late.id)).toMatchObject({ status: 'rejected', review: 'waiting', resolved_by: null, device_time: late.deviceTime });
+    // Its timing evidence is kept like an accepted record's.
+    expect((JSON.parse(row(late.id).flags) as { code: string }[]).map((f) => f.code)).toContain('CLOCK_SKEW');
+    // Nothing counted: shelf 20 − 5 = 15, Amina holds 0.
+    expect(qty('avail|loc-com')).toBe(15);
+    expect(qty(workerAcct)).toBe(0);
+    // Uploaded again (the reply was lost, the phone retries): same answer, one row.
+    for (let i = 0; i < 2; i++) {
+      const again = await pushOps(a.token, [late]);
+      expect(again.body.results[0]).toMatchObject({ status: 'rejected', review: 'waiting', duplicate: true });
+    }
+    expect(count(`SELECT COUNT(*) AS n FROM ops WHERE id = '${late.id}'`)).toBe(1);
+    expect(qty('avail|loc-com')).toBe(15);
+  });
+
+  it('Scenario F over the network: reopen + accept in one upload, close again; server and every device agree', async () => {
+    const { a, day, close, late } = await stockedDay();
+    await pushOps(a.token, [late]);
+    // The worker cannot decide on her own late record.
+    const own = await pushOps(a.token, [mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, a.id, a.dev.deviceId)]);
+    expect(own.body.results[0]).toMatchObject({ status: 'rejected', error: 'Only a manager can decide on a late record.' });
+    // Accepting while the day is still closed is refused (no silent change to a closed day).
+    const early = await pushOps(owner.token, [mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, owner.id, ownerDev.deviceId)]);
+    expect(early.body.results[0]).toMatchObject({ status: 'rejected', error: 'Reopen this day before accepting the late record.' });
+    expect(row(late.id).review).toBe('waiting');
+    // Reopen and accept, as the day screen sends them.
+    const reopen = mk('op.void', { targetId: close.id, reason: 'Reopened to accept late records from the phone' }, owner.id, ownerDev.deviceId);
+    const accept = mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, owner.id, ownerDev.deviceId);
+    expect((await pushOps(owner.token, [reopen, accept])).body.results.map((x) => x.status)).toEqual(['applied', 'applied']);
+    expect(row(late.id)).toMatchObject({ status: 'rejected', review: 'accepted', resolved_by: accept.id });
+    // Shelf 20 − 5 − 3 = 12; Amina holds 8.
+    expect(qty('avail|loc-com')).toBe(12);
+    expect(qty(`worker|loc-com|${a.id}`)).toBe(8);
+    // A second decision is refused.
+    const twice = await pushOps(owner.token, [mk('op.resolve', { targetId: late.id, decision: 'reject', reason: 'changed my mind' }, owner.id, ownerDev.deviceId)]);
+    expect(twice.body.results[0]).toMatchObject({ status: 'rejected', error: 'This late record was already decided.' });
+    // Amina closes again with the real figures: 8 held, 7 sold, 1 kept.
+    const reclose = mk('worker.settle', { ...day, currency: 'KMF', lines: [{ garmentTypeId: 'gt-haf', held: 8, sold: 7, wholesaleQty: 0, retailPrice: 1000, wholesalePrice: 850, carried: 1, lost: 0 }], cash: 7000, mobile: 0, expenses: [], note: '' }, a.id, a.dev.deviceId);
+    expect((await pushOps(a.token, [reclose])).body.results[0]!.status).toBe('applied');
+    expect(qty('sold|loc-com')).toBe(7);
+    // 12 on the shelf + 1 kept + 7 sold = 20.
+    expect(qty('avail|loc-com') + qty(`worker|loc-com|${a.id}`) + qty('sold|loc-com')).toBe(20);
+
+    // The owner's device and Amina's phone rebuild exactly the server's numbers.
+    const ownerView = replay(await pullAll(owner.token, 2));
+    expect(Object.fromEntries(ownerView.balances)).toEqual(serverBalances());
+    expect(ownerView.getOp(late.id)).toMatchObject({ status: 'applied', review: 'accepted', resolvedBy: accept.id });
+    const amina = await pullAll(a.token, 2);
+    expect(amina.ops.find((o) => o.id === accept.id)).toMatchObject({ type: 'op.resolve', status: 'applied' });
+    expect(amina.ops.find((o) => o.id === late.id)).toMatchObject({ review: 'accepted', resolvedBy: accept.id });
+    const aminaView = replay(amina);
+    expect(aminaView.balance(`worker|loc-com|${a.id}`, 'gt-haf')).toBe(1);
+    // An app that predates protocol 2 is never sent a record type it cannot replay.
+    const old = await pullAll(owner.token);
+    expect(old.ops.some((o) => o.type === 'op.resolve')).toBe(false);
+  });
+
+  it('Scenario E: rejecting with a reason counts nothing; the worker is told why; others never see it', async () => {
+    const { a, late } = await stockedDay();
+    const s = await approvedWorker('Said', '5829');
+    await pushOps(a.token, [late]);
+    const reject = mk('op.resolve', { targetId: late.id, decision: 'reject', reason: 'Counted the shelf: these 3 never left' }, owner.id, ownerDev.deviceId);
+    expect((await pushOps(owner.token, [reject])).body.results[0]!.status).toBe('applied');
+    expect(row(late.id)).toMatchObject({ review: 'rejected', resolved_by: reject.id });
+    expect(qty('avail|loc-com')).toBe(15);
+    const amina = await pullAll(a.token, 2);
+    expect(amina.ops.find((o) => o.id === reject.id)?.payload).toMatchObject({ decision: 'reject', reason: 'Counted the shelf: these 3 never left' });
+    expect(amina.ops.find((o) => o.id === late.id)).toMatchObject({ review: 'rejected' });
+    // Another worker never receives Amina's late record or the decision.
+    const said = await pullAll(s.token, 2);
+    expect(said.ops.some((o) => o.id === late.id || o.id === reject.id)).toBe(false);
+  });
+
+  it('two managers deciding the same late record at the same moment: exactly one decision counts', async () => {
+    const { a, close, late } = await stockedDay();
+    await pushOps(a.token, [late]);
+    // A second manager, Mama, on her own approved phone.
+    const m = await createPerson('Mama', 'manager', '582913', null);
+    const mDev = device('Mama phone');
+    await signIn('Mama', '582913', mDev);
+    await call('POST', '/api/admin/access', { deviceId: mDev.deviceId, userId: m.id, decision: 'approve' }, owner.token);
+    const mLogin = await signIn('Mama', '582913', mDev);
+    if (mLogin.body.status !== 'ok') throw new Error('manager not approved');
+    await pushOps(owner.token, [mk('op.void', { targetId: close.id, reason: 'Reopened for the late take' }, owner.id, ownerDev.deviceId)]);
+    // Both press Accept at once; the server sees both before either is saved.
+    const byOwner = mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, owner.id, ownerDev.deviceId);
+    const byMama = mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, m.id, mDev.deviceId);
+    const [r1, r2] = await Promise.all([pushOps(owner.token, [byOwner]), pushOps(mLogin.body.token, [byMama])]);
+    const results = [r1.body.results[0]!, r2.body.results[0]!];
+    expect(results.map((r) => r.status).sort()).toEqual(['applied', 'rejected']);
+    expect(results.find((r) => r.status === 'rejected')!.error).toBe('This late record was already decided.');
+    const winner = results.find((r) => r.status === 'applied')!.id;
+    expect(row(late.id)).toMatchObject({ review: 'accepted', resolved_by: winner });
+    // The 3 pieces moved once: shelf 20 − 5 − 3 = 12, Amina holds 5 + 3 = 8.
+    expect(qty('avail|loc-com')).toBe(12);
+    expect(qty(`worker|loc-com|${a.id}`)).toBe(8);
+    expect(count("SELECT COUNT(*) AS n FROM ops WHERE type = 'op.resolve' AND status = 'applied'")).toBe(1);
+  });
+
+  it('even when both decisions were checked against the same "waiting" state, the database lets only one through', async () => {
+    const { a, close, late } = await stockedDay();
+    await pushOps(a.token, [late]);
+    await pushOps(owner.token, [mk('op.void', { targetId: close.id, reason: 'Reopened for the late take' }, owner.id, ownerDev.deviceId)]);
+    // Force the race: the first decision waits at its final write until the
+    // second has read the same state and reached its own final write.
+    const realBatch = env.DB.batch.bind(env.DB);
+    let writers = 0;
+    let guardRefusals = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    env.DB.batch = (async (stmts: Parameters<typeof realBatch>[0]) => {
+      if (stmts.some((s) => /UPDATE ops SET review/.test((s as unknown as { sql: string }).sql))) {
+        writers++;
+        if (writers === 1) await gate;
+        else release();
+      }
+      try {
+        return await realBatch(stmts);
+      } catch (e) {
+        if (/CHECK constraint failed/.test(String(e))) guardRefusals++;
+        throw e;
+      }
+    }) as typeof env.DB.batch;
+    try {
+      const first = mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, owner.id, ownerDev.deviceId);
+      const second = mk('op.resolve', { targetId: late.id, decision: 'reject', reason: 'Two people pressed at once' }, owner.id, ownerDev.deviceId);
+      const [r1, r2] = await Promise.all([pushOps(owner.token, [first]), pushOps(owner.token, [second])]);
+      const results = [r1.body.results[0]!, r2.body.results[0]!];
+      expect(writers).toBe(2);
+      expect(guardRefusals).toBe(1);
+      expect(results.map((r) => r.status).sort()).toEqual(['applied', 'rejected']);
+      expect(results.find((r) => r.status === 'rejected')!.error).toBe('This late record was already decided.');
+      const winner = results.find((r) => r.status === 'applied')!.id;
+      expect(row(late.id).resolved_by).toBe(winner);
+      // Whichever won, the stock agrees with it exactly once.
+      expect(qty('avail|loc-com')).toBe(winner === first.id ? 12 : 15);
+    } finally {
+      env.DB.batch = realBatch;
+    }
+  });
+
+  it('server balances equal a replay of the downloaded records, with late records held and decided', async () => {
+    const { a, close, late } = await stockedDay();
+    await pushOps(a.token, [late]);
+    const pulledWhileWaiting = await pullAll(owner.token, 2);
+    expect(pulledWhileWaiting.ops.find((o) => o.id === late.id)).toMatchObject({ status: 'rejected', review: 'waiting' });
+    expect(Object.fromEntries(replay(pulledWhileWaiting).balances)).toEqual(serverBalances());
+    await pushOps(owner.token, [
+      mk('op.void', { targetId: close.id, reason: 'Reopened' }, owner.id, ownerDev.deviceId),
+      mk('op.resolve', { targetId: late.id, decision: 'accept', reason: '' }, owner.id, ownerDev.deviceId),
+    ]);
+    expect(Object.fromEntries(replay(await pullAll(owner.token, 2)).balances)).toEqual(serverBalances());
   });
 });
 

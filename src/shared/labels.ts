@@ -68,6 +68,7 @@ export const OP_GROUP: Record<OpType, string> = {
   'worker.settle': 'Sales day',
   'worker.review': 'Sales day',
   'op.void': 'Corrections',
+  'op.resolve': 'Sales day',
 };
 
 export const FLAG_LABEL = {
