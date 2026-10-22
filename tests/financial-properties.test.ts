@@ -143,7 +143,7 @@ describe('vendor balances reconcile with purchases and payments (randomised)', (
       // We owe payable − paid (negative means the vendor holds our credit).
       expect(account.balance).toBe(expectedPayable - paidTotal);
       // Excess payment that could not be allocated to any purchase is credit.
-      expect(account.unallocated).toBe(Math.max(0, paidTotal - expectedPayable));
+      expect(account.credit).toBe(Math.max(0, paidTotal - expectedPayable));
 
       // Payments allocated across purchases ↔ never more than each purchase owes.
       const pbs = [...purchaseBalances(L).values()].filter((p) => p.vendorId === vendor);

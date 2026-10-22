@@ -18,7 +18,10 @@ function agree(L: Ledger, vendorId: string) {
     const ledgerTotal = vendorBalances(L).find((b) => b.vendorId === vendorId && b.currency === acc.currency);
     expect(acc.balance).toBe(ledgerTotal?.balance ?? 0);
     const sumOfPurchases = acc.purchases.reduce((s, p) => s + p.balance, 0);
-    expect(sumOfPurchases - acc.unallocated).toBe(acc.balance);
+    expect(sumOfPurchases).toBe(acc.outstanding);
+    expect(sumOfPurchases - acc.credit).toBe(acc.balance);
+    // Each payment is used once: what it pays plus what stays as credit is the payment.
+    acc.payments.forEach((p, i) => expect(acc.uses[i]!.applied + acc.uses[i]!.credit).toBe(p.amount));
   }
 }
 
@@ -52,7 +55,7 @@ describe('vendor payments and purchase balances (Bug A)', () => {
     expect(covering).toMatchObject({ opId: pay.id, amount: 1_700_000, reference: 'UPKUIJ', method: 'mpesa' });
     const acc = vendorAccounts(L).find((a) => a.vendorId === yasmin)!;
     expect(acc.balance).toBe(0);
-    expect(acc.unallocated).toBe(0);
+    expect(acc.credit).toBe(0);
     expect(acc.payments.find((p) => p.opId === pay.id)?.reference).toBe('UPKUIJ');
     agree(L, yasmin);
   });
@@ -70,7 +73,7 @@ describe('vendor payments and purchase balances (Bug A)', () => {
     pb = purchaseBalances(L);
     expect(pb.get('pur-new')!.balance).toBe(0);
     const acc = vendorAccounts(L).find((a) => a.vendorId === yasmin)!;
-    expect(acc.unallocated).toBe(30_000);
+    expect(acc.credit).toBe(30_000);
     expect(acc.balance).toBe(-30_000); // the vendor holds KES 300 of our credit
     agree(L, yasmin);
   });
@@ -81,7 +84,7 @@ describe('vendor payments and purchase balances (Bug A)', () => {
     ok(L, op('vendor.payment', { vendorId: yasmin, purchaseId: null, date: '2026-10-18', amount: 13_000, currency: 'USD', method: 'bank', reference: '', note: '' }));
     expect(purchaseBalances(L).get('pur-yas')!.balance).toBe(1_700_000);
     const usd = vendorAccounts(L).find((a) => a.vendorId === yasmin && a.currency === 'USD')!;
-    expect(usd.unallocated).toBe(13_000);
+    expect(usd.credit).toBe(13_000);
     agree(L, yasmin);
   });
 
@@ -114,7 +117,7 @@ describe('vendor payments and purchase balances (Bug A)', () => {
     const L = seeded();
     ok(L, op('purchase.record', { id: 'pur-insp', vendorId: hafsa, locationId: msa, date: '2026-10-01', currency: 'KES', intake: 'inspection', lines: [{ garmentTypeId: IDS.hafsaElastic80, qty: 10, unitCost: 10000 }], note: '' }));
     ok(L, op('vendor.payment', { vendorId: hafsa, purchaseId: null, date: '2026-10-01', amount: 50_000, currency: 'KES', method: 'cash', reference: '', note: '' }));
-    expect(vendorAccounts(L).find((a) => a.vendorId === hafsa)!.unallocated).toBe(50_000);
+    expect(vendorAccounts(L).find((a) => a.vendorId === hafsa)!.credit).toBe(50_000);
     ok(L, op('purchase.inspect', { purchaseId: 'pur-insp', date: '2026-10-02', lines: [{ garmentTypeId: IDS.hafsaElastic80, accepted: 6, rejected: 4, reason: '' }], note: '' }));
     const b = purchaseBalances(L).get('pur-insp')!;
     expect(b.payable).toBe(60_000);

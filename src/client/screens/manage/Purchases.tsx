@@ -3,16 +3,16 @@ import { store, useApp } from '../../lib/store';
 import { describeOp, useLookups } from '../../lib/lookups';
 import { href, navigate } from '../../lib/router';
 import { uuidv7 } from '../../../shared/ids';
-import { purchaseBalances, purchaseSummary, vendorAccounts, type PurchaseBalance } from '../../../shared/queries';
+import { previewAccount, purchaseBalances, purchaseSummary, vendorAccounts, type PurchaseBalance } from '../../../shared/queries';
 import { purchasesReport, selectPurchases, vendorsReport, type PurchaseFilter } from '../../../shared/reports';
 import { K, type Purchase, type Vendor } from '../../../shared/model';
 import { CURRENCY_CODES, formatMoney, lineTotal, type Currency } from '../../../shared/money';
 import { PAYMENT_METHODS, PURCHASE_INTAKES } from '../../../shared/ops';
 import { businessDate, fmtDate, fmtDateShort, fmtDateTime } from '../../../shared/time';
-import { rich, useT } from '../../lib/i18n';
+import { errText, rich, useT } from '../../lib/i18n';
 import { reportCtx } from '../../lib/report-ctx';
 import { Icon } from '../../ui/Icon';
-import { Empty, Field, GarmentLabel, Money, MoneyInput, PageHead, Qty, Seg, Sheet, Stepper, save } from '../../ui/kit';
+import { Empty, Field, GarmentLabel, Money, MoneyInput, PageHead, Qty, Seg, Sheet, Stepper, save, toast } from '../../ui/kit';
 import { LinesEditor, type EditLine } from '../../ui/LinesEditor';
 import { DownloadButton } from '../../ui/Reporting';
 import { VoidButton } from '../../ui/VoidButton';
@@ -270,7 +270,7 @@ export function NewPurchase() {
   );
 }
 
-type Action = 'inspect' | 'collect' | 'return' | 'pay' | null;
+type Action = 'inspect' | 'collect' | 'return' | 'pay' | 'credit' | null;
 
 export function PurchaseDetail({ id }: { id: string }) {
   const { ledger, version, user, records } = useApp();
@@ -292,11 +292,13 @@ export function PurchaseDetail({ id }: { id: string }) {
     [ledger, version, id],
   );
   const balance = useMemo(() => purchaseBalances(ledger).get(id), [ledger, version, id]);
+  const account = useMemo(() => (p ? vendorAccounts(ledger).find((a) => a.vendorId === p.vendorId && a.currency === p.currency) : undefined), [ledger, version, p]);
   if (!p) return <Empty title={t('pu.notFound')} />;
   const s = purchaseSummary(p);
   const owed = balance?.balance ?? 0;
   const paid = balance?.paid ?? 0;
   const can = user!.caps.includes('purchasing') && p.status === 'active';
+  const canPay = user!.caps.includes('payments') && p.status === 'active';
   return (
     <div className="page">
       <PageHead
@@ -363,6 +365,14 @@ export function PurchaseDetail({ id }: { id: string }) {
           <span className="stat-sub">{rich(t('pu.paidAmt'), { amount: <Money amount={paid} currency={p.currency} /> })}</span>
         </div>
       </div>
+      {canPay && owed > 0 && account && account.credit > 0 && (
+        <div className="info-box row-between" style={{ flexWrap: 'wrap', gap: 10 }}>
+          <span>{rich(t('pu.creditHere'), { vendor: lk.vendor(p.vendorId)?.name ?? t('pu.vendor'), amount: <Money amount={account.credit} currency={p.currency} strong /> })}</span>
+          <button className="btn btn-sm" onClick={() => setAction('credit')}>
+            <Icon name="wallet" size={16} /> {t('pu.useCredit')}
+          </button>
+        </div>
+      )}
       {balance && balance.allocations.length > 0 && (
         <section className="card">
           <div className="card-head">
@@ -376,7 +386,8 @@ export function PurchaseDetail({ id }: { id: string }) {
                 </span>
                 <span style={{ flex: 1 }}>
                   {t(`lbl.payment.${a.method}`)} {a.reference && <span className="mono muted">{a.reference}</span>}
-                  {!a.linked && <div className="hint">{t('pu.appliedOldest')}</div>}
+                  {a.how === 'auto' && <div className="hint">{t('pu.appliedOldest')}</div>}
+                  {a.how === 'allocated' && <div className="hint">{t('pu.fromCredit')}</div>}
                   {records.get(a.opId)?.status === 'pending' && <span className="pill saffron">{t('days.notSynced')}</span>}
                 </span>
                 <Money amount={a.amount} currency={p.currency} strong />
@@ -469,6 +480,7 @@ export function PurchaseDetail({ id }: { id: string }) {
       {action === 'collect' && <QtySheet p={p} kind="collect" onClose={() => setAction(null)} />}
       {action === 'return' && <QtySheet p={p} kind="return" onClose={() => setAction(null)} />}
       {action === 'pay' && <PaymentSheet vendorId={p.vendorId} purchase={p} owed={owed} onClose={() => setAction(null)} />}
+      {action === 'credit' && <AllocateCreditSheet vendorId={p.vendorId} currency={p.currency} focus={p.id} onClose={() => setAction(null)} />}
     </div>
   );
 }
@@ -591,8 +603,64 @@ function QtySheet({ p, kind, onClose }: { p: Purchase; kind: 'collect' | 'return
   );
 }
 
+/** Amounts to put on a vendor's unpaid purchases: each at most what it can still take, all together at most `available`. */
+function AllocationEditor({ rows, values, onChange, available, currency }: { rows: { purchaseId: string; max: number }[]; values: Record<string, number | null>; onChange: (v: Record<string, number | null>) => void; available: number; currency: Currency }) {
+  const { ledger } = useApp();
+  const t = useT();
+  const total = rows.reduce((s, r) => s + (values[r.purchaseId] ?? 0), 0);
+  const left = available - total;
+  const fill = () => {
+    let rest = available;
+    const next: Record<string, number | null> = {};
+    for (const r of rows) {
+      const take = Math.max(0, Math.min(r.max, rest));
+      next[r.purchaseId] = take || null;
+      rest -= take;
+    }
+    onChange(next);
+  };
+  return (
+    <div className="stack-sm">
+      {rows.map((r) => {
+        const pur = ledger.get(K.purchase(r.purchaseId)) as Purchase | undefined;
+        const v = values[r.purchaseId] ?? null;
+        const date = pur ? fmtDate(pur.date) : '';
+        return (
+          <div key={r.purchaseId} className="row-between" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <span style={{ flex: '1 1 160px', minWidth: 0 }}>
+              {pur ? `${date} · ${t('c.nPcs', { n: purchaseSummary(pur).pieces })}` : t('pu.purchase')}
+              <div className="hint">{t('pu.leftOwed', { amount: formatMoney(currency, r.max) })}</div>
+              {(v ?? 0) > r.max && <div className="hint" style={{ color: 'var(--hibiscus)' }}>{t('pu.overOwed')}</div>}
+            </span>
+            <div style={{ flex: '0 1 190px' }}>
+              <MoneyInput currency={currency} value={v} label={t('pu.amountFor', { date })} onChange={(x) => onChange({ ...values, [r.purchaseId]: x })} />
+            </div>
+          </div>
+        );
+      })}
+      <div className="row-between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={fill}>
+          {t('pu.fillOldest')}
+        </button>
+        <span className="num" style={left < 0 ? { color: 'var(--hibiscus)', fontWeight: 650 } : { fontWeight: 650 }}>
+          {left < 0 ? t('pu.overCredit') : t('pu.creditLeft', { amount: formatMoney(currency, left) })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** True when every amount is within what each purchase can take and the total fits. */
+function allocationValid(rows: { purchaseId: string; max: number }[], values: Record<string, number | null>, available: number, requireSome = true) {
+  const total = rows.reduce((s, r) => s + (values[r.purchaseId] ?? 0), 0);
+  return (!requireSome || total > 0) && total <= available && rows.every((r) => (values[r.purchaseId] ?? 0) <= r.max);
+}
+
+const DRAFT = '~draft-payment';
+
 export function PaymentSheet({ vendorId, purchase, owed, onClose }: { vendorId: string; purchase?: Purchase; owed?: number; onClose: () => void }) {
   const { ledger } = useApp();
+  const lk = useLookups();
   const t = useT();
   const [amount, setAmount] = useState<number | null>(purchase ? Math.max(0, owed ?? 0) || null : null);
   const [currency, setCurrency] = useState<Currency>(purchase?.currency ?? 'KES');
@@ -600,13 +668,54 @@ export function PaymentSheet({ vendorId, purchase, owed, onClose }: { vendorId: 
   const [reference, setReference] = useState('');
   const [date, setDate] = useState(businessDate());
   const [note, setNote] = useState('');
-  // From the vendor page: which purchase does this pay? Default: oldest unpaid first.
+  // From the vendor page: '' = oldest unpaid first (the default rule), 'credit' = keep it as credit, or one purchase.
   const [forPurchase, setForPurchase] = useState<string>('');
+  // When a payment is more than its purchase still owes: leave the extra as credit, or use it now.
+  const [extraMode, setExtraMode] = useState<'credit' | 'other'>('credit');
+  const [extra, setExtra] = useState<Record<string, number | null>>({});
+  const [busy, setBusy] = useState(false);
+  const vendorName = lk.vendor(vendorId)?.name ?? t('pu.vendor');
   const open = useMemo(
     () => (purchase ? [] : (vendorAccounts(ledger).find((a) => a.vendorId === vendorId && a.currency === currency)?.purchases.filter((pb) => pb.balance > 0) ?? [])),
     [ledger, vendorId, currency, purchase],
   );
-  const chosen = purchase?.id ?? (forPurchase || null);
+  const named = purchase?.id ?? (forPurchase && forPurchase !== 'credit' ? forPurchase : null);
+  const keepCredit = !purchase && forPurchase === 'credit';
+  // Exactly what the books will show once saved: the same rules, run on the draft.
+  const preview = useMemo(() => {
+    if (!amount) return null;
+    const payment = { opId: DRAFT, vendorId, purchaseId: named, date, amount, currency, method, reference, note, pending: true };
+    const split = keepCredit ? { paymentId: DRAFT, vendorId, currency, allocations: [], opId: `${DRAFT}-split` } : undefined;
+    const account = previewAccount(ledger, vendorId, currency, { payment, ...(split ? { split } : {}) });
+    const use = account?.uses.find((u) => u.opId === DRAFT);
+    return account && use ? { account, use } : null;
+  }, [ledger, vendorId, currency, amount, named, keepCredit, date, method, reference, note]);
+  const extraAmount = named && preview ? preview.use.credit : 0;
+  const otherRows = named && preview ? preview.account.purchases.filter((pb) => pb.purchaseId !== named && pb.balance > 0).map((pb) => ({ purchaseId: pb.purchaseId, max: pb.balance })) : [];
+  const usingExtra = extraMode === 'other' && extraAmount > 0 && otherRows.length > 0;
+  const purchaseDate = (id: string) => fmtDate((ledger.get(K.purchase(id)) as Purchase | undefined)?.date);
+  const submit = async () => {
+    setBusy(true);
+    const paid = await store.submit('vendor.payment', { vendorId, purchaseId: named, date, amount: amount ?? 0, currency, method, reference, note });
+    if (!paid.ok) {
+      toast(errText(paid.error), 'error');
+      setBusy(false);
+      return;
+    }
+    let allocations: { purchaseId: string; amount: number }[] | null = null;
+    if (keepCredit) allocations = [];
+    else if (usingExtra && named && preview) {
+      const own = preview.use.lines.find((l) => l.purchaseId === named)?.amount ?? 0;
+      allocations = [...(own > 0 ? [{ purchaseId: named, amount: own }] : []), ...otherRows.filter((r) => (extra[r.purchaseId] ?? 0) > 0).map((r) => ({ purchaseId: r.purchaseId, amount: extra[r.purchaseId]! }))];
+    }
+    if (allocations) {
+      const split = await store.submit('payment.allocate', { paymentId: paid.op.id, basedOn: null, allocations, note: '' });
+      if (!split.ok) toast(errText(split.error), 'error');
+    }
+    setBusy(false);
+    toast(t('pu.paySaved'));
+    onClose();
+  };
   return (
     <Sheet
       title={t('pu.payTitle')}
@@ -616,13 +725,7 @@ export function PaymentSheet({ vendorId, purchase, owed, onClose }: { vendorId: 
           <button className="btn" onClick={onClose}>
             {t('c.cancel')}
           </button>
-          <button
-            className="btn btn-primary"
-            disabled={!amount}
-            onClick={async () => {
-              if (await save(() => store.submit('vendor.payment', { vendorId, purchaseId: chosen, date, amount: amount ?? 0, currency, method, reference, note }), t('pu.paySaved'))) onClose();
-            }}
-          >
+          <button className="btn btn-primary" disabled={!amount || busy || (usingExtra && !allocationValid(otherRows, extra, extraAmount))} onClick={() => void submit()}>
             {t('pu.savePay')}
           </button>
         </>
@@ -666,8 +769,16 @@ export function PaymentSheet({ vendorId, purchase, owed, onClose }: { vendorId: 
       </div>
       {!purchase && (
         <Field label={t('pu.payFor')} hint={forPurchase ? undefined : t('pu.payForHint')}>
-          <select className="select" value={forPurchase} onChange={(e) => setForPurchase(e.target.value)}>
+          <select
+            className="select"
+            value={forPurchase}
+            onChange={(e) => {
+              setForPurchase(e.target.value);
+              setExtra({});
+            }}
+          >
             <option value="">{t('pu.oldestFirst')}</option>
+            <option value="credit">{t('pu.keepCredit')}</option>
             {open.map((pb) => {
               const pur = ledger.get(K.purchase(pb.purchaseId)) as Purchase | undefined;
               return (
@@ -679,6 +790,149 @@ export function PaymentSheet({ vendorId, purchase, owed, onClose }: { vendorId: 
           </select>
         </Field>
       )}
+      {preview && (
+        <div className="info-box stack-sm" aria-live="polite">
+          <strong>{t('pu.preview')}</strong>
+          {preview.use.lines.map((l) => (
+            <span key={l.purchaseId}>
+              {t('pu.pays', { date: purchaseDate(l.purchaseId), amount: formatMoney(currency, l.amount) })}
+              {preview.account.purchases.find((pb) => pb.purchaseId === l.purchaseId)?.balance === 0 ? t('pu.paysFull') : ''}
+            </span>
+          ))}
+          {preview.use.credit > 0 && !usingExtra && <span>{t('pu.staysCredit', { amount: formatMoney(currency, preview.use.credit), vendor: vendorName })}</span>}
+        </div>
+      )}
+      {named && extraAmount > 0 && otherRows.length > 0 && (
+        <div className="card card-pad stack-sm">
+          <span>{t('pu.extraTitle', { amount: formatMoney(currency, extraAmount) })}</span>
+          <label className="check">
+            <input type="radio" name="extra" checked={extraMode === 'credit'} onChange={() => setExtraMode('credit')} /> {t('pu.leaveCredit')}
+          </label>
+          <label className="check">
+            <input type="radio" name="extra" checked={extraMode === 'other'} onChange={() => setExtraMode('other')} /> {t('pu.useOther')}
+          </label>
+          {extraMode === 'other' && <AllocationEditor rows={otherRows} values={extra} onChange={setExtra} available={extraAmount} currency={currency} />}
+        </div>
+      )}
+      <Field label={t('stk.note')}>
+        <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
+      </Field>
+    </Sheet>
+  );
+}
+
+/**
+ * Put a vendor's available credit onto that vendor's unpaid purchases. The
+ * credit is taken from the payments that hold it, oldest first; each such
+ * payment gets a new split (what it already pays + the new amounts). The
+ * payments themselves — amount, date, M-Pesa code — never change.
+ */
+function AllocateCreditSheet({ vendorId, currency, focus, onClose }: { vendorId: string; currency: Currency; focus?: string; onClose: () => void }) {
+  const { ledger } = useApp();
+  const lk = useLookups();
+  const t = useT();
+  const account = useMemo(() => vendorAccounts(ledger).find((a) => a.vendorId === vendorId && a.currency === currency), [ledger, vendorId, currency]);
+  const rows = (account?.purchases ?? []).filter((pb) => pb.balance > 0).map((pb) => ({ purchaseId: pb.purchaseId, max: pb.balance }));
+  const credit = account?.credit ?? 0;
+  const [values, setValues] = useState<Record<string, number | null>>(() => {
+    const max = rows.find((r) => r.purchaseId === focus)?.max ?? 0;
+    return focus && max ? { [focus]: Math.min(max, credit) } : {};
+  });
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!account) return;
+    setBusy(true);
+    const wanted = rows.map((r) => ({ purchaseId: r.purchaseId, amount: values[r.purchaseId] ?? 0 })).filter((w) => w.amount > 0);
+    for (let i = 0; i < account.payments.length; i++) {
+      const use = account.uses[i]!;
+      if (use.credit <= 0 || !wanted.some((w) => w.amount > 0)) continue;
+      let room = use.credit;
+      const lines = new Map(use.lines.map((l) => [l.purchaseId, l.amount]));
+      for (const w of wanted) {
+        const take = Math.min(room, w.amount);
+        if (take <= 0) continue;
+        lines.set(w.purchaseId, (lines.get(w.purchaseId) ?? 0) + take);
+        w.amount -= take;
+        room -= take;
+      }
+      if (room === use.credit) continue;
+      const r = await store.submit('payment.allocate', { paymentId: use.opId, basedOn: use.splitOpId, allocations: [...lines].map(([purchaseId, amount]) => ({ purchaseId, amount })), note: '' });
+      if (!r.ok) {
+        toast(errText(r.error), 'error');
+        setBusy(false);
+        return;
+      }
+    }
+    setBusy(false);
+    toast(t('pu.allocSaved'));
+    onClose();
+  };
+  return (
+    <Sheet
+      title={t('pu.allocTitle', { vendor: lk.vendor(vendorId)?.name ?? t('pu.vendor') })}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            {t('c.cancel')}
+          </button>
+          <button className="btn btn-primary" disabled={busy || !allocationValid(rows, values, credit)} onClick={() => void submit()}>
+            {t('vd.allocate')}
+          </button>
+        </>
+      }
+    >
+      <p className="soft">{t('pu.allocLead')}</p>
+      <div className="info-box">
+        {t('vd.creditAvail')}: <Money amount={credit} currency={currency} strong />
+      </div>
+      {rows.length === 0 ? <p className="muted">{t('pu.noOpen', { currency })}</p> : <AllocationEditor rows={rows} values={values} onChange={setValues} available={credit} currency={currency} />}
+    </Sheet>
+  );
+}
+
+/** Re-split one existing payment across the same vendor's purchases (the payment record itself stays as it is). */
+function ChangeAllocationSheet({ paymentId, onClose }: { paymentId: string; onClose: () => void }) {
+  const { ledger } = useApp();
+  const t = useT();
+  const account = useMemo(() => vendorAccounts(ledger).find((a) => a.payments.some((p) => p.opId === paymentId)), [ledger, paymentId]);
+  const i = account?.payments.findIndex((p) => p.opId === paymentId) ?? -1;
+  const pay = account?.payments[i];
+  const use = account?.uses[i];
+  const current = new Map((use?.lines ?? []).map((l) => [l.purchaseId, l.amount]));
+  const rows = (account?.purchases ?? []).filter((pb) => pb.balance > 0 || current.has(pb.purchaseId)).map((pb) => ({ purchaseId: pb.purchaseId, max: pb.balance + (current.get(pb.purchaseId) ?? 0) }));
+  const [values, setValues] = useState<Record<string, number | null>>(() => Object.fromEntries(rows.map((r) => [r.purchaseId, current.get(r.purchaseId) ?? null])));
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!account || !pay || !use) return null;
+  const changed = rows.some((r) => (values[r.purchaseId] ?? 0) !== (current.get(r.purchaseId) ?? 0));
+  return (
+    <Sheet
+      title={t('pu.changeTitle')}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            {t('c.cancel')}
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy || !changed || !allocationValid(rows, values, pay.amount, false)}
+            onClick={async () => {
+              setBusy(true);
+              const allocations = rows.filter((r) => (values[r.purchaseId] ?? 0) > 0).map((r) => ({ purchaseId: r.purchaseId, amount: values[r.purchaseId]! }));
+              const ok = await save(() => store.submit('payment.allocate', { paymentId, basedOn: use.splitOpId, allocations, note: note.trim() }), t('pu.allocSaved'));
+              setBusy(false);
+              if (ok) onClose();
+            }}
+          >
+            {t('c.save')}
+          </button>
+        </>
+      }
+    >
+      <p className="soft">{t('pu.changeLead', { amount: formatMoney(pay.currency, pay.amount), ref: pay.reference ? ` · ${pay.reference}` : '', date: fmtDate(pay.date) })}</p>
+      {rows.length === 0 ? <p className="muted">{t('pu.noOpen', { currency: pay.currency })}</p> : <AllocationEditor rows={rows} values={values} onChange={setValues} available={pay.amount} currency={pay.currency} />}
       <Field label={t('stk.note')}>
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
@@ -717,7 +971,7 @@ export function VendorsPage() {
         ) : (
           <div className="list">
             {lk.vendors.map((v) => {
-              const bs = balances.filter((b) => b.vendorId === v.id && b.balance !== 0);
+              const bs = balances.filter((b) => b.vendorId === v.id && (b.outstanding > 0 || b.credit > 0));
               const last = purchases.filter((p) => p.vendorId === v.id && p.status === 'active').sort((a, b) => b.date.localeCompare(a.date))[0];
               return (
                 <a key={v.id} className="list-item" href={href(`/vendors/${v.id}`)}>
@@ -728,11 +982,18 @@ export function VendorsPage() {
                       {last ? t('vd.lastPurchase', { date: fmtDateShort(last.date) }) : ''}
                     </div>
                   </span>
-                  {bs.map((b) => (
-                    <span key={b.currency} className={`pill ${b.balance > 0 ? 'saffron' : 'green'}`}>
-                      {rich(t(b.balance > 0 ? 'vd.weOweAmt' : 'vd.creditAmt'), { amount: <Money amount={Math.abs(b.balance)} currency={b.currency} /> })}
-                    </span>
-                  ))}
+                  {bs.flatMap((b) => [
+                    b.outstanding > 0 && (
+                      <span key={`${b.currency}-o`} className="pill saffron">
+                        {rich(t('vd.weOweAmt'), { amount: <Money amount={b.outstanding} currency={b.currency} /> })}
+                      </span>
+                    ),
+                    b.credit > 0 && (
+                      <span key={`${b.currency}-c`} className="pill green">
+                        {rich(t('vd.creditAmt'), { amount: <Money amount={b.credit} currency={b.currency} /> })}
+                      </span>
+                    ),
+                  ])}
                   <Icon name="right" size={16} />
                 </a>
               );
@@ -789,12 +1050,16 @@ function VendorSheet({ vendor, onClose }: { vendor: Vendor | null; onClose: () =
 }
 
 export function VendorDetail({ id }: { id: string }) {
-  const { ledger, version, user } = useApp();
+  const { ledger, version, user, records } = useApp();
   const lk = useLookups();
   const t = useT();
   const [edit, setEdit] = useState(false);
   const [pay, setPay] = useState(false);
+  const [allocate, setAllocate] = useState<Currency | null>(null);
+  const [change, setChange] = useState<string | null>(null);
+  const [history, setHistory] = useState<string | null>(null);
   const v = lk.vendor(id);
+  const canPay = user!.caps.includes('payments');
   const purchases = useMemo(() => ledger.list<Purchase>('purchase').filter((p) => p.vendorId === id).sort((a, b) => b.date.localeCompare(a.date)), [ledger, version, id]);
   const payments = useMemo(
     () =>
@@ -803,15 +1068,23 @@ export function VendorDetail({ id }: { id: string }) {
         .sort((a, b) => b.op.deviceTime.localeCompare(a.op.deviceTime)),
     [ledger, version, id],
   );
+  const splits = useMemo(
+    () =>
+      [...ledger.ops.values()]
+        .filter((r) => r.op.type === 'payment.allocate' && r.status !== 'rejected')
+        .sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime)),
+    [ledger, version],
+  );
   const balances = useMemo(() => vendorAccounts(ledger).filter((b) => b.vendorId === id), [ledger, version, id]);
   const pbById = new Map(balances.flatMap((a) => a.purchases.map((pb) => [pb.purchaseId, pb] as const)));
-  /** Where each payment went, in words. */
-  const appliedTo = (opId: string, currency: Currency) => {
-    const acc = balances.find((a) => a.currency === currency);
-    if (!acc) return '';
-    const parts = acc.purchases.flatMap((pb) => pb.allocations.filter((x) => x.opId === opId).map((x) => t('vd.purchaseOn', { date: fmtDateShort((ledger.get(K.purchase(pb.purchaseId)) as Purchase | undefined)?.date), amount: formatMoney(currency, x.amount) })));
-    return parts.length ? t('vd.paidFor', { list: parts.join(', ') }) : t('vd.credit');
+  const useOf = (opId: string) => {
+    for (const a of balances) {
+      const i = a.payments.findIndex((p) => p.opId === opId);
+      if (i >= 0) return a.uses[i];
+    }
+    return undefined;
   };
+  const purchaseDay = (purchaseId: string) => fmtDateShort((ledger.get(K.purchase(purchaseId)) as Purchase | undefined)?.date);
   if (!v) return <Empty title={t('vd.notFound')} />;
   return (
     <div className="page">
@@ -834,25 +1107,29 @@ export function VendorDetail({ id }: { id: string }) {
           </>
         }
       />
-      <div className="grid cols-3">
+      <div className="grid cols-2">
         {balances.length === 0 && <div className="card stat"><span className="eyebrow">{t('pu.balance')}</span><span className="stat-value">0</span></div>}
-        {balances.map((b) => (
-          <div key={b.currency} className="card stat">
-            <span className="eyebrow">{b.balance >= 0 ? t('pu.weOwe') : t('vd.ourCredit')}</span>
-            <span className="stat-value">
-              <Money amount={Math.abs(b.balance)} currency={b.currency} />
+        {balances.flatMap((b) => [
+          <div key={`${b.currency}-o`} className="card stat">
+            <span className="eyebrow">{t('vd.outstanding')}</span>
+            <span className="stat-value" style={{ color: b.outstanding > 0 ? 'var(--saffron-ink)' : undefined }}>
+              <Money amount={b.outstanding} currency={b.currency} />
             </span>
-            <span className="stat-sub">
-              {rich(t('vd.boughtPaid'), { bought: <Money amount={b.payable} currency={b.currency} />, paid: <Money amount={b.paid} currency={b.currency} /> })}
-              {b.unallocated > 0 && (
-                <>
-                  {' · '}
-                  {rich(t('vd.unapplied'), { amount: <Money amount={b.unallocated} currency={b.currency} /> })}
-                </>
-              )}
+            <span className="stat-sub">{rich(t('vd.boughtPaid'), { bought: <Money amount={b.payable} currency={b.currency} />, paid: <Money amount={b.paid} currency={b.currency} /> })}</span>
+          </div>,
+          <div key={`${b.currency}-c`} className="card stat">
+            <span className="eyebrow">{t('vd.creditAvail')}</span>
+            <span className="stat-value" style={{ color: b.credit > 0 ? 'var(--mangrove)' : undefined }}>
+              <Money amount={b.credit} currency={b.currency} />
             </span>
-          </div>
-        ))}
+            <span className="stat-sub">{b.credit > 0 ? t('vd.creditHint') : '—'}</span>
+            {canPay && b.credit > 0 && b.outstanding > 0 && (
+              <button className="btn btn-sm" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => setAllocate(b.currency)}>
+                <Icon name="wallet" size={16} /> {t('vd.allocate')}
+              </button>
+            )}
+          </div>,
+        ])}
       </div>
       <section className="card">
         <div className="card-head">
@@ -882,14 +1159,53 @@ export function VendorDetail({ id }: { id: string }) {
           {payments.length === 0 && <div className="list-item muted">{t('vd.noneYet')}</div>}
           {payments.map((r) => {
             const pl = r.op.payload as { amount: number; currency: Currency; method: (typeof PAYMENT_METHODS)[number]; reference: string; date: string };
+            const use = r.voidedBy ? undefined : useOf(r.op.id);
+            const changes = splits.filter((s) => s.op.type === 'payment.allocate' && s.op.payload.paymentId === r.op.id);
             return (
-              <div key={r.op.id} className="list-item" style={r.voidedBy ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
+              <div key={r.op.id} className="list-item" style={{ alignItems: 'flex-start', flexWrap: 'wrap', ...(r.voidedBy ? { opacity: 0.5, textDecoration: 'line-through' } : {}) }}>
                 <span className="nowrap" style={{ width: 70 }}>
                   {fmtDateShort(pl.date)}
                 </span>
-                <span style={{ flex: 1 }}>
+                <span style={{ flex: '1 1 200px', minWidth: 0 }}>
                   {t(`lbl.payment.${pl.method}`)} {pl.reference && <span className="mono muted">{pl.reference}</span>}
-                  {!r.voidedBy && <div className="hint">{appliedTo(r.op.id, pl.currency)}</div>}
+                  {use && (
+                    <>
+                      <div className="hint">{use.lines.length ? t('vd.paidFor', { list: use.lines.map((l) => t('vd.purchaseOn', { date: purchaseDay(l.purchaseId), amount: formatMoney(pl.currency, l.amount) })).join(', ') }) : t('vd.credit')}</div>
+                      {use.credit > 0 && use.lines.length > 0 && (
+                        <div className="hint" style={{ color: 'var(--mangrove)' }}>
+                          {t('vd.keptCredit', { amount: formatMoney(pl.currency, use.credit) })}
+                        </div>
+                      )}
+                      {use.unapplied.map((u) => (
+                        <div key={u.purchaseId} className="hint">
+                          {t('vd.notUsed', { amount: formatMoney(pl.currency, u.amount), date: purchaseDay(u.purchaseId) })}
+                        </div>
+                      ))}
+                      <span className="row" style={{ gap: 6, marginTop: 4 }}>
+                        <span className="pill">{t(`vd.how.${use.how}`)}</span>
+                        {canPay && (
+                          <button className="btn btn-ghost btn-sm" onClick={() => setChange(r.op.id)}>
+                            <Icon name="edit" size={15} /> {t('vd.changeAlloc')}
+                          </button>
+                        )}
+                        {changes.length > 0 && (
+                          <button className="btn btn-ghost btn-sm" aria-expanded={history === r.op.id} onClick={() => setHistory(history === r.op.id ? null : r.op.id)}>
+                            <Icon name="clock" size={15} /> {t('vd.history')} ({changes.length})
+                          </button>
+                        )}
+                      </span>
+                      {history === r.op.id && (
+                        <div className="stack-sm" style={{ marginTop: 6 }}>
+                          {changes.map((c) => (
+                            <span key={c.op.id} className="hint">
+                              {fmtDateTime(c.op.deviceTime)} · {records.get(c.op.id)?.actorName ?? lk.personName(c.op.actorId)}: {describeOp(c.op, lk, ledger, t)}
+                              {records.get(c.op.id)?.status === 'pending' && <span className="pill saffron" style={{ marginLeft: 6 }}>{t('days.notSynced')}</span>}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </span>
                 <Money amount={pl.amount} currency={pl.currency} strong />
                 <VoidButton opId={r.op.id} label={t('void.cancel')} />
@@ -900,6 +1216,8 @@ export function VendorDetail({ id }: { id: string }) {
       </section>
       {edit && <VendorSheet vendor={v} onClose={() => setEdit(false)} />}
       {pay && <PaymentSheet vendorId={id} onClose={() => setPay(false)} />}
+      {allocate && <AllocateCreditSheet vendorId={id} currency={allocate} onClose={() => setAllocate(null)} />}
+      {change && <ChangeAllocationSheet paymentId={change} onClose={() => setChange(null)} />}
     </div>
   );
 }

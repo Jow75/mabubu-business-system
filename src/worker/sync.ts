@@ -73,6 +73,10 @@ function prefetchKeys(op: AnyOp): string[] {
       k.push(K.vendor(op.payload.vendorId));
       if (op.payload.purchaseId) k.push(K.purchase(op.payload.purchaseId));
       break;
+    case 'payment.allocate':
+      k.push(K.split(op.payload.paymentId));
+      for (const a of op.payload.allocations) k.push(K.purchase(a.purchaseId));
+      break;
     case 'shipment.dispatch':
       k.push(K.shipment(op.payload.id), K.location(op.payload.fromLocationId), K.location(op.payload.toLocationId));
       gts(op.payload.lines);
@@ -382,6 +386,7 @@ async function processBatch(
   for (const { op } of items) {
     opIds.add(op.id);
     if (op.type === 'op.void' || op.type === 'op.resolve') opIds.add(op.payload.targetId);
+    if (op.type === 'payment.allocate') opIds.add(op.payload.paymentId);
   }
   await ctx.loadOps(env, [...opIds]);
   const fresh = items.filter(({ op }) => !ctx.dbOps.has(op.id));

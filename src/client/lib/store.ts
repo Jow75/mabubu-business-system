@@ -478,7 +478,9 @@ class Store {
   async syncNow(): Promise<void> {
     if (this.syncing) {
       // A sync is running, but it chose what to upload before this request
-      // (for example a record saved a moment ago). Run once more after it.
+      // (for example a record saved a moment ago). It runs once more straight
+      // after, inside the same promise, so whoever waits here also waits for
+      // that record's upload — never told "done" while it is still pending.
       this.syncAgain = true;
       return this.syncing;
     }
@@ -488,13 +490,16 @@ class Store {
       this.set({ online: false, sync: { ...this.snap.sync, state: 'offline' } });
       return;
     }
-    this.syncing = this.doSync().finally(() => {
-      this.syncing = null;
-      if (this.syncAgain) {
-        this.syncAgain = false;
-        this.requestSync(0);
+    this.syncing = (async () => {
+      try {
+        do {
+          this.syncAgain = false;
+          await this.doSync();
+        } while (this.syncAgain && this.snap.user && this.db && !this.snap.demo && navigator.onLine);
+      } finally {
+        this.syncing = null;
       }
-    });
+    })();
     return this.syncing;
   }
 

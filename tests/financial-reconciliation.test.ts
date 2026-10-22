@@ -65,18 +65,17 @@ function month() {
 }
 
 describe('a month reconciled against hand-worked figures', () => {
-  it('vendor balances: accepted pieces only, and an overpayment becomes credit', () => {
+  it('vendor balances: accepted pieces only, and an overpayment becomes visible vendor credit', () => {
     const L = month();
     const accts = vendorAccounts(L);
     const h = accts.find((a) => a.vendorId === hafsa)!;
     const y = accts.find((a) => a.vendorId === yasmin)!;
-    // The KSh 1,000 excess shows as credit on the vendor (negative balance) and as
-    // an overpaid purchase. `unallocated` is only for payments not tied to a
-    // purchase (ADR-002); rolling a linked overpayment onto other purchases is
-    // the open "move a payment" item, not built.
-    expect([h.payable, h.paid, h.balance, h.unallocated]).toEqual([800_000, 900_000, -100_000, 0]);
-    expect(h.purchases.find((p) => p.purchaseId === 'pur-h')!.balance).toBe(-100_000);
-    expect([y.payable, y.paid, y.balance]).toEqual([360_000, 0, 360_000]);
+    // KSh 9,000 paid for an KSh 8,000 purchase (ADR-002 §5): the purchase is paid
+    // in full and owes 0 — never a negative purchase — and the KSh 1,000 excess
+    // is credit with Hafsa, kept until someone allocates it. Net: Hafsa holds KSh 1,000.
+    expect([h.payable, h.paid, h.balance, h.outstanding, h.credit]).toEqual([800_000, 900_000, -100_000, 0, 100_000]);
+    expect(h.purchases.find((p) => p.purchaseId === 'pur-h')!.balance).toBe(0);
+    expect([y.payable, y.paid, y.balance, y.outstanding, y.credit]).toEqual([360_000, 0, 360_000, 360_000, 0]);
   });
 
   it('stock is conserved piece by piece', () => {

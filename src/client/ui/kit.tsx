@@ -56,6 +56,7 @@ export function MoneyInput({
   big,
   id,
   placeholder,
+  label,
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
@@ -63,6 +64,8 @@ export function MoneyInput({
   big?: boolean;
   id?: string;
   placeholder?: string;
+  /** Accessible name when the input has no visible <label>. */
+  label?: string;
 }) {
   const t = useT();
   const exp = CURRENCIES[currency].exp;
@@ -81,6 +84,7 @@ export function MoneyInput({
       <div style={{ position: 'relative' }}>
         <input
           id={id}
+          aria-label={label}
           className={`input ${big ? 'big' : ''}`}
           inputMode={exp ? 'decimal' : 'numeric'}
           value={text}

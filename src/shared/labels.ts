@@ -58,6 +58,7 @@ export const OP_GROUP: Record<OpType, string> = {
   'purchase.inspect': 'Purchasing',
   'purchase.return': 'Purchasing',
   'vendor.payment': 'Payments',
+  'payment.allocate': 'Payments',
   'shipment.dispatch': 'Shipments',
   'shipment.receive': 'Shipments',
   'shipment.cost': 'Shipments',

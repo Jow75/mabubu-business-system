@@ -8,9 +8,11 @@ import type { PaymentMethod } from './model';
 import {
   K,
   parseAccount,
+  purchasePayable,
   splitBalanceKey,
   type GarmentType,
   type Location,
+  type PaymentSplit,
   type Purchase,
   type Shipment,
   type WorkerDay,
@@ -118,7 +120,6 @@ export interface PurchaseSummary {
 
 export function purchaseSummary(p: Purchase): PurchaseSummary {
   let pieces = 0;
-  let payable = 0;
   let pendingInspection = 0;
   let awaitingCollection = 0;
   let rejectedNotReturned = 0;
@@ -127,18 +128,15 @@ export function purchaseSummary(p: Purchase): PurchaseSummary {
   for (const l of p.lines) {
     pieces += l.qty;
     if (p.intake === 'inspection') {
-      payable += lineTotal(l.accepted, l.unitCost);
       pendingInspection += l.qty - l.accepted - l.rejected;
       rejectedNotReturned += l.rejected - l.returned;
       accepted += l.accepted;
       rejected += l.rejected;
     } else {
-      payable += lineTotal(l.qty, l.unitCost);
       awaitingCollection += l.qty - l.collected;
     }
   }
-  if (p.status === 'voided') payable = 0;
-  return { pieces, payable, pendingInspection, awaitingCollection, rejectedNotReturned, accepted, rejected };
+  return { pieces, payable: purchasePayable(p), pendingInspection, awaitingCollection, rejectedNotReturned, accepted, rejected };
 }
 
 export interface VendorBalance {
@@ -183,14 +181,37 @@ export interface PaymentRecord {
   pending: boolean;
 }
 
+/**
+ * How a payment's money reached a purchase: `named` — recorded for that
+ * purchase; `auto` — a vendor-page payment, oldest unpaid purchase first;
+ * `allocated` — split by hand across purchases (payment.allocate).
+ */
+export type PaymentHow = 'named' | 'auto' | 'allocated';
+
 export interface PaymentAllocation {
   opId: string;
   amount: number;
   date: string;
   method: PaymentMethod;
   reference: string;
-  /** true: the payment named this purchase. false: applied automatically (oldest unpaid first). */
+  /** false only when applied automatically (oldest unpaid first). */
   linked: boolean;
+  how: PaymentHow;
+}
+
+/** What became of one payment: the purchases it pays and what is left as vendor credit. */
+export interface PaymentUse {
+  opId: string;
+  how: PaymentHow;
+  /** Paid onto purchases, in total. */
+  applied: number;
+  /** amount − applied: still with the vendor as our credit. */
+  credit: number;
+  lines: { purchaseId: string; amount: number }[];
+  /** Asked for by a split but not used, because that purchase no longer needed it (it stays as credit). */
+  unapplied: { purchaseId: string; amount: number }[];
+  /** The split in force (payment.allocate), if the payment was ever split by hand. */
+  splitOpId: string | null;
 }
 
 export interface PurchaseBalance {
@@ -209,17 +230,20 @@ export interface VendorAccount {
   currency: Currency;
   payable: number;
   paid: number;
-  /** Positive: we owe the vendor. Negative: the vendor holds our credit. */
+  /** payable − paid, which is always outstanding − credit. Positive: we owe overall. Negative: the vendor holds our credit overall. */
   balance: number;
+  /** What this vendor's purchases still owe. Never negative: no purchase is ever paid more than it costs. */
+  outstanding: number;
   /**
-   * What is left of payments not tied to a purchase after they paid the oldest
-   * unpaid purchases (an advance). A payment tied to one purchase that pays too
-   * much stays on that purchase (negative purchase balance); `balance` shows it
-   * as credit either way. See ADR-002.
+   * Available vendor credit: money paid to this vendor that no purchase uses
+   * yet — an advance, the excess over a purchase, or a payment kept as credit.
+   * Never negative. Not a refund, not income, not a second payment. See ADR-002 §5.
    */
-  unallocated: number;
+  credit: number;
   purchases: PurchaseBalance[];
   payments: PaymentRecord[];
+  /** What became of each payment, in the same order as `payments`. */
+  uses: PaymentUse[];
 }
 
 /** Every vendor payment that still counts (not rejected, not cancelled). */
@@ -234,67 +258,125 @@ export function vendorPayments(ledger: Ledger): PaymentRecord[] {
   return out;
 }
 
+interface AccountInputs {
+  /** Active purchases, oldest first. */
+  purchases: Purchase[];
+  /** Payments that still count, oldest first. */
+  payments: PaymentRecord[];
+  split: (paymentId: string) => PaymentSplit | undefined;
+}
+
+function accountInputs(ledger: Ledger, extraPayment?: PaymentRecord): AccountInputs {
+  const position = new Map(ledger.order.map((id, i) => [id, i]));
+  // A record not in the log yet (a payment being previewed) comes last on its date.
+  const pos = (id: string) => position.get(id) ?? Number.MAX_SAFE_INTEGER;
+  const purchases = ledger
+    .list<Purchase>('purchase')
+    .filter((p) => p.status === 'active')
+    .sort((a, b) => a.date.localeCompare(b.date) || pos(a.opId) - pos(b.opId));
+  const payments = [...vendorPayments(ledger), ...(extraPayment ? [extraPayment] : [])].sort((a, b) => a.date.localeCompare(b.date) || pos(a.opId) - pos(b.opId));
+  return { purchases, payments, split: (id) => ledger.get(K.split(id)) as PaymentSplit | undefined };
+}
+
 /**
- * The single source of truth for what is owed, per vendor and currency, and
- * per purchase. A purchase's balance is derived, never stored:
- *   payable (accepted pieces for inspection deliveries) − payments.
- * Payments that named the purchase count first. Payments recorded on the
- * vendor page without choosing a purchase are applied to that vendor's
- * oldest unpaid purchases in the same currency; anything left over is the
- * vendor's credit with us. Currencies are never mixed.
+ * Per vendor and currency, what each purchase still owes and what each
+ * payment became. Payments are taken oldest first. A payment split by hand
+ * pays the purchases it names, and one recorded for a purchase pays that
+ * purchase — each never more than the purchase still owes, the rest staying
+ * as credit until someone allocates it. Then vendor-page payments pay the
+ * oldest unpaid purchases, and what they cannot place is credit too. Money
+ * never moves between vendors or currencies.
  */
-export function vendorAccounts(ledger: Ledger): VendorAccount[] {
+function computeAccounts({ purchases, payments, split }: AccountInputs): VendorAccount[] {
   const accounts = new Map<string, VendorAccount>();
   const acct = (vendorId: string, currency: Currency) => {
     const key = `${vendorId}|${currency}`;
     let a = accounts.get(key);
-    if (!a) accounts.set(key, (a = { vendorId, currency, payable: 0, paid: 0, balance: 0, unallocated: 0, purchases: [], payments: [] }));
+    if (!a) accounts.set(key, (a = { vendorId, currency, payable: 0, paid: 0, balance: 0, outstanding: 0, credit: 0, purchases: [], payments: [], uses: [] }));
     return a;
   };
-  const position = new Map(ledger.order.map((id, i) => [id, i]));
   const byPurchase = new Map<string, PurchaseBalance>();
-  const purchases = ledger
-    .list<Purchase>('purchase')
-    .filter((p) => p.status === 'active')
-    .sort((a, b) => a.date.localeCompare(b.date) || (position.get(a.opId) ?? 0) - (position.get(b.opId) ?? 0));
   for (const p of purchases) {
-    const pb: PurchaseBalance = { purchaseId: p.id, vendorId: p.vendorId, currency: p.currency, payable: purchaseSummary(p).payable, paid: 0, balance: 0, allocations: [] };
+    const pb: PurchaseBalance = { purchaseId: p.id, vendorId: p.vendorId, currency: p.currency, payable: purchasePayable(p), paid: 0, balance: 0, allocations: [] };
     byPurchase.set(p.id, pb);
     const a = acct(p.vendorId, p.currency);
     a.purchases.push(pb);
     a.payable += pb.payable;
   }
-  const payments = vendorPayments(ledger).sort((a, b) => a.date.localeCompare(b.date) || (position.get(a.opId) ?? 0) - (position.get(b.opId) ?? 0));
-  const loose: PaymentRecord[] = [];
+  const owed = (pb: PurchaseBalance) => Math.max(0, pb.payable - pb.paid);
+  const own = (pay: PaymentRecord, purchaseId: string) => {
+    const pb = byPurchase.get(purchaseId);
+    return pb && pb.vendorId === pay.vendorId && pb.currency === pay.currency ? pb : undefined;
+  };
+  const give = (pay: PaymentRecord, use: PaymentUse, pb: PurchaseBalance, amount: number, how: PaymentHow) => {
+    if (amount <= 0) return;
+    pb.paid += amount;
+    pb.allocations.push({ opId: pay.opId, amount, date: pay.date, method: pay.method, reference: pay.reference, linked: how !== 'auto', how });
+    use.lines.push({ purchaseId: pb.purchaseId, amount });
+    use.applied += amount;
+  };
+  const loose: [PaymentRecord, PaymentUse][] = [];
   for (const pay of payments) {
     const a = acct(pay.vendorId, pay.currency);
+    const s = split(pay.opId);
+    const use: PaymentUse = { opId: pay.opId, how: s ? 'allocated' : pay.purchaseId ? 'named' : 'auto', applied: 0, credit: 0, lines: [], unapplied: [], splitOpId: s?.opId ?? null };
     a.payments.push(pay);
+    a.uses.push(use);
     a.paid += pay.amount;
-    const pb = pay.purchaseId ? byPurchase.get(pay.purchaseId) : undefined;
-    if (pb && pb.currency === pay.currency) {
-      pb.paid += pay.amount;
-      pb.allocations.push({ opId: pay.opId, amount: pay.amount, date: pay.date, method: pay.method, reference: pay.reference, linked: true });
-    } else loose.push(pay);
+    if (s) {
+      for (const line of s.allocations) {
+        const pb = own(pay, line.purchaseId);
+        const take = pb ? Math.min(line.amount, owed(pb)) : 0;
+        if (pb) give(pay, use, pb, take, 'allocated');
+        if (take < line.amount) use.unapplied.push({ purchaseId: line.purchaseId, amount: line.amount - take });
+      }
+    } else if (pay.purchaseId) {
+      const pb = own(pay, pay.purchaseId);
+      if (pb) give(pay, use, pb, Math.min(pay.amount, owed(pb)), 'named');
+    } else loose.push([pay, use]);
   }
-  for (const pay of loose) {
-    const a = acct(pay.vendorId, pay.currency);
+  for (const [pay, use] of loose) {
     let left = pay.amount;
-    for (const pb of a.purchases) {
+    for (const pb of acct(pay.vendorId, pay.currency).purchases) {
       if (left === 0) break;
-      const owed = pb.payable - pb.paid;
-      if (owed <= 0) continue;
-      const take = Math.min(owed, left);
-      pb.paid += take;
-      pb.allocations.push({ opId: pay.opId, amount: take, date: pay.date, method: pay.method, reference: pay.reference, linked: false });
+      const take = Math.min(left, owed(pb));
+      give(pay, use, pb, take, 'auto');
       left -= take;
     }
-    a.unallocated += left;
   }
   for (const a of accounts.values()) {
-    for (const pb of a.purchases) pb.balance = pb.payable - pb.paid;
+    a.uses.forEach((u, i) => {
+      u.credit = a.payments[i]!.amount - u.applied;
+      a.credit += u.credit;
+    });
+    for (const pb of a.purchases) {
+      pb.balance = pb.payable - pb.paid;
+      a.outstanding += pb.balance;
+    }
     a.balance = a.payable - a.paid;
   }
   return [...accounts.values()];
+}
+
+/**
+ * The single source of truth for what is owed, per vendor and currency, and
+ * per purchase, and for vendor credit. Derived from the records each time,
+ * never stored, so it cannot drift (ADR-002).
+ */
+export function vendorAccounts(ledger: Ledger): VendorAccount[] {
+  return computeAccounts(accountInputs(ledger));
+}
+
+/**
+ * A vendor's account as it would be with one more payment and/or a new split
+ * of a payment, before anything is saved — by the very same rules, so what
+ * the owner confirms is what the books will show.
+ */
+export function previewAccount(ledger: Ledger, vendorId: string, currency: Currency, extra: { payment?: PaymentRecord; split?: PaymentSplit } = {}): VendorAccount | undefined {
+  const inputs = accountInputs(ledger, extra.payment);
+  const s = extra.split;
+  const split = s ? (id: string) => (id === s.paymentId ? s : inputs.split(id)) : inputs.split;
+  return computeAccounts({ ...inputs, split }).find((a) => a.vendorId === vendorId && a.currency === currency);
 }
 
 export function purchaseBalances(ledger: Ledger): Map<string, PurchaseBalance> {

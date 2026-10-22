@@ -1,7 +1,7 @@
 // Entity shapes produced by the engine, stock account naming, and the
 // keys under which entities are stored.
 
-import type { Currency } from './money';
+import { lineTotal, type Currency } from './money';
 import type { Role } from './permissions';
 import type {
   ADJUST_REASONS,
@@ -104,6 +104,27 @@ export interface Purchase {
   actorId: string;
   /** Applied (non-voided) operations that depend on this purchase. */
   dependents: string[];
+}
+
+/** What a purchase costs us: its value, or only the accepted pieces for a delivery on inspection. */
+export function purchasePayable(p: Purchase): number {
+  if (p.status === 'voided') return 0;
+  return p.lines.reduce((s, l) => s + lineTotal(p.intake === 'inspection' ? l.accepted : l.qty, l.unitCost), 0);
+}
+
+/**
+ * How the owner chose to split one vendor payment across that vendor's
+ * purchases (payment.allocate, ADR-002 §5). It records a choice, not a
+ * balance: what is owed is still worked out only by vendorAccounts(). The part
+ * of the payment not split onto a purchase is credit with the vendor.
+ */
+export interface PaymentSplit {
+  paymentId: string;
+  vendorId: string;
+  currency: Currency;
+  allocations: { purchaseId: string; amount: number }[];
+  /** The payment.allocate record in force. */
+  opId: string;
 }
 
 export interface ShipmentLine {
@@ -211,6 +232,7 @@ export const K = {
   shipment: (id: string) => `shipment:${id}`,
   day: (workerId: string, date: string) => `day:${workerId}:${date}`,
   user: (id: string) => `user:${id}`,
+  split: (paymentId: string) => `split:${paymentId}`,
 };
 
 export function entityKind(key: string): string {

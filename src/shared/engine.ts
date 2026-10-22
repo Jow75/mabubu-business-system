@@ -19,11 +19,13 @@ import {
   balanceKey,
   isPhysical,
   parseAccount,
+  purchasePayable,
   splitBalanceKey,
   type FxSeries,
   type GarmentType,
   type Location,
   type Move,
+  type PaymentSplit,
   type Posting,
   type PriceEntry,
   type PriceList,
@@ -111,6 +113,7 @@ const WRITE_CAP: Record<Exclude<OpType, 'op.void' | 'op.resolve' | 'worker.issue
   'purchase.inspect': 'purchasing',
   'purchase.return': 'purchasing',
   'vendor.payment': 'payments',
+  'payment.allocate': 'payments',
   'shipment.dispatch': 'shipments',
   'shipment.receive': 'shipments',
   'shipment.cost': 'shipments',
@@ -124,6 +127,8 @@ const NOT_VOIDABLE: readonly OpType[] = [
   'op.void',
   // A decision is final; an accepted late record is cancelled like any other record.
   'op.resolve',
+  // A split is changed by recording a new one (the old stays in the history).
+  'payment.allocate',
   'location.upsert',
   'size.upsert',
   'vendor.upsert',
@@ -491,6 +496,36 @@ const handlers: Handlers = {
       ...(p.purchaseId ? { purchaseId: p.purchaseId } : {}),
       category: p.method,
     });
+  },
+
+  // Not a cash movement: it moves no money and posts nothing. It only records
+  // which of the vendor's purchases the payment is for; vendorAccounts() works
+  // out the balances from it, never letting a purchase be paid more than it
+  // owes (any excess stays as credit and is shown).
+  'payment.allocate'(tx, op) {
+    upsertGuard(tx);
+    const p = op.payload;
+    const rec = tx.ctx.getOp(p.paymentId);
+    if (!rec || rec.op.type !== 'vendor.payment' || rec.status === 'rejected') throw notFound('Payment not found.');
+    if (rec.voidedBy && !tx.replay) throw invalid('This payment was cancelled.');
+    const pay = rec.op.payload;
+    const key = K.split(p.paymentId);
+    if ((tx.get<PaymentSplit>(key)?.opId ?? null) !== p.basedOn) {
+      throw new Fail('conflict', 'Someone changed how this payment is used. Check it again and retry.');
+    }
+    if (p.allocations.reduce((s, a) => s + a.amount, 0) > pay.amount) throw invalid('The amounts add up to more than the payment.');
+    for (const a of p.allocations) {
+      const pur = tx.get<Purchase>(K.purchase(a.purchaseId));
+      if (!pur) {
+        if (!tx.replay) throw notFound('Purchase not found.');
+        continue;
+      }
+      if (pur.vendorId !== pay.vendorId) throw invalid('This purchase belongs to another vendor.');
+      if (pur.currency !== pay.currency) throw invalid(`Pay this purchase in ${pur.currency}.`);
+      if (!tx.replay && pur.status === 'voided') throw invalid('This purchase was cancelled.');
+      if (!tx.replay && a.amount > purchasePayable(pur)) throw invalid('More than this purchase costs.');
+    }
+    tx.put(key, { paymentId: p.paymentId, vendorId: pay.vendorId, currency: pay.currency, allocations: p.allocations, opId: op.id } satisfies PaymentSplit);
   },
 
   /* ---------------- Shipments ---------------- */

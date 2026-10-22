@@ -862,6 +862,93 @@ describe('vendor payments sync', () => {
   });
 });
 
+describe('vendor credit and allocation over the network (ADR-002 §5)', () => {
+  async function overpaid() {
+    await setupOwner();
+    await seedCatalogue();
+    const d = ownerDev.deviceId;
+    const buyA = mk('purchase.record', { id: 'pur-A', vendorId: 'ven-hafsa', locationId: 'loc-msa', date: '2026-10-01', currency: 'KES', intake: 'collected', lines: [{ garmentTypeId: 'gt-haf', qty: 50, unitCost: 10_000 }], note: '' }, owner.id, d);
+    const buyB = mk('purchase.record', { id: 'pur-B', vendorId: 'ven-hafsa', locationId: 'loc-msa', date: '2026-10-03', currency: 'KES', intake: 'collected', lines: [{ garmentTypeId: 'gt-haf', qty: 30, unitCost: 10_000 }], note: '' }, owner.id, d);
+    // KSh 10,000 (M-Pesa QX10K) for purchase A, which costs KSh 5,000; B costs KSh 3,000.
+    const payment = mk('vendor.payment', { vendorId: 'ven-hafsa', purchaseId: 'pur-A', date: '2026-10-02', amount: 1_000_000, currency: 'KES', method: 'mpesa', reference: 'QX10K', note: '' }, owner.id, d);
+    expect((await pushOps(owner.token, [buyA, buyB, payment])).body.results.map((r) => r.status)).toEqual(['applied', 'applied', 'applied']);
+    return { payment };
+  }
+  async function accounts(token: string, proto = 2) {
+    const pulled = await pullAll(token, proto);
+    const L = new Ledger();
+    L.setUsers(pulled.directory);
+    for (const o of pulled.ops) if (o.status === 'applied') expect(L.apply(o, null).ok).toBe(true);
+    const { vendorAccounts, purchaseBalances } = await import('../src/shared/queries');
+    return { pulled, account: vendorAccounts(L).find((a) => a.vendorId === 'ven-hafsa')!, owes: (id: string) => purchaseBalances(L).get(id)!.balance };
+  }
+
+  it('allocating credit is stored once, keeps the one payment and its M-Pesa code, and every device computes the same balances', async () => {
+    const { payment } = await overpaid();
+    let v = await accounts(owner.token);
+    expect([v.owes('pur-A'), v.owes('pur-B'), v.account.credit]).toEqual([0, 300_000, 500_000]);
+    const split = mk('payment.allocate', { paymentId: payment.id, basedOn: null, allocations: [{ purchaseId: 'pur-A', amount: 500_000 }, { purchaseId: 'pur-B', amount: 300_000 }], note: 'Use the extra for B' }, owner.id, ownerDev.deviceId);
+    expect((await pushOps(owner.token, [split])).body.results[0]!.status).toBe('applied');
+    // The phone retries (the reply was lost): one record, same answer.
+    expect((await pushOps(owner.token, [split])).body.results[0]).toMatchObject({ status: 'applied', duplicate: true });
+    expect((env.DB.raw.prepare("SELECT COUNT(*) AS n FROM ops WHERE type = 'payment.allocate'").get() as { n: number }).n).toBe(1);
+    v = await accounts(owner.token);
+    expect([v.owes('pur-A'), v.owes('pur-B'), v.account.credit, v.account.paid]).toEqual([0, 0, 200_000, 1_000_000]);
+    const payments = v.pulled.ops.filter((o) => o.type === 'vendor.payment');
+    expect(payments).toHaveLength(1);
+    expect(payments[0]!.payload).toMatchObject({ amount: 1_000_000, reference: 'QX10K' });
+    // An app older than protocol 2 is never sent the allocation (it could not replay it).
+    expect((await pullAll(owner.token)).ops.some((o) => o.type === 'payment.allocate')).toBe(false);
+  });
+
+  it('two managers allocating the same payment at the same moment: one counts, the other is told to check again', async () => {
+    const { payment } = await overpaid();
+    const m = await createPerson('Mama', 'manager', '582913', null);
+    const mDev = device('Mama phone');
+    await signIn('Mama', '582913', mDev);
+    await call('POST', '/api/admin/access', { deviceId: mDev.deviceId, userId: m.id, decision: 'approve' }, owner.token);
+    const mLogin = await signIn('Mama', '582913', mDev);
+    if (mLogin.body.status !== 'ok') throw new Error('manager not approved');
+    const toB = mk('payment.allocate', { paymentId: payment.id, basedOn: null, allocations: [{ purchaseId: 'pur-A', amount: 500_000 }, { purchaseId: 'pur-B', amount: 300_000 }], note: '' }, owner.id, ownerDev.deviceId);
+    const keep = mk('payment.allocate', { paymentId: payment.id, basedOn: null, allocations: [{ purchaseId: 'pur-A', amount: 500_000 }], note: '' }, m.id, mDev.deviceId);
+    // Force the race: the first write waits until the second has read the same state.
+    const realBatch = env.DB.batch.bind(env.DB);
+    let writers = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    env.DB.batch = (async (stmts: Parameters<typeof realBatch>[0]) => {
+      if (stmts.some((s) => JSON.stringify((s as unknown as { params: unknown[] }).params ?? []).includes('payment.allocate'))) {
+        writers++;
+        if (writers === 1) await gate;
+        else release();
+      }
+      return realBatch(stmts);
+    }) as typeof env.DB.batch;
+    try {
+      const [r1, r2] = await Promise.all([pushOps(owner.token, [toB]), pushOps(mLogin.body.token, [keep])]);
+      const results = [r1.body.results[0]!, r2.body.results[0]!];
+      expect(results.map((r) => r.status).sort()).toEqual(['applied', 'rejected']);
+      expect(results.find((r) => r.status === 'rejected')!.error).toBe('Someone changed how this payment is used. Check it again and retry.');
+    } finally {
+      env.DB.batch = realBatch;
+    }
+    const v = await accounts(owner.token);
+    // Whichever won, the payment is used once: paid onto A + paid onto B + credit = KSh 10,000.
+    expect(v.account.paid).toBe(1_000_000);
+    expect(500_000 - v.owes('pur-A') + (300_000 - v.owes('pur-B')) + v.account.credit).toBe(1_000_000);
+  });
+
+  it('a worker can neither allocate nor ever receive payments or allocations', async () => {
+    const { payment } = await overpaid();
+    const a = await approvedWorker('Amina', '4770');
+    const tryIt = await pushOps(a.token, [mk('payment.allocate', { paymentId: payment.id, basedOn: null, allocations: [], note: '' }, a.id, a.dev.deviceId)]);
+    expect(tryIt.body.results[0]).toMatchObject({ status: 'rejected', error: 'You do not have permission for this action.' });
+    await pushOps(owner.token, [mk('payment.allocate', { paymentId: payment.id, basedOn: null, allocations: [], note: '' }, owner.id, ownerDev.deviceId)]);
+    const seen = await pullAll(a.token, 2);
+    expect(seen.ops.filter((o) => o.status === 'applied').some((o) => o.type === 'vendor.payment' || o.type === 'payment.allocate' || o.type === 'purchase.record')).toBe(false);
+  });
+});
+
 describe('account lifecycle: a returning account is not a returning device', () => {
   beforeEach(async () => {
     await setupOwner();

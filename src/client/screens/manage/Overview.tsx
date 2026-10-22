@@ -52,7 +52,7 @@ export function Overview() {
   const weekAgo = addDays(today, -6);
   const weekDays = data.days.filter((d) => d.settlement && d.workDate >= weekAgo && d.settlement.currency === sellCurrency);
   const weekVariance = weekDays.reduce((s, d) => s + d.settlement!.variance, 0);
-  const owed = vendorAccounts(ledger).filter((b) => b.balance > 0);
+  const owed = vendorAccounts(ledger).filter((b) => b.outstanding > 0);
   const inTransit = data.shipments.filter((s) => s.status === 'in_transit' || s.status === 'partial');
 
   // Things a manager should look at
@@ -193,8 +193,15 @@ export function Overview() {
               {owed.length === 0 && <div className="list-item muted">{t('ov.nothingOwed')}</div>}
               {owed.map((b) => (
                 <a key={b.vendorId + b.currency} className="list-item" href={href(`/vendors/${b.vendorId}`)}>
-                  <span style={{ flex: 1 }}>{lk.vendor(b.vendorId)?.name}</span>
-                  <Money amount={b.balance} currency={b.currency} strong />
+                  <span style={{ flex: 1 }}>
+                    {lk.vendor(b.vendorId)?.name}
+                    {b.credit > 0 && (
+                      <span className="hint" style={{ display: 'block', color: 'var(--mangrove)' }}>
+                        {rich(t('vd.creditAmt'), { amount: <Money amount={b.credit} currency={b.currency} /> })}
+                      </span>
+                    )}
+                  </span>
+                  <Money amount={b.outstanding} currency={b.currency} strong />
                 </a>
               ))}
             </div>

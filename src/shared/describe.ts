@@ -100,6 +100,20 @@ export function describeOp(op: AnyOp, lk: Lookups, ledger: Ledger, t: T = tEn, d
         ref: op.payload.reference ? t('op.paymentRef', { ref: op.payload.reference }) : '',
         untied: op.payload.purchaseId ? '' : t('op.paymentUntied'),
       });
+    case 'payment.allocate': {
+      const pay = ledger.getOp(op.payload.paymentId)?.op;
+      const pp = pay?.type === 'vendor.payment' ? pay.payload : null;
+      const cur = (pp?.currency ?? 'KES') as Currency;
+      const used = op.payload.allocations.reduce((s, a) => s + a.amount, 0);
+      const list = op.payload.allocations.map((a) => t('op.allocLine', { date: (ledger.get(K.purchase(a.purchaseId)) as Purchase | undefined)?.date ?? '?', amount: formatMoney(cur, a.amount) }));
+      return t('op.allocate', {
+        amount: pp ? formatMoney(cur, pp.amount) : '',
+        ref: pp?.reference ? t('op.paymentRef', { ref: pp.reference }) : '',
+        vendor: lk.vendor(pp?.vendorId)?.name ?? t('c.vendor'),
+        list: list.length ? list.join(', ') : t('op.allocNone'),
+        credit: pp && pp.amount > used ? t('op.allocCredit', { amount: formatMoney(cur, pp.amount - used) }) : '',
+      });
+    }
     case 'shipment.dispatch':
       return t('op.dispatch', { code: op.payload.code, n: pcs(op.payload.lines), from: lk.locName(op.payload.fromLocationId), to: lk.locName(op.payload.toLocationId) });
     case 'shipment.receive': {

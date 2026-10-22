@@ -16,7 +16,7 @@ import { subjectOf, type AnyOp, type Flag, type LateReview, type OpType } from '
 import type { Capability } from './permissions';
 import { canExport, REPORT_INFO, type ReportId } from './report-catalog';
 import { TIME_NOTE, type Cell, type Column, type ReportDoc, type Table } from './report-doc';
-import { dayLines, purchaseSummary, stockByLocation, vendorAccounts, type ProfitReport, type PurchaseBalance } from './queries';
+import { dayLines, purchaseSummary, stockByLocation, vendorAccounts, type PaymentHow, type ProfitReport, type PurchaseBalance } from './queries';
 import { businessDate, fmtDate } from './time';
 
 /* ------------------------------------------------------------------ */
@@ -393,13 +393,14 @@ export function inspectionText(p: Purchase): string {
   return parts.join(', ');
 }
 function paymentRefs(b: PurchaseBalance | undefined): string {
-  return (b?.allocations ?? []).map((a) => `${fmtDate(a.date)} ${PAYMENT_LABEL[a.method]}${a.reference ? ` ${a.reference}` : ''} ${a.linked ? '' : '(vendor-page payment, oldest first) '}`.trim()).join('; ');
+  const how: Record<PaymentHow, string> = { named: '', auto: ' (vendor-page payment, oldest first)', allocated: ' (allocated by hand)' };
+  return (b?.allocations ?? []).map((a) => `${fmtDate(a.date)} ${PAYMENT_LABEL[a.method]}${a.reference ? ` ${a.reference}` : ''} ${formatMoney(b!.currency, a.amount)}${how[a.how]}`.trim()).join('; ');
 }
 
 export function purchasesReport(ctx: ReportCtx, f: PurchaseFilter): ReportDoc {
   const d = start('purchases', ctx, [], [
     'Owed = full purchase value, or for deliveries on inspection only the accepted pieces.',
-    'Paid = payments made for this purchase, plus payments recorded on the vendor page, which are applied to that vendor’s oldest unpaid purchases first (same currency only).',
+    'Paid = what payments pay onto this purchase: payments recorded for it, payments split onto it by hand, and vendor-page payments applied to the oldest unpaid purchases first (same vendor and currency only). A purchase is never counted as paid more than it costs; any excess is the vendor’s credit (see the vendors report).',
     'Every amount is in the currency actually paid; nothing is converted.',
   ]);
   d.filters = [
@@ -480,10 +481,13 @@ export function purchasesReport(ctx: ReportCtx, f: PurchaseFilter): ReportDoc {
   return finish(d);
 }
 
+const HOW_TEXT: Record<PaymentHow, string> = { named: 'One purchase', auto: 'Vendor page (oldest unpaid first)', allocated: 'Split by hand' };
+
 export function vendorsReport(ctx: ReportCtx): ReportDoc {
   const d = start('vendors', ctx, [{ label: 'Vendors', value: 'All vendors' }], [
-    'Balance = bought − paid, per currency. Positive: we owe the vendor. Negative: the vendor holds our credit.',
-    'Not yet applied = payments not covering any purchase yet (an advance or an overpayment).',
+    'Outstanding = what the vendor’s purchases still owe. No purchase is ever counted as paid more than it costs.',
+    'Available credit = money paid to the vendor that no purchase uses yet (an advance, the extra over a purchase, or a payment kept as credit). It is not a refund and not income.',
+    'Balance = bought − paid = outstanding − available credit, per currency. Positive: we owe the vendor overall.',
   ]);
   const accounts = vendorAccounts(ctx.ledger);
   const purchases = ctx.ledger.list<Purchase>('purchase');
@@ -492,7 +496,7 @@ export function vendorsReport(ctx: ReportCtx): ReportDoc {
     const accs = accounts.filter((a) => a.vendorId === v.id);
     const base = { vendor: v.name, phone: v.phone, notes: v.notes, active: v.active ? 'Yes' : 'No', last: purchases.filter((p) => p.vendorId === v.id && p.status === 'active').map((p) => p.date).sort().pop() ?? null };
     if (!accs.length) rows.push({ ...base, currency: null });
-    for (const a of accs) rows.push({ ...base, currency: a.currency, bought: a.payable, paid: a.paid, balance: a.balance, unapplied: a.unallocated, open: a.purchases.filter((p) => p.balance > 0).length });
+    for (const a of accs) rows.push({ ...base, currency: a.currency, bought: a.payable, paid: a.paid, outstanding: a.outstanding, credit: a.credit, balance: a.balance, open: a.purchases.filter((p) => p.balance > 0).length });
   }
   const m = (key: string, label: string): Column => ({ key, label, kind: 'money', currencyKey: 'currency' });
   d.tables.push({
@@ -506,25 +510,27 @@ export function vendorsReport(ctx: ReportCtx): ReportDoc {
       { key: 'currency', label: 'Currency', kind: 'text', width: 0.7 },
       m('bought', 'Bought'),
       m('paid', 'Paid'),
-      m('balance', 'Balance'),
-      m('unapplied', 'Not yet applied'),
+      m('outstanding', 'Outstanding'),
+      m('credit', 'Available credit'),
+      m('balance', 'Balance (net)'),
       { key: 'open', label: 'Unpaid purchases', kind: 'int', width: 0.8 },
     ],
     rows,
   });
+  const purchaseDate = (id: string) => fmtDate((ctx.ledger.get(K.purchase(id)) as Purchase | undefined)?.date);
   const prow: Record<string, Cell>[] = [];
   for (const a of accounts) {
-    for (const pay of a.payments) {
-      const applied = a.purchases.flatMap((pb) => pb.allocations.filter((x) => x.opId === pay.opId).map((x) => `${fmtDate((ctx.ledger.get(K.purchase(pb.purchaseId)) as Purchase | undefined)?.date)} purchase: ${formatMoney(a.currency, x.amount)}`));
-      const unapplied = pay.amount - a.purchases.reduce((s, pb) => s + pb.allocations.filter((x) => x.opId === pay.opId).reduce((t, x) => t + x.amount, 0), 0);
-      if (unapplied > 0) applied.push(`${formatMoney(a.currency, unapplied)} not yet applied`);
-      prow.push({ date: pay.date, vendor: d.lk.vendor(pay.vendorId)?.name ?? '', currency: pay.currency, amount: pay.amount, method: PAYMENT_LABEL[pay.method], reference: pay.reference, chosen: pay.purchaseId ? 'This purchase' : 'Vendor page (oldest unpaid first)', applied: applied.join('; '), note: pay.note, sync: pay.pending ? 'Not synced yet' : 'Synced', id: pay.opId });
-    }
+    a.payments.forEach((pay, i) => {
+      const use = a.uses[i]!;
+      const applied = use.lines.map((l) => `${purchaseDate(l.purchaseId)} purchase: ${formatMoney(a.currency, l.amount)}`);
+      for (const u of use.unapplied) applied.push(`${formatMoney(a.currency, u.amount)} meant for the ${purchaseDate(u.purchaseId)} purchase was not needed`);
+      prow.push({ date: pay.date, vendor: d.lk.vendor(pay.vendorId)?.name ?? '', currency: pay.currency, amount: pay.amount, method: PAYMENT_LABEL[pay.method], reference: pay.reference, chosen: HOW_TEXT[use.how], applied: applied.join('; '), credit: use.credit, note: pay.note, sync: pay.pending ? 'Not synced yet' : 'Synced', id: pay.opId });
+    });
   }
   prow.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   d.tables.push({
     title: 'Payments',
-    note: 'Cancelled payments are not listed; they remain in the activity log.',
+    note: 'Each payment is listed once, with what it pays and what stays as credit. Cancelled payments are not listed; they remain in the activity log.',
     columns: [
       { key: 'date', label: 'Date', kind: 'date' },
       { key: 'vendor', label: 'Vendor', kind: 'text' },
@@ -532,14 +538,54 @@ export function vendorsReport(ctx: ReportCtx): ReportDoc {
       m('amount', 'Amount'),
       { key: 'method', label: 'Paid by', kind: 'text', width: 0.7 },
       { key: 'reference', label: 'Reference', kind: 'text' },
-      { key: 'chosen', label: 'Recorded for', kind: 'text', width: 1.4 },
-      { key: 'applied', label: 'Applied to', kind: 'text', width: 2.2 },
+      { key: 'chosen', label: 'How it is used', kind: 'text', width: 1.2 },
+      { key: 'applied', label: 'Pays', kind: 'text', width: 2.2 },
+      m('credit', 'Kept as credit'),
       { key: 'note', label: 'Note', kind: 'text' },
       { key: 'sync', label: 'Sync', kind: 'text', width: 0.8 },
       { key: 'id', label: 'Record id', kind: 'text', width: 1.4 },
     ],
     rows: prow,
   });
+  // Every change of how a payment is split, oldest first (the payments themselves never change).
+  const hrows: Record<string, Cell>[] = [];
+  for (const id of ctx.ledger.order) {
+    const r = ctx.ledger.getOp(id);
+    if (!r || r.op.type !== 'payment.allocate') continue;
+    const pay = ctx.ledger.getOp(r.op.payload.paymentId)?.op;
+    if (pay?.type !== 'vendor.payment') continue;
+    const pp = pay.payload;
+    const used = r.op.payload.allocations.reduce((s, x) => s + x.amount, 0);
+    hrows.push({
+      when: r.op.deviceTime,
+      by: ctx.meta?.(id)?.actorName ?? d.lk.personName(r.op.actorId),
+      vendor: d.lk.vendor(pp.vendorId)?.name ?? '',
+      payment: `${fmtDate(pp.date)} · ${formatMoney(pp.currency, pp.amount)}${pp.reference ? ` · ${pp.reference}` : ''}`,
+      split: r.op.payload.allocations.map((x) => `${purchaseDate(x.purchaseId)} purchase: ${formatMoney(pp.currency, x.amount)}`).join('; ') || 'No purchase',
+      currency: pp.currency,
+      credit: pp.amount - used,
+      note: r.op.payload.note,
+      id,
+    });
+  }
+  if (hrows.length) {
+    d.tables.push({
+      title: 'Allocation history',
+      note: 'Each line replaced the payment’s previous split. Credit moves only between purchases of the same vendor, in the same currency.',
+      columns: [
+        { key: 'when', label: 'Changed', kind: 'datetime' },
+        { key: 'by', label: 'By', kind: 'text', width: 0.8 },
+        { key: 'vendor', label: 'Vendor', kind: 'text' },
+        { key: 'payment', label: 'Payment', kind: 'text', width: 1.6 },
+        { key: 'split', label: 'Now pays', kind: 'text', width: 2.2 },
+        { key: 'currency', label: 'Currency', kind: 'text', width: 0.7 },
+        m('credit', 'Kept as credit'),
+        { key: 'note', label: 'Note', kind: 'text' },
+        { key: 'id', label: 'Record id', kind: 'text', width: 1.4 },
+      ],
+      rows: hrows,
+    });
+  }
   return finish(d);
 }
 

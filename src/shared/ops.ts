@@ -159,6 +159,21 @@ export const payloadSchemas = {
     reference: zText(80),
     note: zText(500),
   }),
+  /**
+   * How one payment is split across the same vendor's purchases; the rest is
+   * vendor credit. Replaces the payment's previous split (`basedOn`, null for
+   * none yet), so two people changing it at once are told, not overwritten.
+   * The payment record itself — amount, date, reference — never changes.
+   */
+  'payment.allocate': z.object({
+    paymentId: zId,
+    basedOn: zId.nullable(),
+    allocations: z
+      .array(z.object({ purchaseId: zId, amount: zPosMinor }))
+      .max(100)
+      .refine((ls) => new Set(ls.map((l) => l.purchaseId)).size === ls.length, 'Each purchase may appear only once'),
+    note: zText(500),
+  }),
 
   'shipment.dispatch': z.object({
     id: zId,
@@ -390,6 +405,7 @@ const VIS_BY_TYPE: Record<Exclude<OpType, 'op.void' | 'op.resolve'>, VisClass> =
   'purchase.inspect': 'purchase',
   'purchase.return': 'purchase',
   'vendor.payment': 'purchase',
+  'payment.allocate': 'purchase',
   'shipment.dispatch': 'shipment',
   'shipment.receive': 'shipment',
   'shipment.cost': 'shipcost',
