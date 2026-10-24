@@ -278,19 +278,24 @@ export function PurchaseDetail({ id }: { id: string }) {
   const t = useT();
   const [action, setAction] = useState<Action>(null);
   const p = ledger.get(K.purchase(id)) as Purchase | undefined;
-  const history = useMemo(
-    () =>
-      [...ledger.ops.values()]
-        .filter((r) => r.status !== 'rejected')
-        .filter((r) => {
-          const pl = r.op.payload as { id?: string; purchaseId?: string | null };
-          if (r.op.type === 'purchase.record') return pl.id === id;
-          if (r.op.type === 'op.void') return false;
-          return pl.purchaseId === id;
-        })
-        .sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime)),
-    [ledger, version, id],
-  );
+  const history = useMemo(() => {
+    const live = [...ledger.ops.values()].filter((r) => r.status !== 'rejected');
+    // Every split of a payment that ever paid this purchase — including one that moved money away from it.
+    const payments = new Set<string>();
+    for (const r of live) {
+      if (r.op.type === 'vendor.payment' && r.op.payload.purchaseId === id) payments.add(r.op.id);
+      if (r.op.type === 'payment.allocate' && r.op.payload.allocations.some((a) => a.purchaseId === id)) payments.add(r.op.payload.paymentId);
+    }
+    return live
+      .filter((r) => {
+        const pl = r.op.payload as { id?: string; purchaseId?: string | null; paymentId?: string };
+        if (r.op.type === 'purchase.record') return pl.id === id;
+        if (r.op.type === 'op.void') return false;
+        if (r.op.type === 'payment.allocate') return payments.has(pl.paymentId ?? '');
+        return pl.purchaseId === id;
+      })
+      .sort((a, b) => a.op.deviceTime.localeCompare(b.op.deviceTime));
+  }, [ledger, version, id]);
   const balance = useMemo(() => purchaseBalances(ledger).get(id), [ledger, version, id]);
   const account = useMemo(() => (p ? vendorAccounts(ledger).find((a) => a.vendorId === p.vendorId && a.currency === p.currency) : undefined), [ledger, version, p]);
   if (!p) return <Empty title={t('pu.notFound')} />;
@@ -603,8 +608,12 @@ function QtySheet({ p, kind, onClose }: { p: Purchase; kind: 'collect' | 'return
   );
 }
 
-/** Amounts to put on a vendor's unpaid purchases: each at most what it can still take, all together at most `available`. */
-function AllocationEditor({ rows, values, onChange, available, currency }: { rows: { purchaseId: string; max: number }[]; values: Record<string, number | null>; onChange: (v: Record<string, number | null>) => void; available: number; currency: Currency }) {
+/**
+ * Amounts to put on a vendor's unpaid purchases: each at most what it can
+ * still take, all together at most `available`. `withoutThis`: re-splitting a
+ * payment, where a row's limit is what the purchase would owe without it.
+ */
+function AllocationEditor({ rows, values, onChange, available, currency, withoutThis = false }: { rows: { purchaseId: string; max: number }[]; values: Record<string, number | null>; onChange: (v: Record<string, number | null>) => void; available: number; currency: Currency; withoutThis?: boolean }) {
   const { ledger } = useApp();
   const t = useT();
   const total = rows.reduce((s, r) => s + (values[r.purchaseId] ?? 0), 0);
@@ -629,7 +638,7 @@ function AllocationEditor({ rows, values, onChange, available, currency }: { row
           <div key={r.purchaseId} className="row-between" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <span style={{ flex: '1 1 160px', minWidth: 0 }}>
               {pur ? `${date} · ${t('c.nPcs', { n: purchaseSummary(pur).pieces })}` : t('pu.purchase')}
-              <div className="hint">{t('pu.leftOwed', { amount: formatMoney(currency, r.max) })}</div>
+              <div className="hint">{t(withoutThis ? 'pu.owesWithout' : 'pu.leftOwed', { amount: formatMoney(currency, r.max) })}</div>
               {(v ?? 0) > r.max && <div className="hint" style={{ color: 'var(--hibiscus)' }}>{t('pu.overOwed')}</div>}
             </span>
             <div style={{ flex: '0 1 190px' }}>
@@ -932,7 +941,7 @@ function ChangeAllocationSheet({ paymentId, onClose }: { paymentId: string; onCl
       }
     >
       <p className="soft">{t('pu.changeLead', { amount: formatMoney(pay.currency, pay.amount), ref: pay.reference ? ` · ${pay.reference}` : '', date: fmtDate(pay.date) })}</p>
-      {rows.length === 0 ? <p className="muted">{t('pu.noOpen', { currency: pay.currency })}</p> : <AllocationEditor rows={rows} values={values} onChange={setValues} available={pay.amount} currency={pay.currency} />}
+      {rows.length === 0 ? <p className="muted">{t('pu.noOpen', { currency: pay.currency })}</p> : <AllocationEditor rows={rows} values={values} onChange={setValues} available={pay.amount} currency={pay.currency} withoutThis />}
       <Field label={t('stk.note')}>
         <input className="input" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>

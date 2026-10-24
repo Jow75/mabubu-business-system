@@ -13,10 +13,11 @@ export function LatePill({ rec, worker = false }: { rec: OpRecord; worker?: bool
   const lk = useLookups();
   const t = useT();
   if (!rec.review) return null;
-  if (rec.review === 'waiting') return <span className="pill saffron">{t(worker ? 'w.lateWaiting' : 'late.waiting')}</span>;
+  // The worker's wording is a full sentence; a rejection carries the manager's reason: both wrap on a phone.
+  if (rec.review === 'waiting') return <span className={`pill saffron ${worker ? 'wrap' : ''}`}>{t(worker ? 'w.lateWaiting' : 'late.waiting')}</span>;
   const decision = rec.resolvedBy ? ledger.getOp(rec.resolvedBy) : undefined;
   const name = (rec.resolvedBy ? records.get(rec.resolvedBy)?.actorName : undefined) ?? lk.personName(decision?.op.actorId);
   if (rec.review === 'accepted') return <span className="pill green">{t(worker ? 'w.lateAccepted' : 'late.accepted', { name })}</span>;
   const reason = decision?.op.type === 'op.resolve' ? decision.op.payload.reason : '';
-  return <span className="pill red">{worker ? t('w.lateRejected', { name, reason }) : `${t('late.rejected', { name })}${reason ? ` — “${reason}”` : ''}`}</span>;
+  return <span className="pill red wrap">{worker ? t('w.lateRejected', { name, reason }) : `${t('late.rejected', { name })}${reason ? ` — “${reason}”` : ''}`}</span>;
 }

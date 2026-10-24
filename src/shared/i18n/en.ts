@@ -1249,6 +1249,7 @@ export const en = {
   'pu.overOwed': 'More than this purchase still owes',
   'pu.overCredit': 'More than the credit available',
   'pu.leftOwed': 'still owes {amount}',
+  'pu.owesWithout': 'would owe {amount} without this payment',
   'pu.allocSaved': 'Allocation saved — the payment itself is unchanged',
   'pu.allocTitle': 'Allocate credit with {vendor}',
   'pu.allocLead': 'Choose which unpaid purchases the credit pays. The payments themselves stay exactly as recorded, with their M-Pesa codes.',

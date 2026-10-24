@@ -381,8 +381,17 @@ export function DayDetail({ workerId, date }: { workerId: string; date: string }
                       <span style={r.voidedBy ? { textDecoration: 'line-through', color: 'var(--ink-3)' } : undefined}>{describeOp(r.op, lk, ledger, t)}</span>
                       {(r.op.type === 'worker.issue' || r.op.type === 'worker.return') && day?.status === 'open' && <VoidButton opId={r.op.id} label={t('void.cancel')} />}
                     </span>
-                    {r.review && <LatePill rec={r} />}
-                    {r.status === 'rejected' && !r.review && <span className="pill red">{t('act.refused', { error: errText(rec?.error) })}</span>}
+                    {/* Wrapped so the pill keeps its own width inside the column. */}
+                    {r.review && (
+                      <span>
+                        <LatePill rec={r} />
+                      </span>
+                    )}
+                    {r.status === 'rejected' && !r.review && (
+                      <span>
+                        <span className="pill red wrap">{t('act.refused', { error: errText(rec?.error) })}</span>
+                      </span>
+                    )}
                     {canAudit && (
                       <span className="row" style={{ gap: 6 }}>
                         <span className="hint">{t('days.by', { name: rec?.actorName ?? lk.personName(r.op.actorId) })}</span>

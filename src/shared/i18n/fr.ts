@@ -1233,6 +1233,7 @@ export const fr: Record<Key, string> = {
   'pu.overOwed': 'Plus que ce que cet achat doit encore',
   'pu.overCredit': 'Plus que le crédit disponible',
   'pu.leftOwed': 'doit encore {amount}',
+  'pu.owesWithout': 'devrait {amount} sans ce paiement',
   'pu.allocSaved': 'Affectation enregistrée — le paiement lui-même ne change pas',
   'pu.allocTitle': 'Affecter le crédit chez {vendor}',
   'pu.allocLead': 'Choisissez les achats impayés que le crédit paie. Les paiements eux-mêmes restent exactement tels qu’enregistrés, avec leurs codes M-Pesa.',

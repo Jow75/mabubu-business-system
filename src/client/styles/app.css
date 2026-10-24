@@ -765,6 +765,15 @@ h3 {
   color: var(--ink-2);
   border: 1px solid var(--rule);
 }
+/* A pill that carries a sentence (a late record's status, a manager's reason) wraps on a phone. */
+.pill.wrap {
+  white-space: normal;
+  max-width: 100%;
+  border-radius: 12px;
+  padding: 4px 10px;
+  line-height: 1.35;
+  text-align: left;
+}
 .pill.indigo {
   background: var(--indigo-tint);
   color: var(--indigo);

@@ -1233,6 +1233,7 @@ export const sw: Record<Key, string> = {
   'pu.overOwed': 'Zaidi ya deni lililobaki la manunuzi haya',
   'pu.overCredit': 'Zaidi ya salio linalopatikana',
   'pu.leftOwed': 'bado inadaiwa {amount}',
+  'pu.owesWithout': 'ingedaiwa {amount} bila malipo haya',
   'pu.allocSaved': 'Mgawanyo umehifadhiwa — malipo yenyewe hayajabadilika',
   'pu.allocTitle': 'Tumia salio letu kwa {vendor}',
   'pu.allocLead': 'Chagua manunuzi yasiyolipwa ambayo salio litalipa. Malipo yenyewe yanabaki kama yalivyorekodiwa, pamoja na namba zake za M-Pesa.',
