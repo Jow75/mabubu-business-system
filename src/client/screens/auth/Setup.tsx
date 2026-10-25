@@ -6,6 +6,7 @@ import { Icon } from '../../ui/Icon';
 import { Field } from '../../ui/kit';
 import { AuthLayout } from './Welcome';
 import { errText, useT } from '../../lib/i18n';
+import { useHoldReload } from '../../lib/update';
 
 /**
  * First setup (creates the owner) or owner recovery, using the server's
@@ -25,6 +26,7 @@ export function Setup() {
   const [pin2, setPin2] = useState(recoverFor?.pin ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useHoldReload(Boolean(token || pin));
   // null while unknown (offline or still loading): fall back to the neutral,
   // both-purpose wording rather than guessing.
   const [recover, setRecover] = useState<boolean | null>(null);

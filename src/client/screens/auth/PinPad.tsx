@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MAX_PIN_LENGTH, MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
 import { useT } from '../../lib/i18n';
 import { nextPin, pastedPin, pinAction, type PinAction } from '../../lib/pin-keys';
+import { useHoldReload } from '../../lib/update';
 
 /** Typing into a real field (a name, a note, a search) must never feed the code. */
 function typingInField(target: EventTarget | null): boolean {
@@ -45,6 +46,8 @@ export function PinPad({
   const sent = useRef(false);
   const live = useRef({ busy, minLength, onSubmit, onCancel });
   live.current = { busy, minLength, onSubmit, onCancel };
+  // A new version never reloads the page while digits are typed (lib/update.ts).
+  useHoldReload(pin.length > 0);
 
   const update = useCallback((next: string) => {
     pinRef.current = next;

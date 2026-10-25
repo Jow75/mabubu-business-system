@@ -15,6 +15,7 @@ import { VoidButton } from '../../ui/VoidButton';
 import { DownloadButton } from '../../ui/Reporting';
 import { selectShipments, shipmentsReport, type ShipmentFilter } from '../../../shared/reports';
 import { reportCtx } from '../../lib/report-ctx';
+import { useHoldReload } from '../../lib/update';
 
 const STATUS: Record<Shipment['status'], { tone: string }> = {
   in_transit: { tone: 'lagoon' },
@@ -126,6 +127,7 @@ export function NewShipment() {
   const [lines, setLines] = useState<EditLine[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  useHoldReload(lines.length > 0 || note !== '' || code !== '' || carrier !== '');
   const total = lines.reduce((s, l) => s + l.qty, 0);
   const autoCode = `${method.toUpperCase()}-${date.slice(5).replace('-', '')}`;
   const valid = from && to && from !== to && lines.length > 0 && lines.every((l) => l.qty > 0);

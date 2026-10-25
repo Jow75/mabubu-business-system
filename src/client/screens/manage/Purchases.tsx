@@ -16,6 +16,7 @@ import { Empty, Field, GarmentLabel, Money, MoneyInput, PageHead, Qty, Seg, Shee
 import { LinesEditor, type EditLine } from '../../ui/LinesEditor';
 import { DownloadButton } from '../../ui/Reporting';
 import { VoidButton } from '../../ui/VoidButton';
+import { useHoldReload } from '../../lib/update';
 
 function StatusPills({ p, balance }: { p: Purchase; balance: PurchaseBalance | undefined }) {
   const t = useT();
@@ -131,6 +132,7 @@ export function NewPurchase() {
   const [payNow, setPayNow] = useState<number | null>(null);
   const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]>('mpesa');
   const [reference, setReference] = useState('');
+  useHoldReload(lines.length > 0 || note !== '' || payNow !== null || reference !== '');
   const [busy, setBusy] = useState(false);
   const vendorGarments = lk.garments.filter((g) => !g.vendorId || g.vendorId === vendorId);
   const total = lines.reduce((s, l) => s + lineTotal(l.qty, l.unitCost ?? 0), 0);

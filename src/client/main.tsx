@@ -8,12 +8,15 @@ import './styles/app.css';
 import { App } from './App';
 import { store } from './lib/store';
 import { watchInstall } from './lib/install';
-import { onNewVersion } from './lib/update';
+import { onNewVersion, setReloadGuard, watchForUpdates } from './lib/update';
 
 watchInstall();
+setReloadGuard(() => store.reloadUnsafe());
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true, onNeedReload: onNewVersion }));
+  void import('virtual:pwa-register').then(({ registerSW }) =>
+    registerSW({ immediate: true, onNeedReload: onNewVersion, onRegisteredSW: (_url, registration) => registration && watchForUpdates(registration) }),
+  );
 }
 
 void store.boot();

@@ -13,6 +13,7 @@ import { lineTotal, type Currency } from '../../../shared/money';
 import { GarmentLabel, Money, MoneyInput, Stepper, Field, PageHead, Empty, save, toast } from '../../ui/kit';
 import { Icon } from '../../ui/Icon';
 import { rich, useT } from '../../lib/i18n';
+import { useHoldReload } from '../../lib/update';
 
 /** Who/where/when the screen records for, from the URL or the signed-in worker. */
 export function useDayContext() {
@@ -49,6 +50,7 @@ export function TakeGarments() {
   const [qty, setQty] = useState<Record<string, number>>({});
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  useHoldReload(Object.values(qty).some((n) => n > 0));
   const garments = ctx.lk.activeGarments.filter((g) => !q || `${g.code} ${g.name}`.toLowerCase().includes(q.toLowerCase()));
   const lines = Object.entries(qty)
     .filter(([, n]) => n > 0)
@@ -121,6 +123,7 @@ export function ReturnGarments() {
   const holding = useMemo(() => workerHolding(ledger, ctx.workerId, ctx.locationId), [ledger, ctx.workerId, ctx.locationId, version]);
   const [qty, setQty] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
+  useHoldReload(Object.values(qty).some((n) => n > 0));
   const lines = Object.entries(qty)
     .filter(([, n]) => n > 0)
     .map(([garmentTypeId, n]) => ({ garmentTypeId, qty: n }));
@@ -204,6 +207,7 @@ export function CloseDay() {
   const [expenses, setExpenses] = useState<{ description: string; amount: number | null }[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  useHoldReload(Object.keys(lines).length > 0 || cash !== null || mobile !== null || expenses.length > 0 || note !== '');
 
   const lineOf = (gt: string, n: number): LineState => lines[gt] ?? { sold: n, wholesaleQty: 0, wholesalePrice: prices.get(gt)?.wholesale ?? 0, carried: 0, lost: 0 };
   const setLine = (gt: string, n: number, patch: Partial<LineState>) => {

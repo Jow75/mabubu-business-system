@@ -6,6 +6,7 @@ import { store, useApp } from '../lib/store';
 import { personColor } from '../lib/labels';
 import { Icon, type IconName } from './Icon';
 import { errText, rich, tNow, useT } from '../lib/i18n';
+import { useHoldReload } from '../lib/update';
 
 /* ---------------- Money ---------------- */
 
@@ -257,6 +258,8 @@ export function Seg<T extends string>({ value, options, onChange, label }: { val
 
 export function Sheet({ title, onClose, children, footer }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode }) {
   const t = useT();
+  // An open sheet is work in progress: a new version waits until it is closed (lib/update.ts).
+  useHoldReload(true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
