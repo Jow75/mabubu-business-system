@@ -3,7 +3,8 @@
 Read first:
 - `docs/requirements/` — the owner's agreed business requirements, the source of truth.
 - `docs/decisions/ADR-001-architecture-and-access.md` — the architecture and why.
-- `docs/decisions/ADR-002-currency-balances-and-reports.md` — exchange rates, vendor balances, downloads.
+- `docs/decisions/ADR-002-currency-balances-and-reports.md` — exchange rates, vendor balances and credit (§5), downloads.
+- `docs/decisions/ADR-004-late-records.md` — worker records that arrive after their day was closed.
 - `docs/STATUS.md` — what is done, what is open, and which decisions belong to the owner.
 
 ## Ground rules from the owner
@@ -19,7 +20,9 @@ Read first:
 - Every change to business data is an **operation** (`src/shared/ops.ts`), validated by a zod schema and applied by the pure engine (`src/shared/engine.ts`). The same engine runs on the device (instant validation, offline) and on the server (authority).
 - Stock is a double-entry quantity ledger: pieces move between accounts (`A.*` in `src/shared/model.ts`) and are never edited. Corrections are `op.void` operations that reverse effects and keep history.
 - Money is integer minor units in its own currency (`src/shared/money.ts`). KMF ÷ 5 "local count" is display-only.
-- What is owed per purchase and per vendor comes only from `vendorAccounts()` / `purchaseBalances()` in `src/shared/queries.ts`. Never store or compute a balance anywhere else.
+- What is owed per purchase and per vendor, and vendor credit, comes only from `vendorAccounts()` / `purchaseBalances()` / `previewAccount()` in `src/shared/queries.ts`. Never store or compute a balance anywhere else (a `payment.allocate` split is a recorded choice, not a balance).
+- A worker record refused only because its day is closed is held as a late record for a manager (`HOLDABLE`, `op.resolve`, ADR-004); never turn that back into a silent refusal.
+- New record types need the sync protocol bump (`SYNC_PROTO` in `src/shared/api.ts`, `PROTO2_TYPES` in `src/worker/sync.ts`) so older cached apps never receive a type they cannot replay.
 - Reports convert currencies only through `Converter` (`src/shared/fx.ts`): recorded rate in force on each amount's date, keeping original amounts and the rates used. Market rates are reference only and must be labelled as current value. Never subtract across currencies without a rate.
 - Screens and downloads share the selection functions in `src/shared/reports.ts`, so downloaded totals equal on-screen totals.
 - The server (`src/worker/`) must stay within Cloudflare free-plan limits: ≤ 50 queries and ~10 ms CPU per request. Pre-fetch with `json_each` IN-lists and write in one `DB.batch`.

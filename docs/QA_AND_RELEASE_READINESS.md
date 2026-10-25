@@ -1,6 +1,6 @@
 # Quality assurance & release readiness
 
-Living document. Last updated **20 Oct 2026** (second QA pass). Read `CLAUDE.md`,
+Living document. Last updated **24 Oct 2026** (approve-once fix, late records, vendor credit, desktop install). Read `CLAUDE.md`,
 then `docs/STATUS.md` and `docs/HANDOVER_NEXT_SESSION.md`, then this file.
 
 It records the release phase, what has actually been verified (and how), the
@@ -18,17 +18,21 @@ before a stable 1.0.0. **Stable release is the owner's decision.**
   (never `1.1.0` as a first stable); then `1.0.x` fixes, `1.x.0` features;
   optional `1.0.0-rc.1`. Never change the version silently.
 
-## 2. Canonical production configuration (verified 20 Oct 2026, read-only)
+## 2. Canonical production configuration (verified 24 Oct 2026, read-only)
 
-- **People:** 2 — George Muraguri (owner), Jijo (worker). One owner.
-- **Devices:** 5 rows, history kept: `WR8-WYS` owner laptop (approved, last
-  used 19 Oct), `YB7-EN2` Jijo's Android (approved, in daily use), `WNY-S7J`
-  and `ZZU-23X` (blocked + retired), and **`MCS-MH4`** — a new owner laptop
-  identity created 20 Oct 07:58 after the laptop's browser data was cleared
-  again; **pending** until the owner recovers (see §6).
-- **Records:** 32 operations (applied; highest seq 40), 22 entities, 15 stock
-  balance rows netting to zero. Real activity: a take and a closing by Jijo
-  (19–20 Oct). Reference data clean (3 places, 5 size groups).
+- **People:** 6 — George Muraguri (owner, the only owner), Said Abdou and
+  Nancy Muthoni (managers), Jijo, Azadi Mdogo and Naomi (workers).
+- **Devices:** 9 rows, history kept. Active: `EVK-NWF` owner laptop
+  (recovered 22 Oct), `THS-8GK` previous owner-laptop identity (recovered
+  21 Oct; probably dead since the 22 Oct clear; also approved for Azadi and
+  Naomi), `YB7-EN2` Jijo's Android, `E3C-59E` Said's Android, `ZWU-XJ7`
+  Nancy's Android. Blocked + retired: `WNY-S7J`, `ZZU-23X`, `WR8-WYS`, `MCS-MH4`.
+- **Records:** 77 operations (all applied; highest seq 85), 43 entities, 44
+  stock balance rows netting to zero; five sales days (19–22 Oct), four
+  purchases with payments that exactly match them. Reference data clean.
+- **Schema:** migrations 0001–0004 (0004 applied 24 Oct after the export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-24-pre-0004-late-records-credit.sql`,
+  verified by a full restore into a fresh SQLite: identical counts, integrity ok).
 - **Secrets:** `PIN_PEPPER`, `SETUP_TOKEN` only in Cloudflare, set once on
   18 Oct before the first code version (matters for rollback, §8).
 
@@ -58,6 +62,10 @@ Chrome, local or staging) · **P** verified in production (read-only or smoke) �
 | Performance | ✓ | — | ✓ throttled | — | — | n/a | §9 |
 | Accessibility / responsive | ✓ | — | ✓ | — | — | n/a | §10 |
 | Actual Android behaviour | ✓ | — | emulated | — | **—** | n/a | Needs the owner's phone (§11) |
+| Approve once (22 Oct) | ✓ | ✓ | ✓ staging | — | — | — | Owner's bug report; production had two days approved 3×, which still replay |
+| Late records (22 Oct, ADR-004) | ✓ | ✓ | ✓ staging | migration only | — | — | Worker phone offline in Chrome (390 px, en + fr) and owner desktop; forced-race test for two managers |
+| Vendor credit (22 Oct, ADR-002 §5) | ✓ | ✓ | ✓ staging | read-only replay | n/a | — | Production payments all exact: no figure changes |
+| Desktop install (22 Oct) | ✓ | — | ✓ staging | — | n/a | — | Chrome installability check passes; the install click is the owner's |
 
 ## 4. Findings and fixes in this pass (20 Oct 2026)
 
@@ -99,14 +107,13 @@ Remaining, accepted or for the owner:
 
 ## 5. Open business questions found by testing (owner decides)
 
-1. **A take recorded offline before a day was closed, arriving after a manager
-   closed it online, is refused** ("This day is already closed"). The worker's
-   phone shows it as refused; the pieces physically left stock but are not
-   counted. Options: keep (manager reopens and re-enters), or accept late
-   physical facts with a warning. Pinned by a test; not changed.
-2. **Overpaying a specific purchase** shows as vendor credit and an overpaid
-   purchase; it does not roll onto the vendor's other unpaid purchases. This
-   is the ADR-002 open item "move a payment".
+1. ~~A take arriving after its day was closed is refused.~~ **Decided and
+   built 22 Oct** (ADR-004): kept as a late record for a manager — Reject with
+   a reason, or Reopen the day and accept, then close again.
+2. ~~Overpaying a purchase cannot roll onto other purchases.~~ **Decided and
+   built 22 Oct** (ADR-002 §5): the purchase is paid in full, the extra is
+   visible vendor credit, which can be allocated to other purchases; existing
+   payments can be re-split without cancelling them.
 3. Passkey (Windows Hello / phone screen-lock) as a second, optional owner
    recovery method — assessed, recommended only if the laptop keeps losing its
    data after the browser setting is fixed (`AUTH_AND_RECOVERY.md` §5).
@@ -115,10 +122,11 @@ Remaining, accepted or for the owner:
 
 ## 6. Owner action needed now
 
-- **Your laptop is waiting as a new device (`MCS-MH4`).** Open the app, sign in
-  with your name and code; on "This computer needs to be recognised again" tap
-  **Allow this device with my recovery key**, type the key. Then in People &
-  devices retire the old laptop identity `WR8-WYS` once you are in.
+- **Done by you on 21 Oct** (recovered as `THS-8GK`, retired `WR8-WYS` and
+  `MCS-MH4`) — and **again on 22 Oct** (recovered as `EVK-NWF`): the browser
+  cleared the site's data once more. After fixing the setting below, retire
+  `THS-8GK` in People & devices and re-approve Azadi and Naomi on the laptop
+  if they use it there.
 - **Stop the laptop forgetting itself:** in Chrome, *Settings → Privacy and
   security → Third-party cookies / Site data*: turn off "Delete data sites have
   saved … when you close all windows", or add `mabubu.mabubu-family.workers.dev`
@@ -153,11 +161,16 @@ its own secrets; the staging-only key and test codes are in
   sign-in on the rolled-back version, exactly as predicted. **Production is
   safe today:** its secrets were set before the first code version, so every
   rollback target uses the current secrets.
-- **Production rollback targets:** current `d20cecee` (main `444a88b`); previous
-  `6b124483` (`5533d88`), `d78753fe` (`6586145`), `6bd4ba0f` (`47c895e`). All
-  run against schema 0001–0003. Worker rollback never changes D1 data or
-  schema; a data mistake is corrected in the app (void) or, in a disaster,
-  by Time Travel / restore into a new database after exporting.
+- **Production rollback targets:** current `380168bd` (main `8360a43`, 24 Oct
+  2026, schema 0001–0004); previous `d20cecee` (`444a88b`), `6b124483`
+  (`5533d88`), `d78753fe` (`6586145`), `6bd4ba0f` (`47c895e`). The older ones
+  run fine on schema 0004 (they ignore its two nullable columns; see
+  `DEPLOY.md` for what a rollback would mean for late records and
+  allocations). Worker rollback never changes D1 data or schema; a data
+  mistake is corrected in the app (void) or, in a disaster, by Time Travel /
+  restore into a new database after exporting. Restore point taken just
+  before migration 0004: Time Travel bookmark
+  `0000004a-00000000-0000510e-5d2fe492183a86ab41a8e743a36cd800` (24 Oct).
 - **Not rehearsed:** a rollback on production itself; a D1 Time Travel restore.
 
 ## 9. Performance (measured 20 Oct 2026, staging, CPU throttled 4×)
@@ -185,23 +198,29 @@ walkthrough by a person; colour contrast not formally measured.
 
 ## 11. Android (physical) — not yet done
 
-ADB 37 is installed; no phone was paired (Wireless Debugging needs the owner).
+ADB 37 is installed. On 22 Oct the Tecno Spark 10 Pro was reachable on the
+same Wi-Fi (`192.168.100.13`, Wireless debugging port open), but this laptop is
+**not paired** with it: `adb connect` reported the device offline (untrusted
+key), and mDNS discovery saw nothing (the Wi-Fi is set to "Public" in Windows).
+Pairing needs the code shown on the phone, typed by the owner in a separate
+PowerShell window (`adb pair <IP:port>`); the code is never written down here.
 The plan in the handover runs against **staging** with the test worker, so
-Jijo's real records are never touched. Emulated results above are not a
-substitute.
+real records are never touched. The emulated and Chrome results above are not
+a substitute.
 
 ## 12. Criteria for declaring 1.0.0 (recommendation; owner decides)
 
 - [x] No unresolved Critical/High security, financial, auth or data finding
       (the High data finding of this pass is fixed and deployed).
-- [x] typecheck / tests / build green with regression tests — **193 tests**.
-- [ ] Owner recovers the laptop and confirms routine sign-in on the live app.
+- [x] typecheck / tests / build green with regression tests — **249 tests** (24 Oct).
+- [ ] Owner's laptop keeps its identity (it needed recovery again on 22 Oct);
+      routine sign-in from the installed app confirmed by the owner.
 - [ ] Physical Android test passed on staging (install, French, offline day,
       sync, restart).
 - [ ] French and Swahili reviewed by a family member (`LANGUAGE_REVIEW.md`).
 - [x] Backup + restore rehearsed; rollback rehearsed on staging and documented.
-- [ ] Owner decides §5 items 1–2 (or accepts them for 1.0.0) and reviews the
-      known limitations (`STATUS.md`).
+- [x] Owner decided §5 items 1–2 (22 Oct brief); built and tested.
+- [ ] Owner reviews the known limitations (`STATUS.md`, ADR-004 "Known limits").
 - [ ] Owner explicitly approves `1.0.0`.
 
 The evidence does **not** yet support declaring 1.0.0.

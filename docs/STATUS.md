@@ -1,6 +1,8 @@
-# Build status — 20 Oct 2026 (live on Cloudflare)
+# Build status — 24 Oct 2026 (live on Cloudflare)
 
-Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker version `d20cecee` (main `444a88b`), database migrations 0001–0003. One owner (George Muraguri), one worker (Jijo, recording real days on his Android). A staging copy with synthetic data runs at https://mabubu-staging.mabubu-family.workers.dev for device and sync tests.
+Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker version `380168bd` (main `8360a43`), database migrations 0001–0004. One owner (George Muraguri), two managers (Said Abdou, Nancy Muthoni), three workers (Jijo, Azadi Mdogo, Naomi). A staging copy with synthetic data runs at https://mabubu-staging.mabubu-family.workers.dev for device and sync tests.
+
+**22–24 Oct pass:** (1) **Approve once** — the owner's bug report (a closed day could be approved again and again; production had two days approved three times): the rules now refuse a second review of an approved day, the screen replaces the buttons with "Approved by … · when", and two quick taps can no longer both save. (2) **Late records** (ADR-004) — a take, return or closing saved offline that reaches the server after its day was closed is kept for a manager instead of being refused: Reject with a reason, or Reopen the day and accept, then close again; the worker sees each state. (3) **Vendor credit** (ADR-002 §5) — a payment larger than its purchase pays it in full and the extra is visible vendor credit; credit can be allocated to other purchases, a payment can be kept as credit, and an existing payment can be re-split without cancelling it; the M-Pesa code and the one payment record never change. (4) **Desktop app** — installable with an honest Install button, stable app identity, version shown under Me ([INSTALL_DESKTOP.md](INSTALL_DESKTOP.md)). Migration 0004 applied to production after a verified export. 249 tests; staging driven in Chrome (owner desktop + worker phone at 390 px, English and French).
 
 **20 Oct QA pass (second):** deployed the owner-escalation guard; audited the whole sign-in / device / recovery lifecycle and fixed the confusing "waiting for the owner" screen for the owner (the live log showed the laptop forgot itself again on 20 Oct — see [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md) §3); fixed a sync bug where a record saved during a sync vanished from the screen until reopening (risk of re-entry and a duplicate); made "remove from this device" safe; fixed phone layout in French/Swahili, accessibility labels and touch targets; translated every server message; reconciled finances against hand-worked figures and replayed production read-only (exact match); rehearsed backup restore and Worker rollback (staging). 193 tests. Details and the release checklist: [QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md).
 
@@ -20,18 +22,20 @@ Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker
 | Demo mode | Three weeks of clearly-labelled sample records, viewable as owner, manager or worker; never leaves the browser | Unit test + browser run |
 | Languages | English, Français, Kiswahili for every screen, sign-in, setup, errors and record descriptions. First use asks once with the device language preselected; choice kept per device and changeable under Settings or Me. Time-of-day greetings (10 per language). See ADR-003 | 25 i18n tests (detection, completeness, fallback, greetings, error wording, no effect on balances/stock/profit), 4 preference tests (persistence, no records created); browser: French worker journey at 390 px (27 checks) locally and on the live site; owner screens in French, Swahili and English at 1280 px and 390 px with no overflow or errors |
 | Worker day | Closed day: Take and Return disabled with a plain explanation; a direct attempt is refused by the rules; a manager reopens from Sales days → day → Reopen day (closing and reason kept); a new business date starts a fresh day with the first take | Engine test of the full scenario; browser run in French |
+| Approve once (22 Oct) | A closing is approved once; a question can be followed up and then approved; reopening clears the approval; repeat approvals already in production still replay | Engine, server and store tests; staging browser run |
+| Late records (22 Oct, ADR-004) | Held instead of refused; manager evidence (phone time corrected by measured clock error, server time, closing time, before/after); Reject with reason or Reopen and accept; worker statuses; Overview/Sales days/activity/downloads | Engine (scenarios A–F, hand-worked stock and sales), server over HTTP incl. a forced race between two managers, real store + Worker end to end, staging browser run (owner desktop + worker phone offline) |
+| Vendor credit (22 Oct, ADR-002 §5) | Overpayment → visible credit; keep as credit; allocate credit to one or several purchases (also later ones); re-split an existing payment with history; preview equals result | 23 engine tests incl. a randomized property, server tests incl. a forced race, staging browser run |
+| Desktop app (22 Oct) | Installable PWA (Chrome's installability check passes), stable id, launch focuses the open window, version under Me | Chrome installability API on staging; app-mode window keeps the same device across launches; the install click itself is the owner's |
 | Offline start | The installed app opens and records without internet | Fixed 18 Oct (a start-up file was not cached). Checked by stopping the server and by browser offline mode on the live site; the build now fails if a start-up file is not cached |
 
 ## Not done yet (in priority order)
 
-1. **Owner: recover the laptop** (it is waiting as new device `MCS-MH4`) with the recovery key, retire the old identity `WR8-WYS`, and fix the Chrome setting that clears site data ([QA_AND_RELEASE_READINESS.md](QA_AND_RELEASE_READINESS.md) §6).
-2. **Try it on a real Android phone** against staging (not done yet): install, choose French, go offline, record a day, come back online and check it syncs. Plan in the handover.
-3. **A French speaker and a Swahili speaker from the family read the screens**, using [LANGUAGE_REVIEW.md](LANGUAGE_REVIEW.md) (nothing has been reviewed by a native speaker yet).
-4. Owner decides: a take arriving after its day was closed is refused today; overpaying one purchase stays as credit (QA doc §5).
-5. Downloads (PDF / Excel / CSV) are still in English.
-6. Two payment features from the owner's decisions: hold a payment as credit while purchases are unpaid; move an existing payment to another purchase (ADR-002).
-7. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
-8. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places.
+1. **Owner: stop the laptop forgetting itself.** It needed owner recovery again on 22 Oct (new identity `EVK-NWF`; the previous `THS-8GK` is probably dead). Turn off Chrome's "delete site data when all windows close" (or allow the Mabubu address), install the app ([INSTALL_DESKTOP.md](INSTALL_DESKTOP.md)), then retire `THS-8GK` in People & devices and re-approve Azadi and Naomi on the laptop if they use it.
+2. **Try it on a real Android phone** against staging: the laptop is not yet paired with the Tecno (Wireless debugging pairing needs the owner at the phone). Plan in the handover.
+3. **A French speaker and a Swahili speaker from the family read the screens**, using [LANGUAGE_REVIEW.md](LANGUAGE_REVIEW.md) (nothing has been reviewed by a native speaker yet; the 22 Oct strings are new too).
+4. Downloads (PDF / Excel / CSV) are still in English.
+5. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
+6. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places, refunds from a vendor.
 
 ## Decisions waiting for the owner
 
@@ -43,10 +47,11 @@ On 18 Oct 2026 the owner provisionally confirmed the current defaults below. See
 | Owner and manager codes are 6 digits (workers 4) | 6 digits, recommended for accounts that see money | One line in `src/shared/permissions.ts` |
 | KMF banknote values in the counter | 10,000 / 5,000 / 2,000 / 1,000 / 500 | Editable in Settings; please confirm |
 | Word shown for the ÷5 local count | "local count" | Editable in Settings |
-| Can a worker take more garments after closing the day? | No. A manager reopens the day | Small change |
+| Can a worker take more garments after closing the day? | No. A manager reopens the day. A take saved offline that arrives after the day was closed is kept for a manager (ADR-004, decided 22 Oct) | Small change |
+| A payment larger than its purchase | Purchase paid in full, extra kept as visible vendor credit until allocated (ADR-002 §5, decided 22 Oct) | — |
 | Should workers see how many garments are in the store? | No, they see only what they hold | Small change |
 | Profit: shipment costs charged in the period they are paid, not per piece | Yes, and the report says so | Next-phase feature |
-| Payments not tied to a purchase pay the oldest unpaid purchase first | Yes (see ADR-002) | Small change: keep them as credit instead |
+| Payments not tied to a purchase pay the oldest unpaid purchase first | Yes (see ADR-002); "Keep it as credit for now" is offered when recording | — |
 | The place switch is remembered on the device | Yes, now visible on every page it affects | Small change: reset on sign-in |
 
 ## Known limitations (honest list)

@@ -469,6 +469,144 @@ Shown when something is refused or goes wrong. (88 phrases)
 | `err.alreadyCancelled` | This record was already cancelled. | Cet enregistrement a déjà été annulé. | Kumbukumbu hii tayari imeghairiwa. | not reviewed |  |
 | `err.tooLarge` | Request is too large. | La demande est trop volumineuse. | Ombi ni kubwa mno. | not reviewed |  |
 
+## 5. New on 22 Oct 2026 — approve once, late records, vendor credit, installing the app
+
+All **not reviewed**. Same rules as above. (109 phrases)
+
+### Approving a day once
+
+| Key | English | Français | Kiswahili | Status | Correction |
+|---|---|---|---|---|---|
+| `days.approvedOn` | Approved by {name} · {when} | Approuvée par {name} · {when} | Imeidhinishwa na {name} · {when} | not reviewed |  |
+| `days.queriedOn` | Question from {name} · {when} | Question de {name} · {when} | Swali kutoka kwa {name} · {when} | not reviewed |  |
+| `days.askAgain` | Ask again | Reposer une question | Uliza tena | not reviewed |  |
+| `days.approvedOnce` | A closing is approved once. To change anything, reopen the day; the new closing is then reviewed again. | Une clôture n’est approuvée qu’une fois. Pour changer quoi que ce soit, rouvrez la journée ; la nouvelle clôture sera vérifiée à nouveau. | Ufungaji wa siku huidhinishwa mara moja tu. Ili kubadilisha chochote, ifungue siku upya; ufungaji mpya utakaguliwa tena. | not reviewed |  |
+
+### Late records (manager and worker)
+
+| Key | English | Français | Kiswahili | Status | Correction |
+|---|---|---|---|---|---|
+| `sync.held` | {n} waiting for a manager | {n} en attente d’un responsable | {n} zinasubiri meneja | not reviewed |  |
+| `w.notSent` | Saved on this phone · not sent yet | Enregistré sur ce téléphone · pas encore envoyé | Imehifadhiwa kwenye simu hii · bado haijatumwa | not reviewed |  |
+| `w.sent` | Sent | Envoyé | Imetumwa | not reviewed |  |
+| `w.lateWaiting` | Reached the office after the day was closed. A manager will check it. | Arrivé au bureau après la clôture de la journée. Un responsable va vérifier. | Ilifika ofisini baada ya siku kufungwa. Meneja ataikagua. | not reviewed |  |
+| `w.lateAccepted` | Accepted by {name} | Accepté par {name} | Imekubaliwa na {name} | not reviewed |  |
+| `w.lateRejected` | Not accepted by {name}: {reason} | Refusé par {name} : {reason} | Haikukubaliwa na {name}: {reason} | not reviewed |  |
+| `w.lateNote` | {n} of your records reached the office after the day was closed. They are kept safe, and not counted until a manager checks them. | {n} de vos saisies sont arrivées au bureau après la clôture de la journée. Elles sont conservées et ne comptent pas tant qu’un responsable ne les a pas vérifiées. | Rekodi zako {n} zilifika ofisini baada ya siku kufungwa. Zimehifadhiwa salama, na hazihesabiwi hadi meneja azikague. | not reviewed |  |
+| `me.lateWaiting` | Waiting for a manager | En attente d’un responsable | Zinasubiri meneja | not reviewed |  |
+| `me.lateWaitingHint` | These reached the server after their day was closed. Nothing is lost: a manager accepts or rejects each one. | Ces saisies sont arrivées au serveur après la clôture de leur journée. Rien n’est perdu : un responsable accepte ou refuse chacune. | Rekodi hizi zilifika kwenye seva baada ya siku yake kufungwa. Hakuna kilichopotea: meneja anakubali au anakataa kila moja. | not reviewed |  |
+| `op.resolveAccept` | Accepted a late record: {what}{note} | Saisie en retard acceptée : {what}{note} | Rekodi iliyochelewa imekubaliwa: {what}{note} | not reviewed |  |
+| `op.resolveReject` | Did not accept a late record: {what} — “{reason}” | Saisie en retard refusée : {what} — « {reason} » | Rekodi iliyochelewa haikukubaliwa: {what} — “{reason}” | not reviewed |  |
+| `ov.att.lateRecords` | {name}: {n} late record(s) for {date} need your decision | {name} : {n} saisie(s) en retard pour le {date} attendent votre décision | {name}: rekodi {n} zilizochelewa za {date} zinasubiri uamuzi wako | not reviewed |  |
+| `late.title` | Late records — your decision | Saisies arrivées en retard — à vous de décider | Rekodi zilizochelewa — uamuzi wako | not reviewed |  |
+| `late.leadClosed` | Saved on {name}’s phone, but they reached the server after this day was closed. They are kept and not counted until you decide. To accept them, reopen the day: the closing stays in the history, and the day is closed again with the right figures. | Enregistrées sur le téléphone de {name}, mais arrivées au serveur après la clôture de cette journée. Elles sont conservées et ne comptent pas tant que vous n’avez pas décidé. Pour les accepter, rouvrez la journée : la clôture reste dans l’historique, et la journée est clôturée à nouveau avec les bons chiffres. | Zilihifadhiwa kwenye simu ya {name}, lakini zilifika kwenye seva baada ya siku hii kufungwa. Zimehifadhiwa na hazihesabiwi hadi uamue. Ili kuzikubali, ifungue siku tena: ufungaji unabaki kwenye historia, na siku inafungwa tena kwa takwimu sahihi. | not reviewed |  |
+| `late.leadOpen` | These reached the server after the day was closed. The day is open again: accept them to add them as if they had arrived on time, or reject them with a reason. | Ces saisies sont arrivées au serveur après la clôture de la journée. La journée est rouverte : acceptez-les pour les ajouter comme si elles étaient arrivées à temps, ou refusez-les avec un motif. | Rekodi hizi zilifika kwenye seva baada ya siku kufungwa. Siku imefunguliwa tena: zikubali ili ziongezwe kana kwamba zilifika kwa wakati, au zikatae kwa sababu. | not reviewed |  |
+| `late.saved` | Saved on the phone {time} | Enregistré sur le téléphone {time} | Ilihifadhiwa kwenye simu {time} | not reviewed |  |
+| `late.clock` | phone clock {delta} {dir} — about {time} by the server clock | horloge du téléphone {delta} {dir} — vers {time} à l’heure du serveur | saa ya simu {delta} {dir} — karibu {time} kwa saa ya seva | not reviewed |  |
+| `late.behind` | behind | en retard | nyuma | not reviewed |  |
+| `late.ahead` | ahead | en avance | mbele | not reviewed |  |
+| `late.reached` | reached the server {time} | arrivé au serveur {time} | ilifika kwenye seva {time} | not reviewed |  |
+| `late.closedAt` | Day closed {time} by {name} | Journée clôturée {time} par {name} | Siku ilifungwa {time} na {name} | not reviewed |  |
+| `late.before` | Saved before the closing reached the server (by the phone’s clock) | Enregistré avant l’arrivée de la clôture au serveur (selon l’horloge du téléphone) | Ilihifadhiwa kabla ufungaji haujafika kwenye seva (kwa saa ya simu) | not reviewed |  |
+| `late.after` | Saved after the closing reached the server — check with {name} | Enregistré après l’arrivée de la clôture au serveur — vérifiez avec {name} | Ilihifadhiwa baada ya ufungaji kufika kwenye seva — hakikisha na {name} | not reviewed |  |
+| `late.evidence` | Phone times are evidence, not proof: a phone’s clock can be changed. | Les heures du téléphone sont un indice, pas une preuve : l’horloge d’un téléphone peut être modifiée. | Saa za simu ni ushahidi, si uthibitisho: saa ya simu inaweza kubadilishwa. | not reviewed |  |
+| `late.accept` | Accept | Accepter | Kubali | not reviewed |  |
+| `late.acceptAll` | Accept all, in order | Tout accepter, dans l’ordre | Kubali zote, kwa mpangilio | not reviewed |  |
+| `late.reject` | Reject… | Refuser… | Kataa… | not reviewed |  |
+| `late.reopenAccept` | Reopen the day and accept… | Rouvrir la journée et accepter… | Fungua siku tena na ukubali… | not reviewed |  |
+| `late.rejectTitle` | Reject this late record | Refuser cette saisie arrivée en retard | Kataa rekodi hii iliyochelewa | not reviewed |  |
+| `late.rejectLead` | It stays in the history, marked as not accepted, and nothing is counted. {name} sees your reason. | Elle reste dans l’historique, marquée comme refusée, et rien n’est compté. {name} voit votre motif. | Inabaki kwenye historia ikiwa na alama ya kutokubaliwa, na hakuna kinachohesabiwa. {name} ataona sababu yako. | not reviewed |  |
+| `late.rejectPh` | e.g. we counted the stock: these pieces never left | ex. : stock compté, ces pièces ne sont jamais sorties | mf. tulihesabu mzigo: vipande hivi havikutoka | not reviewed |  |
+| `late.reopenTitle` | Reopen the day and accept the late records | Rouvrir la journée et accepter les saisies en retard | Fungua siku tena na ukubali rekodi zilizochelewa | not reviewed |  |
+| `late.reopenLead` | This cancels the closing recorded by {name} (it stays in the history with your reason) and adds the {n} late record(s) in the order they were saved. The day is then open: close it again with the right figures. | Cela annule la clôture enregistrée par {name} (elle reste dans l’historique avec votre motif) et ajoute les {n} saisie(s) en retard dans l’ordre où elles ont été enregistrées. La journée est alors ouverte : clôturez-la à nouveau avec les bons chiffres. | Hii inaghairi ufungaji uliorekodiwa na {name} (unabaki kwenye historia pamoja na sababu yako) na kuongeza rekodi {n} zilizochelewa kwa mpangilio zilivyohifadhiwa. Kisha siku iko wazi: ifunge tena kwa takwimu sahihi. | not reviewed |  |
+| `late.reopenDefault` | Reopened to accept late records from the phone | Rouverte pour accepter des saisies du téléphone arrivées en retard | Imefunguliwa tena ili kukubali rekodi zilizochelewa kutoka kwenye simu | not reviewed |  |
+| `late.acceptedToast` | Accepted — the day now includes it | Accepté — la journée l’inclut maintenant | Imekubaliwa — siku sasa inaijumuisha | not reviewed |  |
+| `late.rejectedToast` | Not accepted — kept in the history | Refusé — conservé dans l’historique | Haikukubaliwa — imehifadhiwa kwenye historia | not reviewed |  |
+| `late.reopenedToast` | Day reopened and late records accepted. Close the day again. | Journée rouverte et saisies en retard acceptées. Clôturez à nouveau la journée. | Siku imefunguliwa tena na rekodi zilizochelewa zimekubaliwa. Ifunge siku tena. | not reviewed |  |
+| `late.waiting` | Late — waiting for a manager | En retard — en attente d’un responsable | Imechelewa — inasubiri meneja | not reviewed |  |
+| `late.accepted` | Late — accepted by {name} | En retard — accepté par {name} | Imechelewa — imekubaliwa na {name} | not reviewed |  |
+| `late.rejected` | Late — not accepted by {name} | En retard — refusé par {name} | Imechelewa — haikukubaliwa na {name} | not reviewed |  |
+| `late.pill` | {n} late | {n} en retard | {n} zimechelewa | not reviewed |  |
+| `late.rejectConfirm` | Do not accept | Ne pas accepter | Usikubali | not reviewed |  |
+| `late.reopenConfirm` | Reopen and accept | Rouvrir et accepter | Fungua na ukubali | not reviewed |  |
+| `late.decideFirst` | Decide on the late records before approving this day. | Décidez des saisies en retard avant d’approuver cette journée. | Amua kuhusu rekodi zilizochelewa kabla ya kuidhinisha siku hii. | not reviewed |  |
+
+### Vendor credit and payments
+
+| Key | English | Français | Kiswahili | Status | Correction |
+|---|---|---|---|---|---|
+| `op.allocate` | Split the {amount} payment{ref} to {vendor}: {list}{credit} | Paiement de {amount}{ref} à {vendor} réparti : {list}{credit} | Malipo ya {amount}{ref} kwa {vendor} yamegawanywa: {list}{credit} | not reviewed |  |
+| `op.allocLine` | {date} purchase {amount} | achat du {date} {amount} | manunuzi ya {date} {amount} | not reviewed |  |
+| `op.allocNone` | no purchase | aucun achat | hakuna manunuzi | not reviewed |  |
+| `op.allocCredit` |  · {amount} kept as credit |  · {amount} gardé en crédit |  · {amount} imebaki kama salio letu | not reviewed |  |
+| `vd.outstanding` | Outstanding purchases | Achats restant à payer | Manunuzi yanayodaiwa | not reviewed |  |
+| `vd.creditAvail` | Available vendor credit | Crédit disponible chez le fournisseur | Salio letu linalopatikana | not reviewed |  |
+| `vd.creditHint` | Paid to this vendor but not used by any purchase yet — not a refund, not income. | Payé à ce fournisseur mais pas encore utilisé par un achat — ni un remboursement, ni un revenu. | Tumemlipa muuzaji huyu lakini bado halijatumika kwa manunuzi yoyote — si marejesho, si mapato. | not reviewed |  |
+| `vd.allocate` | Allocate credit | Affecter le crédit | Tumia salio | not reviewed |  |
+| `vd.changeAlloc` | Change allocation | Modifier l’affectation | Badilisha mgawanyo | not reviewed |  |
+| `vd.history` | Allocation history | Historique des affectations | Historia ya mgawanyo | not reviewed |  |
+| `vd.keptCredit` | {amount} kept as credit | {amount} gardé en crédit | {amount} imebaki kama salio letu | not reviewed |  |
+| `vd.notUsed` | {amount} meant for the {date} purchase was not needed (already paid) and stays as credit | {amount} prévu pour l’achat du {date} n’a pas servi (déjà payé) et reste en crédit | {amount} iliyopangwa kwa manunuzi ya {date} haikuhitajika (yameshalipwa) na inabaki kama salio letu | not reviewed |  |
+| `vd.how.named` | For one purchase | Pour un achat | Kwa manunuzi moja | not reviewed |  |
+| `vd.how.auto` | Oldest unpaid first | Achat impayé le plus ancien d’abord | Ya zamani zaidi kwanza | not reviewed |  |
+| `vd.how.allocated` | Split by hand | Réparti à la main | Imegawanywa kwa mkono | not reviewed |  |
+| `vd.oweLess` | owe {amount} | dû {amount} | deni {amount} | not reviewed |  |
+| `pu.keepCredit` | Keep it as credit for now | Le garder en crédit pour l’instant | Ibaki kama salio kwa sasa | not reviewed |  |
+| `pu.preview` | What this payment will do | Ce que fera ce paiement | Malipo haya yatafanya nini | not reviewed |  |
+| `pu.pays` | Pays the {date} purchase: {amount} | Paie l’achat du {date} : {amount} | Inalipa manunuzi ya {date}: {amount} | not reviewed |  |
+| `pu.paysFull` |  — paid in full |  — payé en entier |  — yamelipwa yote | not reviewed |  |
+| `pu.staysCredit` | {amount} stays as credit with {vendor} | {amount} reste en crédit chez {vendor} | {amount} inabaki kama salio letu kwa {vendor} | not reviewed |  |
+| `pu.extraTitle` | This is {amount} more than the purchase still owes. | C’est {amount} de plus que ce que l’achat doit encore. | Hii ni {amount} zaidi ya deni lililobaki la manunuzi haya. | not reviewed |  |
+| `pu.leaveCredit` | Leave the extra as credit | Laisser le surplus en crédit | Acha ziada kama salio letu | not reviewed |  |
+| `pu.useOther` | Use it now for other unpaid purchases | L’utiliser maintenant pour d’autres achats impayés | Itumie sasa kwa manunuzi mengine yasiyolipwa | not reviewed |  |
+| `pu.fillOldest` | Fill oldest first | Remplir en commençant par le plus ancien | Jaza kuanzia ya zamani zaidi | not reviewed |  |
+| `pu.creditLeft` | Credit left after this: {amount} | Crédit restant ensuite : {amount} | Salio litakalobaki: {amount} | not reviewed |  |
+| `pu.overOwed` | More than this purchase still owes | Plus que ce que cet achat doit encore | Zaidi ya deni lililobaki la manunuzi haya | not reviewed |  |
+| `pu.overCredit` | More than the credit available | Plus que le crédit disponible | Zaidi ya salio linalopatikana | not reviewed |  |
+| `pu.leftOwed` | still owes {amount} | doit encore {amount} | bado inadaiwa {amount} | not reviewed |  |
+| `pu.owesWithout` | would owe {amount} without this payment | devrait {amount} sans ce paiement | ingedaiwa {amount} bila malipo haya | not reviewed |  |
+| `pu.allocSaved` | Allocation saved — the payment itself is unchanged | Affectation enregistrée — le paiement lui-même ne change pas | Mgawanyo umehifadhiwa — malipo yenyewe hayajabadilika | not reviewed |  |
+| `pu.allocTitle` | Allocate credit with {vendor} | Affecter le crédit chez {vendor} | Tumia salio letu kwa {vendor} | not reviewed |  |
+| `pu.allocLead` | Choose which unpaid purchases the credit pays. The payments themselves stay exactly as recorded, with their M-Pesa codes. | Choisissez les achats impayés que le crédit paie. Les paiements eux-mêmes restent exactement tels qu’enregistrés, avec leurs codes M-Pesa. | Chagua manunuzi yasiyolipwa ambayo salio litalipa. Malipo yenyewe yanabaki kama yalivyorekodiwa, pamoja na namba zake za M-Pesa. | not reviewed |  |
+| `pu.changeTitle` | Change how this payment is used | Modifier l’utilisation de ce paiement | Badilisha jinsi malipo haya yanavyotumika | not reviewed |  |
+| `pu.changeLead` | The payment stays one record — {amount}{ref}, {date}. Only how it is split across purchases changes; the previous split stays in the history. | Le paiement reste un seul enregistrement — {amount}{ref}, {date}. Seule sa répartition entre les achats change ; l’ancienne répartition reste dans l’historique. | Malipo yanabaki rekodi moja — {amount}{ref}, {date}. Ni mgawanyo wake kwa manunuzi tu unaobadilika; mgawanyo wa zamani unabaki kwenye historia. | not reviewed |  |
+| `pu.creditHere` | {vendor} holds {amount} of your credit. | {vendor} détient {amount} de votre crédit. | {vendor} ana {amount} ya salio letu. | not reviewed |  |
+| `pu.useCredit` | Use credit for this purchase | Utiliser le crédit pour cet achat | Tumia salio kwa manunuzi haya | not reviewed |  |
+| `pu.fromCredit` | Allocated by hand from this payment | Affecté à la main depuis ce paiement | Imegawanywa kwa mkono kutoka malipo haya | not reviewed |  |
+| `pu.noOpen` | No unpaid purchases in {currency} for this vendor. | Aucun achat impayé en {currency} chez ce fournisseur. | Hakuna manunuzi yasiyolipwa kwa {currency} kwa muuzaji huyu. | not reviewed |  |
+| `pu.amountFor` | Amount for the {date} purchase | Montant pour l’achat du {date} | Kiasi kwa manunuzi ya {date} | not reviewed |  |
+
+### Installing the app
+
+| Key | English | Français | Kiswahili | Status | Correction |
+|---|---|---|---|---|---|
+| `inst.title` | Use Mabubu like an app | Utiliser Mabubu comme une application | Tumia Mabubu kama programu | not reviewed |  |
+| `inst.lead` | Install it on this device: it opens in its own window from the desktop, Start menu or taskbar (on a phone, from the home screen) and works offline. Same account, same records — nothing is copied. | Installez-la sur cet appareil : elle s’ouvre dans sa propre fenêtre depuis le bureau, le menu Démarrer ou la barre des tâches (sur un téléphone, depuis l’écran d’accueil) et fonctionne hors ligne. Même compte, mêmes enregistrements — rien n’est copié. | Isakinishe kwenye kifaa hiki: inafunguka kwenye dirisha lake kutoka kwenye desktop, menyu ya Start au taskbar (kwenye simu, kutoka skrini ya mwanzo) na inafanya kazi bila mtandao. Akaunti ile ile, rekodi zile zile — hakuna kinachonakiliwa. | not reviewed |  |
+| `inst.button` | Install Mabubu | Installer Mabubu | Sakinisha Mabubu | not reviewed |  |
+| `inst.installed` | Installed — running as the app | Installée — ouverte comme application | Imesakinishwa — inafanya kazi kama programu | not reviewed |  |
+| `inst.browser` | Running in the browser | Ouverte dans le navigateur | Inafanya kazi kwenye kivinjari | not reviewed |  |
+| `inst.how` | To install: in Chrome or Edge, open the browser menu (⋮ or …) and choose “Install Mabubu” (in Edge: Apps → Install this site as an app). On an Android phone: menu ⋮ → Install app or Add to Home screen. | Pour installer : dans Chrome ou Edge, ouvrez le menu du navigateur (⋮ ou …) et choisissez « Installer Mabubu » (dans Edge : Applications → Installer ce site en tant qu’application). Sur un téléphone Android : menu ⋮ → Installer l’application ou Ajouter à l’écran d’accueil. | Kusakinisha: kwenye Chrome au Edge, fungua menyu ya kivinjari (⋮ au …) na uchague “Install Mabubu” (kwenye Edge: Apps → Install this site as an app). Kwenye simu ya Android: menyu ⋮ → Install app au Add to Home screen. | not reviewed |  |
+| `inst.notNow` | Not now | Plus tard | Si sasa | not reviewed |  |
+| `inst.started` | Mabubu is being installed. Next time, open it from the desktop, Start menu or taskbar. | Installation de Mabubu en cours. La prochaine fois, ouvrez-la depuis le bureau, le menu Démarrer ou la barre des tâches. | Mabubu inasakinishwa. Wakati ujao, ifungue kutoka kwenye desktop, menyu ya Start au taskbar. | not reviewed |  |
+| `inst.app` | App | Application | Programu | not reviewed |  |
+| `inst.version` | Version | Version | Toleo | not reviewed |  |
+| `inst.versionValue` | {version} · testing (pre-release) · built {date} | {version} · en test (pré-version) · compilée le {date} | {version} · majaribio (kabla ya toleo rasmi) · ilijengwa {date} | not reviewed |  |
+
+### Messages from the rules
+
+| Key | English | Français | Kiswahili | Status | Correction |
+|---|---|---|---|---|---|
+| `err.alreadyApproved` | This day was already approved. | Cette journée est déjà approuvée. | Siku hii imeshaidhinishwa. | not reviewed |  |
+| `err.lateNotFound` | The late record was not found. | Saisie en retard introuvable. | Rekodi iliyochelewa haikupatikana. | not reviewed |  |
+| `err.lateDecided` | This late record was already decided. | Une décision a déjà été prise pour cette saisie en retard. | Uamuzi wa rekodi hii iliyochelewa umeshafanywa. | not reviewed |  |
+| `err.reopenFirst` | Reopen this day before accepting the late record. | Rouvrez cette journée avant d’accepter la saisie en retard. | Fungua siku hii tena kabla ya kukubali rekodi iliyochelewa. | not reviewed |  |
+| `err.managerDecides` | Only a manager can decide on a late record. | Seul un responsable peut décider d’une saisie en retard. | Meneja pekee ndiye anayeweza kuamua kuhusu rekodi iliyochelewa. | not reviewed |  |
+| `err.paymentNotFound` | Payment not found. | Paiement introuvable. | Malipo hayakupatikana. | not reviewed |  |
+| `err.paymentCancelled` | This payment was cancelled. | Ce paiement a été annulé. | Malipo haya yameghairiwa. | not reviewed |  |
+| `err.allocChanged` | Someone changed how this payment is used. Check it again and retry. | Quelqu’un a modifié l’utilisation de ce paiement. Vérifiez puis réessayez. | Mtu amebadilisha jinsi malipo haya yanavyotumika. Yakague tena kisha ujaribu tena. | not reviewed |  |
+| `err.allocOverPayment` | The amounts add up to more than the payment. | Le total dépasse le montant du paiement. | Jumla inazidi kiasi cha malipo. | not reviewed |  |
+| `err.allocOverPurchase` | More than this purchase costs. | Plus que le coût de cet achat. | Zaidi ya gharama ya manunuzi haya. | not reviewed |  |
+
 ## Not in this list
 
 The other 750 interface phrases (purchases, shipments, stock, catalogue,

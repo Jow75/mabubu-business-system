@@ -9,7 +9,7 @@ Everything here runs on Cloudflare's **free** plan. No card is needed and nothin
 | Cloudflare account | the owner's account (shown by `npx wrangler whoami`) | Logged in on the laptop with `npx wrangler login` |
 | Worker (app + API) | `mabubu` | One Worker serves the screens and `/api/*` |
 | D1 database | `mabubu`, id `99eb0bfa-4c87-4afc-be5f-3cb0faf397ef`, region WEUR | Set in `wrangler.jsonc`. The id is not a secret |
-| Migrations applied | `0001_init.sql`, `0002_market_rates.sql` | Check with `npx wrangler d1 migrations list mabubu --remote` |
+| Migrations applied | `0001_init.sql` … `0004_late_records.sql` (0004 on 24 Oct 2026) | Check with `npx wrangler d1 migrations list mabubu --remote` |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` | Stored only in Cloudflare (`npx wrangler secret list` shows the names, never the values) |
 | Code | GitHub `Jow75/mabubu-business-system` (private), branch `main` | No automatic deploy from GitHub |
 
@@ -105,7 +105,13 @@ arrives with extra characters and the key "does not match". From Git Bash,
 
 A Worker rollback changes code only: **never** the D1 schema or records. Every
 version since `6bd4ba0f` expects migrations 0001–0003; older ones ignore the
-one column 0003 added. A data problem is corrected in the app (cancel with a
+one column 0003 added. Migration 0004 (24 Oct 2026) only adds two nullable
+columns to `ops` (`review`, `resolved_by`), so rolling back to `d20cecee` or
+earlier still works: older code ignores them. Two cautions after a rollback:
+late records then show as plain refusals again, and records of the two new
+types (`op.resolve`, `payment.allocate`) stay in the database untouched; the
+older app would not download them anyway (it does not ask for sync protocol 2).
+Do not roll back past a deploy that the records depend on without asking. A data problem is corrected in the app (cancel with a
 reason), or in a disaster restored from Time Travel / an export **into a new
 database** after exporting the current one — never over newer records.
 

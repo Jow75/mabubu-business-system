@@ -27,7 +27,7 @@ For a real first start, choose **First setup or owner recovery** and enter the `
 
 ```bash
 npm run typecheck    # TypeScript (app, server, tests)
-npm test             # 57 automated tests: business rules, sync, sign-in, permissions
+npm test             # 249 automated tests: business rules, sync, sign-in, permissions
 npm run build        # production build
 node scripts/smoke.mjs   # end-to-end check against a running local server (fresh database)
 ```

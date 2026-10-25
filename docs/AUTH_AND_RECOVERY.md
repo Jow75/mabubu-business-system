@@ -57,7 +57,9 @@ person's records on "Remove from this device", or the demo). So when a laptop
 shows up as a new device, the browser removed the site's data. On 20 Oct 2026 the
 live log showed exactly this again: the owner laptop identity `WR8-WYS` was last
 used 19 Oct 05:55, and a new identity `MCS-MH4` (same Chrome 155 on Windows)
-asked for approval at 20 Oct 07:58. Common causes, most likely first:
+asked for approval at 20 Oct 07:58. The owner recovered on 21 Oct (`THS-8GK`)
+and — after another clear — on 22 Oct 20:20 (`EVK-NWF`); both recoveries kept
+the one owner and re-seeded nothing, as designed. Common causes, most likely first:
 
 1. Chrome **Settings → Privacy and security → Third-party cookies / Site data →
    "Delete data sites have saved to your device when you close all windows"**

@@ -1,6 +1,53 @@
 # Handover — next session
 
-Last updated 20 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 25 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 22–25 Oct session — approve once, late records, vendor credit, desktop app (deployed: `380168bd`)
+
+Owner-authorised brief (22 Oct) + the owner's bug report ("I was able to approve
+twice"). Commits `f50c15a` (approve once), `798594a` (late records, migration
+0004), `3eaca0c` (vendor credit + sync follow-up fix), `971b5c4`/`32a30a0`
+(desktop install, test timeout), `8360a43` (fixes from the staging browser run).
+249 tests.
+
+- **Approve once.** Production had Naomi 21 Oct and Jijo 20 Oct approved 3×
+  each (the owner's notes said so). Rules now refuse a second review of an
+  approved day; the screen shows "Approved by … · when"; saves on a device run
+  one after another (two taps cannot both save). The existing repeat approvals
+  still replay (replay keeps what the server accepted).
+- **Late records (ADR-004).** `day_closed` code → server holds the record
+  (`ops.review`), manager decides with `op.resolve` (reject with reason, or
+  reopen + accept + close again). Sync protocol 2 (`SYNC_PROTO`): new record
+  types only to apps asking `proto=2`; the new app re-downloads once.
+- **Vendor credit (ADR-002 §5).** `payment.allocate` splits; `vendorAccounts()`
+  caps payments at what a purchase owes, extra = credit; `previewAccount()` for
+  the payment sheet. Production payments all exact → no figure changed.
+- **Desktop.** Manifest `id`/`scope`/`launch_handler`, rounded 512 icon +
+  separate maskable; Install button only on the browser's own offer; version
+  under Me. Guide: `docs/INSTALL_DESKTOP.md`.
+- **Production (24 Oct, after export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-24-pre-0004-late-records-credit.sql`,
+  restore-verified):** migration 0004 applied, then deploy `380168bd`. Smoke:
+  health 200, setup status `needsSetup:false`, admin 401, manifest 200,
+  installable (Chrome API), data counts unchanged (6 people, 9 devices,
+  77 ops, balances net 0). Time Travel bookmark before 0004 is in the QA doc §8.
+- **Staging:** migrated + deployed (`930f18cd`, then the 8360a43 build).
+  Synthetic additions: "Mombasa (test)", "Hafsa (test)", garment `TST-01`
+  with 60 pieces at Comoros, two test purchases and one test payment, and
+  test sales days for Test Worker on 22 and 24 Oct. Browser checks were
+  driven over the DevTools protocol (scripts in the session scratchpad, not
+  the repo): late-record flow 16/17 then all clear after the phone-overflow
+  fix; vendor-credit flow all checks; phone layout 390 px en + fr clean.
+- **Owner laptop:** recovered again on 22 Oct (`EVK-NWF`); `THS-8GK` probably
+  dead. Owner to fix the Chrome site-data setting, install the app, then
+  retire `THS-8GK` (it also holds Azadi's and Naomi's laptop approvals).
+- **Android (not done):** the Tecno was reachable at `192.168.100.13` with
+  Wireless debugging on, but the laptop is **not paired** (`adb connect` →
+  offline/untrusted; mDNS saw nothing; the Wi-Fi is "Public" in Windows).
+  The owner must pair in a separate PowerShell window (plan below), then the
+  physical test runs against staging.
+- **Not verified:** physical Android; the install click in the owner's own
+  Chrome; native-speaker review (new strings added to `LANGUAGE_REVIEW.md` §5).
 
 ## 20 Oct session — second QA pass (deployed: `d78753fe`, `6b124483`, `d20cecee`)
 
@@ -163,16 +210,16 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 
 ## Where things are
 
-| Item | State (20 Oct 2026) |
+| Item | State (25 Oct 2026) |
 |---|---|
 | Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
-| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `d20cecee` |
-| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0003; real records (owner + Jijo) |
+| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `380168bd` (main `8360a43`) |
+| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0004; real records (1 owner, 2 managers, 3 workers) |
 | Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging`, D1 `mabubu-staging`, synthetic data |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
 | Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
 | Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 193 tests |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 249 tests |
 
 ## Done in the 18 Oct session
 
