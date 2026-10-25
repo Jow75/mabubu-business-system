@@ -314,7 +314,7 @@ export const en = {
   'pin.delete': 'Delete',
   'pin.enter': 'Enter',
   'pin.keypad': 'Number keys',
-  'pin.keyboardHint': 'You can also type your code on the keyboard and press Enter.',
+  'pin.keyboardHint': 'You can also type your code on the keyboard: Backspace removes a digit, Delete clears the code, Enter signs in.',
 
   // Owner setup
   'setup.eyebrow': 'Owner setup',

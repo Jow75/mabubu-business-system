@@ -302,7 +302,7 @@ export const sw: Record<Key, string> = {
   'pin.delete': 'Futa',
   'pin.enter': 'Ingia',
   'pin.keypad': 'Vitufe vya namba',
-  'pin.keyboardHint': 'Unaweza pia kuandika namba yako ya siri kwenye kibodi na kubonyeza Enter.',
+  'pin.keyboardHint': 'Unaweza pia kuandika namba yako kwenye kibodi: Backspace inafuta tarakimu moja, Delete inafuta namba yote, Enter inaingia.',
 
   'setup.eyebrow': 'Usanidi wa mmiliki',
   'setup.title': 'Sanidi biashara',

@@ -1437,6 +1437,18 @@ button.list-item {
     padding-top: 16px;
   }
 }
+/* A saved person's code screen: centred, avatar above the name (phones: below). */
+.pin-step {
+  gap: 20px;
+  align-items: stretch;
+}
+.pin-who {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
 @media (max-width: 860px) and (max-height: 780px) {
   .pin-entry {
     gap: 12px;
@@ -1446,6 +1458,30 @@ button.list-item {
   }
   .pinpad button {
     height: 54px;
+  }
+  /* A saved person's code screen also carries why an online sign-in is needed,
+     and after a wrong code an error: the avatar sits beside the name instead of
+     above it, so the keypad's bottom row (Delete, 0, Enter) stays on a
+     688-px-high phone screen with both shown, in every language (measured on
+     the Tecno, 25 Oct). The keys keep their full size. */
+  .pin-step {
+    gap: 12px;
+  }
+  .pin-who {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 6px;
+    text-align: left;
+  }
+  .pin-who .monogram {
+    width: 40px;
+    height: 40px;
+    font-size: 17px;
+  }
+  .pin-who > :last-child {
+    grid-column: 1 / -1;
   }
 }
 

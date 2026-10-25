@@ -66,3 +66,24 @@ describe('PIN keyboard entry', () => {
     expect(pastedPin('12', '3456789999')).toBe('12345678');
   });
 });
+
+describe('PIN keyboard entry on other keyboard layouts', () => {
+  it('the number row gives digits on a French (AZERTY) keyboard without Shift', () => {
+    // On AZERTY the keys Digit1…Digit0 type & é " ' ( - è _ ç à unless Shift is held.
+    const azerty: PinKeyEvent[] = [
+      { key: '&', code: 'Digit1' },
+      { key: 'é', code: 'Digit2' },
+      { key: '"', code: 'Digit3' },
+      { key: "'", code: 'Digit4' },
+      { key: '(', code: 'Digit5' },
+      { key: 'à', code: 'Digit0' },
+    ];
+    expect(type(azerty)).toBe('123450');
+    // With Shift held, the same keys type the digits themselves.
+    expect(type([{ key: '7', code: 'Digit7' }, { key: '8', code: 'Digit8' }])).toBe('78');
+  });
+
+  it('letters, symbols elsewhere and AltGr combinations never add a digit', () => {
+    expect(type([{ key: 'a', code: 'KeyA' }, { key: '@', code: 'Digit0', ctrlKey: true, altKey: true }, { key: '+', code: 'Equal' }])).toBe('');
+  });
+});

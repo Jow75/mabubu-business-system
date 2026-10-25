@@ -6,6 +6,8 @@
 //   Enter (either Enter key) → sign in, once, when the code is long enough
 //   Escape → clear the code; if it is already empty, go back
 //
+// The number row counts by the key's place, not the character it types: on a
+// French (AZERTY) keyboard those keys type & é " ' ( - è _ ç à without Shift.
 // Shortcuts with Ctrl, Alt or ⌘ are left to the browser, and a held-down Enter
 // does not send the code again.
 
@@ -24,10 +26,11 @@ export type PinAction = { kind: 'digit'; digit: string } | { kind: 'back' } | { 
 
 export function pinAction(e: PinKeyEvent): PinAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
+  // The key's place: the number row on any layout (AZERTY included), and the
+  // keypad with NumLock off, where the key reads Insert/End/… but the code still names the digit.
+  const place = /^(?:Digit|Numpad)(\d)$/.exec(e.code ?? '');
+  if (place) return { kind: 'digit', digit: place[1]! };
   if (/^\d$/.test(e.key)) return { kind: 'digit', digit: e.key };
-  // NumLock off: the keypad reports Insert/End/… as the key, but its code still names the digit.
-  const pad = /^Numpad(\d)$/.exec(e.code ?? '');
-  if (pad) return { kind: 'digit', digit: pad[1]! };
   switch (e.key) {
     case 'Backspace':
       return { kind: 'back' };

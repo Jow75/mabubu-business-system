@@ -154,11 +154,11 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
     [profile, onPending, t],
   );
   return (
-    <div className="stack" style={{ gap: 20, alignItems: 'stretch' }}>
+    <div className="stack pin-step">
       <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={onBack}>
         <Icon name="left" size={17} /> {t('c.back')}
       </button>
-      <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
+      <div className="pin-who">
         <Monogram name={profile.name} id={profile.userId} />
         <h2 className="page-title">{profile.name}</h2>
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
