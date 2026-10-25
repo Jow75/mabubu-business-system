@@ -3,7 +3,7 @@
 How the family signs in, what a "device" is, and how the owner gets back in if a
 laptop or phone forgets it. Written for the owner and for the next person
 (or AI agent) working on this code. No secret values live in this file.
-Last reviewed 20 Oct 2026 (full lifecycle audit; see §8 for what changed).
+Last reviewed 25 Oct 2026 (laptop identity investigation, §3; lifecycle audit 20 Oct, §8).
 
 ## 1. A returning account is not a returning device
 
@@ -49,31 +49,54 @@ owner" (themselves); workers no longer see an owner-recovery button that could
 only fail; the waiting screen no longer polls forever; storage being unavailable
 no longer leaves the app on "Opening…".
 
-## 3. Why the owner's laptop keeps "forgetting" itself
+## 3. Why the owner's laptop keeps "forgetting" itself (investigated 25 Oct 2026)
 
-The device identity exists only in this browser's IndexedDB. The app **never**
-deletes it (checked: the only code that deletes local databases removes one
-person's records on "Remove from this device", or the demo). So when a laptop
-shows up as a new device, the browser removed the site's data. On 20 Oct 2026 the
-live log showed exactly this again: the owner laptop identity `WR8-WYS` was last
-used 19 Oct 05:55, and a new identity `MCS-MH4` (same Chrome 155 on Windows)
-asked for approval at 20 Oct 07:58. The owner recovered on 21 Oct (`THS-8GK`)
-and — after another clear — on 22 Oct 20:20 (`EVK-NWF`); both recoveries kept
-the one owner and re-seeded nothing, as designed. Common causes, most likely first:
+**What the evidence shows** (owner laptop, read-only inspection of Chrome's own
+files, matched to the server's device rows; no secrets read):
 
-1. Chrome **Settings → Privacy and security → Third-party cookies / Site data →
-   "Delete data sites have saved to your device when you close all windows"**
-   switched on (clears every time Chrome closes).
-2. Clearing browsing data with "Cookies and other site data" ticked.
-3. Using an **Incognito/Guest** window or a different Chrome profile.
-4. A PC cleaning tool (CCleaner and similar) clearing browser data.
+| Laptop identity | Created (UTC) | Chrome Profile 2's first Mabubu visit that session |
+|---|---|---|
+| WNY-S7J | 18 Oct 17:57:55 | 17:57:53 |
+| WR8-WYS | 18 Oct 23:35:32 | 23:35:31 |
+| MCS-MH4 | 20 Oct 07:57:49 | (visits that morning) |
+| THS-8GK | 21 Oct 09:19:46 | 09:18:17 (Chrome's own site record: 09:19:36) |
+| EVK-NWF | 22 Oct 20:20:03 | 20:20:02 |
+| UNG-RUF | 25 Oct 13:12:41 | 13:12:38 — the Mabubu storage folder was created that same second |
 
-The fix is on the browser side: turn the setting off, or add an exception that
-**allows** `mabubu.mabubu-family.workers.dev` to keep data; open Mabubu from the
-**installed app** (Chrome grants installed apps persistent storage more readily).
-Me → Sync shows "Storage protected from clean-up": *Yes* means the browser
-promised not to evict it automatically. **No setting protects against a manual
-or automatic "clear site data"** — that always wins, and recovery is the way back.
+1. **All six laptop identities were made in the same Chrome profile**
+   ("Profile 2", gmuraguri75), each on the first visit after its storage had
+   gone. It is not a different profile, not Incognito/Guest (no profile has
+   been created or deleted since 8 Oct), and not the installed app opening a
+   different origin.
+2. **The whole profile's website storage is being wiped**, not just Mabubu's:
+   on 25 Oct every website's IndexedDB in Profile 2 (google.com, claude.com,
+   Mabubu) was freshly created, while history and extension storage survived.
+3. **Not "delete site data when Chrome closes"**: that setting is off in all 15
+   Chrome profiles on the laptop, and there is no per-site rule for Mabubu.
+4. **Not the app**: the app never deletes the identity, reuses it on every
+   reload and restart, and shows the "storage blocked" screen (never a new
+   identity) when storage cannot be read. A real defect was found and fixed —
+   two tabs or two calls at the same moment could each make an identity and
+   overwrite the first (`src/client/lib/device.ts`, tests in
+   `tests/device-identity.test.ts`) — but each new laptop row above followed a
+   full wipe, so that race was not the cause of these.
+
+**Two explanations fit and could not be told apart** (Chrome locks its cookie
+file while running): (a) someone or something running "Delete browsing data"
+with *Cookies and other site data* ticked and *Browsing history* unticked;
+(b) Chrome's own clean-up under low disk space — it deletes ordinary website
+storage, not history, and the C: drive had only 11.7 GB (4.9 %) free (Chrome
+starts evicting below about 2 GB). Two installed extensions are able to wipe
+site data (Surfshark VPN, Easy Auto Refresh — both currently **disabled**; keep
+them that way or exclude Mabubu). No PC-cleaning program is installed.
+
+**What helps:** keep Mabubu storage "protected" (Me → Sync → *Storage
+protected from clean-up: Yes*; installed apps and frequently used sites get
+it), free disk space, do not tick *Cookies and other site data* when clearing
+browsing data (or clear "All time" only knowingly), and always open Mabubu in
+the same Chrome profile (the installed app is tied to Profile 2). **No setting
+protects against a manual or tool-driven "clear site data"** — recovery with
+the key is the way back, and it never makes a second owner.
 
 We deliberately do **not** recognise a laptop by its browser name, screen, IP or
 any "fingerprint": those can be copied, so they would let a stranger's computer

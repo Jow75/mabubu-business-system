@@ -5,6 +5,7 @@ Read first:
 - `docs/decisions/ADR-001-architecture-and-access.md` — the architecture and why.
 - `docs/decisions/ADR-002-currency-balances-and-reports.md` — exchange rates, vendor balances and credit (§5), downloads.
 - `docs/decisions/ADR-004-late-records.md` — worker records that arrive after their day was closed.
+- `docs/decisions/ADR-005-go-live-cutover.md` + `docs/GO_LIVE_CUTOVER.md` — the owner's one-time move from test records to real ones.
 - `docs/STATUS.md` — what is done, what is open, and which decisions belong to the owner.
 
 ## Ground rules from the owner
@@ -22,6 +23,7 @@ Read first:
 - Money is integer minor units in its own currency (`src/shared/money.ts`). KMF ÷ 5 "local count" is display-only.
 - What is owed per purchase and per vendor, and vendor credit, comes only from `vendorAccounts()` / `purchaseBalances()` / `previewAccount()` in `src/shared/queries.ts`. Never store or compute a balance anywhere else (a `payment.allocate` split is a recorded choice, not a balance).
 - A worker record refused only because its day is closed is held as a late record for a manager (`HOLDABLE`, `op.resolve`, ADR-004); never turn that back into a silent refusal.
+- Go-live (ADR-005): sync requests carry the `ledger` id and the server refuses any other (`src/worker/golive.ts`); an app on a new ledger keeps its unsent records aside (`preGoLive`) — never upload them, never drop them silently. The cutover is owner-only, one-time (`meta.phase = 'live'`) and must never get a way to run again. New set-up record types must be added to `KEEP_TYPES` in `src/shared/golive.ts`.
 - New record types need the sync protocol bump (`SYNC_PROTO` in `src/shared/api.ts`, `PROTO2_TYPES` in `src/worker/sync.ts`) so older cached apps never receive a type they cannot replay.
 - Reports convert currencies only through `Converter` (`src/shared/fx.ts`): recorded rate in force on each amount's date, keeping original amounts and the rates used. Market rates are reference only and must be labelled as current value. Never subtract across currencies without a rate.
 - Screens and downloads share the selection functions in `src/shared/reports.ts`, so downloaded totals equal on-screen totals.

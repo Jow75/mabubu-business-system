@@ -77,3 +77,24 @@ specific receipt printer without dialogs).
 - Not done by the agent: clicking the browser's own install dialog in the
   owner's Chrome profile (browser dialogs cannot be automated, and the
   owner's profile is not used for tests). The owner confirms it once.
+
+## Keep the laptop recognised (25 Oct 2026)
+
+- The installed app belongs to one Chrome profile (on the owner laptop:
+  Profile 2, gmuraguri75). Open Mabubu only from that app or that profile —
+  another profile is another browser and needs approval again.
+- Installing makes Mabubu quicker to open and makes Chrome more willing to
+  protect its storage; it does **not** survive "Delete browsing data" with
+  *Cookies and other site data* ticked, or Chrome's clean-up when the disk is
+  almost full. Keep free space on C:. Me → Sync shows *Storage protected from
+  clean-up*.
+- If the laptop is not recognised: sign in, then **Allow this device with my
+  recovery key**. Retire the old identity in People & devices afterwards.
+
+## Phones (Android)
+
+After signing in, Mabubu offers **Install Mabubu on this phone**. If Chrome
+offers its own install, the button opens it; otherwise **How to install**
+shows the steps (Chrome ⋮ → Install app / Add to Home screen). **Later** hides
+the offer on that phone; the same help stays under Me. On the owner's Tecno
+(Chrome 155) Chrome offered the real install prompt (25 Oct, staging).

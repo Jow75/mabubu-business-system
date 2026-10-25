@@ -607,6 +607,22 @@ All **not reviewed**. Same rules as above. (109 phrases)
 | `err.allocOverPayment` | The amounts add up to more than the payment. | Le total dépasse le montant du paiement. | Jumla inazidi kiasi cha malipo. | not reviewed |  |
 | `err.allocOverPurchase` | More than this purchase costs. | Plus que le coût de cet achat. | Zaidi ya gharama ya manunuzi haya. | not reviewed |  |
 
+## 6. New on 25 Oct 2026 — keyboard code, install offer, archive, go live, updates
+
+Drafted by the developer, **not reviewed by a native speaker**. Keys, so the
+reviewer can find each sentence in `src/shared/i18n/fr.ts` and `sw.ts`:
+
+- Code screen: `pin.keypad`, `pin.keyboardHint`
+- Install offer: `inst.bannerPhone`, `inst.bannerComputer`, `inst.bannerBody`, `inst.howButton`, `inst.howAndroid`, `inst.howIos`, `inst.later`, `inst.laterNote`, `inst.facts`
+- Archiving people: `pp.archivedPeople`, `pp.archivedHint`, `pp.archived`, `pp.archive`, `pp.archiveTitle`, `pp.archiveBody`, `pp.archivedToast`, `pp.reactivatePersonTitle`, `pp.reactivatePersonBody`, `pp.reactivatedPersonToast`
+- Sign-in log: `ev.device_retired`, `ev.device_reactivated`, `ev.person_archived`, `ev.person_reactivated`, `ev.cutover_backup`, `ev.cutover_completed`
+- Go live (owner only; French "Mise en service", Swahili "Kuanza biashara halisi"): all `gl.*` keys
+- Records kept aside at go live (every role): `me.preGoLiveTitle`, `me.preGoLiveBody`, `me.preGoLiveDownload`, `me.preGoLiveRemove`, `me.preGoLiveRemoveYes`
+- New version: `upd.ready`, `upd.reload`
+- Messages: `err.ownAccount`, `err.trialRecord`, `err.ledgerReset`, `err.ownerOnly`, `err.golive*`
+
+The confirmation words **GO LIVE** are typed exactly in every language.
+
 ## Not in this list
 
 The other 750 interface phrases (purchases, shipments, stock, catalogue,

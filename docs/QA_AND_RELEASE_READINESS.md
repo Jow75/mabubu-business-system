@@ -9,6 +9,42 @@ before a stable 1.0.0. **Stable release is the owner's decision.**
 
 ---
 
+## 0. Release-readiness matrix (25 Oct 2026)
+
+Statuses: **Verified** (tested and seen working in the real environment) ·
+**Implemented, not physically verified** (automated tests and/or staging only) ·
+**Partial** · **Not started** · **Owner decision**. No percentage is given: the
+items are not of equal weight, and a number would hide which ones block.
+
+| Area | Status | Evidence / what is missing |
+|---|---|---|
+| Sign-in, device approval, owner recovery | Verified | Server + end-to-end tests; owner recovered on staging in real Chrome 25 Oct; production recoveries 19–25 Oct |
+| Device identity persistence | Partial | App side fixed and tested (race); cause of the laptop wipes is in the browser/PC (AUTH §3) — owner action |
+| People & devices (archive / retire) | Implemented, not physically verified on production | Server tests; staging browser run (archive, reactivate, log) |
+| Keyboard PIN (desktop) | Verified on staging in Chrome | 16 real key-event checks; not yet in the owner's own Chrome |
+| Phone keypad layout | Verified | Real Tecno, en/fr/sw, with error message |
+| Install (Windows) | Verified (owner installed it 25 Oct, Profile 2) | — |
+| Install (Android) | Partial | Chrome offered a real install prompt on the Tecno; the tap itself not done |
+| Financial calculations, stock ledger | Verified (automated) | Property tests, reconciliation, production replay (20 Oct) |
+| Offline records and sync | Verified on staging phone | Take held on the phone with no connection; status shown |
+| Late records, vendor credit | Implemented, not physically verified on a phone | Engine/server/store tests; staging desktop runs (22 Oct) |
+| Backup and restore | Verified on staging; production export restore-checked | Production rollback not rehearsed (staging only) |
+| App updates (service worker) | Verified on the phone (first switch) | "Reload" bar for later updates not yet seen on a device |
+| Go-live cutover | Implemented, verified on staging (twice, incl. a real phone) | Production: preview only — **not run** |
+| Security | Verified (review 19–20 Oct; this pass: owner-only server checks, code re-check, no secrets in backups) | No external audit |
+| English / French / Swahili | Implemented | Native-speaker review not done (LANGUAGE_REVIEW §6 lists the new strings) |
+| Worker / manager day on real phones | Partial | Jijo, Said, Nancy use phones in production; a full guided day not observed |
+| Decisions | Owner decision | Exchange rates at go-live; KMF banknotes; ÷5 word; Azadi/Naomi archive; name spellings |
+
+**Before the clean start:** owner archives unused people, every phone syncs
+once on the new version, the go-live day itself (GO_LIVE_CUTOVER §3), then the
+real opening stock count.
+**Before calling it 1.0.0 (owner's approval):** a few weeks of real use without
+data problems, native-speaker review, a rehearsed production restore, the
+open decisions settled (§12).
+**Can wait for the family's feedback:** wording, the how-to card, downloads in
+French, the next-phase features.
+
 ## 1. Version and phase
 
 - **Version:** `0.1.0` (`package.json`; no other version metadata in the build
@@ -196,7 +232,7 @@ labels, every form control has an accessible name**, every worker-screen
 control ≥ 40 px tall except the 36 px header status. Remaining: no screen-reader
 walkthrough by a person; colour contrast not formally measured.
 
-## 11. Android (physical) — not yet done
+## 11. Android (physical) — first session 25 Oct 2026 (see the matrix in §0)
 
 ADB 37 is installed. On 22 Oct the Tecno Spark 10 Pro was reachable on the
 same Wi-Fi (`192.168.100.13`, Wireless debugging port open), but this laptop is

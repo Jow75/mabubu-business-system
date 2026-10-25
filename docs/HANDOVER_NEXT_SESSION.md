@@ -1,6 +1,44 @@
 # Handover — next session
 
-Last updated 25 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 25 Oct 2026 (evening). Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 25 Oct session — identity investigation, keyboard PIN, phone keypad, install offer, archive, go-live cutover (deployed: `cdc994c6`)
+
+Owner-authorised master brief (25 Oct). Commits `b7f3a06` (identity race,
+PIN keyboard, phone keypad), `e4a488d` (install offer, archive people),
+`8398a09` (go-live cutover, migration 0005), `232ea73` (service-worker update
+fix). 282 tests.
+
+- **Laptop identity:** evidence in `docs/AUTH_AND_RECOVERY.md` §3 — every
+  laptop identity was born in Chrome Profile 2 after a profile-wide site-data
+  wipe. Code race fixed (`getDevice` in one transaction with `add`).
+- **Android over USB works**: Tecno KI7 (Spark 10 Pro), Android 13, Chrome
+  155, serial authorised (laptop key fingerprint 54:9F:…:18:E5). DevTools via
+  `adb forward tcp:9222 localabstract:chrome_devtools_remote` (localhost only).
+  Android Chrome refuses `/json/new` and tab switching — open a page in front
+  with `adb shell am start -a android.intent.action.VIEW -d <url> com.android.chrome`.
+  **Never use airplane mode or turn off mobile data on the phone: the laptop's
+  internet is the phone's hotspot.** To simulate no connection, fail the
+  page's and service worker's `/api` requests with the DevTools `Fetch`
+  domain (scripts were in the session scratchpad). DevTools "offline"
+  emulation does not stop the app's requests.
+- **Staging** (`24043488`, migration 0005): go-live run twice through the
+  screens (meta `phase`/`golive_backup` reset once on staging only, to repeat
+  it). Test person "Archive Check …" created; Test Worker approved on the
+  Tecno (`VA9-X54`); a new headless-laptop owner device (`H26-WTB`).
+- **Production (25 Oct, after export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-25-pre-0005-golive.sql`,
+  restore-checked; Time Travel bookmark
+  `00000059-00000000-0000510f-9dfdecec529877c590eb9b2a314ca483`):** migration
+  0005 applied, deploy `cdc994c6`. Smoke: health 200, setup status
+  `needsSetup:false`, admin/golive/sync 401 without a session, manifest 200,
+  sw.js skips waiting; counts unchanged (6 people, 10 devices, 79 ops, 44
+  entities, 47 balances net 0); phase pre-release, no cutover. Production
+  cutover preview: `docs/GO_LIVE_CUTOVER.md` §5.
+- **Not verified:** the Android install tap; the "new version ready" bar on a
+  later update (the first switch was driven by the old code's immediate
+  reload); keyboard PIN in the owner's own Chrome; native-speaker review of the
+  new strings (`docs/LANGUAGE_REVIEW.md` §6).
 
 ## 22–25 Oct session — approve once, late records, vendor credit, desktop app (deployed: `380168bd`)
 
@@ -213,13 +251,13 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 | Item | State (25 Oct 2026) |
 |---|---|
 | Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
-| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `380168bd` (main `8360a43`) |
-| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0004; real records (1 owner, 2 managers, 3 workers) |
+| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `cdc994c6` (main `232ea73`) |
+| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0005 (phase: pre-release); real records (1 owner, 2 managers, 3 workers) |
 | Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging`, D1 `mabubu-staging`, synthetic data |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
 | Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
 | Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 249 tests |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 282 tests |
 
 ## Done in the 18 Oct session
 
