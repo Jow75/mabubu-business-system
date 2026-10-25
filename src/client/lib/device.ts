@@ -14,8 +14,26 @@ function guessLabel(): string {
   return 'This device';
 }
 
-/** This device's identity, created once and kept in IndexedDB. */
-export async function getDevice(): Promise<DeviceRecord> {
+let pending: Promise<DeviceRecord> | null = null;
+
+/**
+ * This device's identity, created once and kept in IndexedDB.
+ *
+ * An existing identity is always reused. A new one is made only when none is
+ * stored, inside one read-write transaction with `add` (never `put`), so two
+ * tabs opening at the same moment — or two calls in one page — cannot each make
+ * one and have the second overwrite the first after it was already registered.
+ * A failed read is passed on to the caller (the "storage blocked" screen); it
+ * never falls through to making a fresh identity.
+ */
+export function getDevice(): Promise<DeviceRecord> {
+  pending ??= loadOrCreate().finally(() => {
+    pending = null;
+  });
+  return pending;
+}
+
+async function loadOrCreate(): Promise<DeviceRecord> {
   const existing = await deviceDb.kv.get('device');
   if (existing) return existing;
   const rec: DeviceRecord = {
@@ -25,8 +43,19 @@ export async function getDevice(): Promise<DeviceRecord> {
     label: guessLabel(),
     createdAt: new Date().toISOString(),
   };
-  await deviceDb.kv.put(rec);
-  return rec;
+  try {
+    return await deviceDb.transaction('rw', deviceDb.kv, async () => {
+      const raced = await deviceDb.kv.get('device');
+      if (raced) return raced;
+      await deviceDb.kv.add(rec);
+      return rec;
+    });
+  } catch (e) {
+    // Another tab added its identity between our read and our write: use that one.
+    const raced = await deviceDb.kv.get('device');
+    if (raced) return raced;
+    throw e;
+  }
 }
 
 /* ------------------------------------------------------------------ */

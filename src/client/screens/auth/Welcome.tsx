@@ -163,7 +163,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         <h2 className="page-title">{profile.name}</h2>
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
-      <PinPad onSubmit={submit} busy={busy} error={error} role={profile.role} />
+      <PinPad onSubmit={submit} busy={busy} error={error} role={profile.role} onCancel={onBack} />
       <RemoveProfile profile={profile} onRemoved={onBack} />
     </div>
   );
@@ -267,7 +267,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
             <h2 className="page-title">{name}</h2>
             <span className="muted">{t('auth.enterCode')}</span>
           </div>
-          <PinPad onSubmit={submit} busy={busy} error={error} role={null} />
+          <PinPad onSubmit={submit} busy={busy} error={error} role={null} onCancel={() => setStage('name')} />
         </div>
       )}
     </div>

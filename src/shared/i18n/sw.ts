@@ -290,6 +290,8 @@ export const sw: Record<Key, string> = {
   'pin.deleteLast': 'Futa tarakimu ya mwisho',
   'pin.delete': 'Futa',
   'pin.enter': 'Ingia',
+  'pin.keypad': 'Vitufe vya namba',
+  'pin.keyboardHint': 'Unaweza pia kuandika namba yako ya siri kwenye kibodi na kubonyeza Enter.',
 
   'setup.eyebrow': 'Usanidi wa mmiliki',
   'setup.title': 'Sanidi biashara',

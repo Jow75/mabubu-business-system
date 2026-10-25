@@ -1390,6 +1390,65 @@ button.list-item {
   text-align: center;
 }
 
+.pin-entry {
+  gap: 18px;
+}
+.pin-hint {
+  text-align: center;
+  margin-top: -6px;
+}
+.pinpad button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.pinpad button.pin-enter {
+  border-radius: 16px;
+}
+.pinpad button.pin-enter.ready {
+  background: var(--indigo);
+  color: var(--on-indigo);
+  opacity: 1;
+}
+/* "You can also type your code" — only where there is a keyboard and a mouse. */
+.pin-kbd {
+  display: none;
+  margin: 0;
+  text-align: center;
+}
+@media (hover: hover) and (pointer: fine) {
+  .pin-kbd {
+    display: block;
+  }
+}
+/* Phones: on a code screen the indigo header shrinks to the brand line, so the
+   whole keypad — Delete and Enter included — fits above the browser's own bars
+   without scrolling (a 360×744 Tecno Spark 10 Pro viewport is the reference). */
+@media (max-width: 860px) {
+  .auth:has(.pinpad) .auth-art {
+    min-height: 0;
+    padding-bottom: 14px;
+  }
+  .auth:has(.pinpad) .auth-art h1,
+  .auth:has(.pinpad) .route-line {
+    display: none;
+  }
+  .auth:has(.pinpad) .auth-panel {
+    justify-content: flex-start;
+    padding-top: 16px;
+  }
+}
+@media (max-width: 860px) and (max-height: 780px) {
+  .pin-entry {
+    gap: 12px;
+  }
+  .pinpad {
+    gap: 8px;
+  }
+  .pinpad button {
+    height: 54px;
+  }
+}
+
 /* ---------- Worker home ---------- */
 .worker-hero {
   --on-indigo: #fbf8f2;

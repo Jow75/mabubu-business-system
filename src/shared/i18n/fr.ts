@@ -290,6 +290,8 @@ export const fr: Record<Key, string> = {
   'pin.deleteLast': 'Effacer le dernier chiffre',
   'pin.delete': 'Effacer',
   'pin.enter': 'Valider',
+  'pin.keypad': 'Touches numériques',
+  'pin.keyboardHint': 'Vous pouvez aussi taper votre code au clavier puis appuyer sur Entrée.',
 
   'setup.eyebrow': 'Configuration du propriétaire',
   'setup.title': 'Configurer l’entreprise',

@@ -302,6 +302,8 @@ export const en = {
   'pin.deleteLast': 'Delete last digit',
   'pin.delete': 'Delete',
   'pin.enter': 'Enter',
+  'pin.keypad': 'Number keys',
+  'pin.keyboardHint': 'You can also type your code on the keyboard and press Enter.',
 
   // Owner setup
   'setup.eyebrow': 'Owner setup',

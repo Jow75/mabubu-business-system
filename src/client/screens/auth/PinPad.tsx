@@ -1,41 +1,113 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MAX_PIN_LENGTH, MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
 import { useT } from '../../lib/i18n';
+import { nextPin, pastedPin, pinAction, type PinAction } from '../../lib/pin-keys';
+
+/** Typing into a real field (a name, a note, a search) must never feed the code. */
+function typingInField(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.closest !== 'function') return false;
+  return Boolean(el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+}
 
 /**
- * Code entry. When the role is known (a saved profile), the dots and hint show
- * that role's minimum. When it is not known yet (someone typing their name on a
- * new device), we show the general rule and name the owner/manager range, so an
+ * Code entry, by tapping the numbers or typing on a keyboard (see pin-keys.ts).
+ * When the role is known (a saved profile), the dots and hint show that role's
+ * minimum. When it is not known yet (someone typing their name on a new
+ * device), we show the general rule and name the owner/manager range, so an
  * owner is never left thinking a 6-digit code is rejected because four circles
- * appeared. A dashed circle after the minimum shows more digits are allowed.
+ * appeared. A dashed circle after the minimum shows more digits are allowed,
+ * which is why the code is never sent by itself at six digits: Enter (or the
+ * Enter button) sends it, so seven- and eight-digit codes still work.
  */
-export function PinPad({ onSubmit, busy, error, role }: { onSubmit: (pin: string) => void; busy?: boolean; error?: string | null; role?: Role | null }) {
+export function PinPad({
+  onSubmit,
+  busy,
+  error,
+  role,
+  onCancel,
+}: {
+  onSubmit: (pin: string) => void;
+  busy?: boolean;
+  error?: string | null;
+  role?: Role | null;
+  /** Escape on an empty code: go back a step. */
+  onCancel?: () => void;
+}) {
   const t = useT();
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(false);
   const minLength = role ? MIN_PIN_LENGTH[role] : MIN_PIN_LENGTH.worker;
+  // The latest code and state for the key handler, and whether this code was
+  // already sent: a held-down key, a double tap or Enter on a focused button
+  // must never send the same sign-in twice.
+  const pinRef = useRef('');
+  const sent = useRef(false);
+  const live = useRef({ busy, minLength, onSubmit, onCancel });
+  live.current = { busy, minLength, onSubmit, onCancel };
+
+  const update = useCallback((next: string) => {
+    pinRef.current = next;
+    sent.current = false;
+    setPin(next);
+  }, []);
+
+  useEffect(() => {
+    if (!busy) sent.current = false;
+  }, [busy]);
 
   useEffect(() => {
     if (error) {
       setShake(true);
-      setPin('');
+      update('');
       const t = setTimeout(() => setShake(false), 400);
       return () => clearTimeout(t);
     }
-  }, [error]);
+  }, [error, update]);
+
+  // Nothing of the code stays in memory once the screen closes.
+  useEffect(() => () => void (pinRef.current = ''), []);
+
+  const act = useCallback(
+    (a: PinAction) => {
+      const { busy, minLength, onSubmit, onCancel } = live.current;
+      if (a.kind === 'submit') {
+        if (busy || sent.current || pinRef.current.length < minLength) return;
+        sent.current = true;
+        onSubmit(pinRef.current);
+      } else if (a.kind === 'cancel') {
+        if (pinRef.current) update('');
+        else onCancel?.();
+      } else if (!busy) update(nextPin(pinRef.current, a));
+    },
+    [update],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (busy) return;
-      if (/^\d$/.test(e.key)) setPin((p) => (p.length < MAX_PIN_LENGTH ? p + e.key : p));
-      else if (e.key === 'Backspace') setPin((p) => p.slice(0, -1));
-      else if (e.key === 'Enter' && pin.length >= minLength) onSubmit(pin);
+      if (e.defaultPrevented || typingInField(e.target)) return;
+      const a = pinAction(e);
+      if (!a) return;
+      // Handled here, so a focused keypad button does not also act on Enter.
+      e.preventDefault();
+      act(a);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pin, busy, minLength, onSubmit]);
+    const onPaste = (e: ClipboardEvent) => {
+      if (typingInField(e.target) || live.current.busy) return;
+      const text = e.clipboardData?.getData('text') ?? '';
+      if (!/\d/.test(text)) return;
+      e.preventDefault();
+      update(pastedPin(pinRef.current, text));
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('paste', onPaste);
+    };
+  }, [act, update]);
 
-  const press = (d: string) => !busy && setPin((p) => (p.length < MAX_PIN_LENGTH ? p + d : p));
+  const press = (d: string) => act({ kind: 'digit', digit: d });
   const ready = pin.length >= minLength;
   // Dots: at least the role minimum, growing as the person types; a dashed
   // circle once the minimum is reached (and below the maximum) makes clear that
@@ -44,13 +116,13 @@ export function PinPad({ onSubmit, busy, error, role }: { onSubmit: (pin: string
   const showOptional = ready && base < MAX_PIN_LENGTH;
   const slots = base + (showOptional ? 1 : 0);
   return (
-    <div className="stack" style={{ gap: 18 }}>
-      <div className={`pin-dots ${shake ? 'shake' : ''}`} aria-label={t('pin.digits', { n: pin.length })}>
+    <div className="pin-entry stack">
+      <div className={`pin-dots ${shake ? 'shake' : ''}`} role="status" aria-live="polite" aria-label={t('pin.digits', { n: pin.length })}>
         {Array.from({ length: slots }, (_, i) => (
           <span key={i} className={i < pin.length ? 'on' : showOptional && i === slots - 1 ? 'opt' : ''} />
         ))}
       </div>
-      <p className="hint" style={{ textAlign: 'center', marginTop: -6 }}>
+      <p className="hint pin-hint">
         {role ? t('pin.lenHint', { min: minLength, max: MAX_PIN_LENGTH }) : t('pin.lenAny', { w: MIN_PIN_LENGTH.worker, o: MIN_PIN_LENGTH.owner, max: MAX_PIN_LENGTH })}
       </p>
       {error && (
@@ -58,28 +130,23 @@ export function PinPad({ onSubmit, busy, error, role }: { onSubmit: (pin: string
           {error}
         </div>
       )}
-      <div className="pinpad">
+      <div className="pinpad" role="group" aria-label={t('pin.keypad')}>
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-          <button key={d} type="button" onClick={() => press(d)}>
+          <button key={d} type="button" onClick={() => press(d)} disabled={busy}>
             {d}
           </button>
         ))}
-        <button type="button" className="fn" onClick={() => setPin((p) => p.slice(0, -1))} aria-label={t('pin.deleteLast')}>
+        <button type="button" className="fn" onClick={() => act({ kind: 'back' })} disabled={busy || !pin} aria-label={t('pin.deleteLast')}>
           {t('pin.delete')}
         </button>
-        <button type="button" onClick={() => press('0')}>
+        <button type="button" onClick={() => press('0')} disabled={busy}>
           0
         </button>
-        <button
-          type="button"
-          className="fn"
-          style={{ background: ready ? 'var(--indigo)' : undefined, color: ready ? 'var(--on-indigo)' : undefined, borderRadius: 16 }}
-          disabled={busy || !ready}
-          onClick={() => onSubmit(pin)}
-        >
+        <button type="button" className={`fn pin-enter${ready ? ' ready' : ''}`} disabled={busy || !ready} onClick={() => act({ kind: 'submit' })}>
           {busy ? '…' : t('pin.enter')}
         </button>
       </div>
+      <p className="hint pin-kbd">{t('pin.keyboardHint')}</p>
     </div>
   );
 }
