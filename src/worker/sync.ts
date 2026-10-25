@@ -17,7 +17,9 @@ import { businessDate, daysBetween, fmtDuration } from '../shared/time';
 import type { PushResult } from '../shared/api';
 import type { Session } from './auth';
 import type { Env } from './env';
-import { HttpError, json, rawJson, readJson } from './http';
+import { HttpError, json, nowIso, rawJson, readJson } from './http';
+import { INITIAL_LEDGER } from '../shared/golive';
+import { currentLedger, ledgerFrom, ledgerMismatch, ledgerStmt } from './golive';
 
 const MAX_PUSH = 25;
 const MAX_PULL = 500;
@@ -325,9 +327,13 @@ interface Outcome {
 }
 
 export async function push(env: Env, session: Session, request: Request): Promise<Response> {
-  const body = (await readJson(request)) as { ops?: unknown; clientNow?: unknown };
+  const body = (await readJson(request)) as { ops?: unknown; clientNow?: unknown; ledger?: unknown };
   if (!Array.isArray(body.ops) || body.ops.length === 0) throw new HttpError(400, 'invalid_request', 'Nothing to upload.');
   if (body.ops.length > MAX_PUSH) throw new HttpError(400, 'too_many', `Upload at most ${MAX_PUSH} records at a time.`);
+  // Records made for an earlier ledger (before go-live, ADR-005) are never
+  // accepted; an app that predates the ledger id counts as holding the first one.
+  const ledger = await currentLedger(env);
+  if ((typeof body.ledger === 'string' ? body.ledger : INITIAL_LEDGER) !== ledger) throw ledgerMismatch(ledger);
   const serverNowMs = Date.now();
   const clientNowMs = typeof body.clientNow === 'string' ? Date.parse(body.clientNow) : NaN;
   const skewMs = Number.isFinite(clientNowMs) ? serverNowMs - clientNowMs : null;
@@ -353,6 +359,20 @@ export async function push(env: Env, session: Session, request: Request): Promis
     seen.add(r.op.id);
     items.push({ index, op: r.op });
   });
+
+  // A test record taken out at go-live is never accepted again, whichever app sends it.
+  if (ledger !== INITIAL_LEDGER && items.length) {
+    const { results: archived } = await env.DB.prepare('SELECT id FROM ops_trial WHERE id IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(items.map((i) => i.op.id)))
+      .all<{ id: string }>();
+    const old = new Set(archived.map((a) => a.id));
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      if (!old.has(it.op.id)) continue;
+      results[it.index] = { id: it.op.id, status: 'rejected', seq: null, serverTime: null, error: 'This record is from the testing period and was not added.', flags: [], duplicate: false };
+      items.splice(i, 1);
+    }
+  }
 
   if (items.length) {
     for (let attempt = 0; ; attempt++) {
@@ -576,6 +596,9 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
   const since = Math.max(0, Math.floor(Number(url.searchParams.get('since') ?? '0')) || 0);
   const limit = Math.min(MAX_PULL, Math.max(1, Math.floor(Number(url.searchParams.get('limit') ?? MAX_PULL)) || MAX_PULL));
   const proto = Math.floor(Number(url.searchParams.get('proto') ?? '1')) || 1;
+  const clientLedger = (url.searchParams.get('ledger') ?? INITIAL_LEDGER).slice(0, 64);
+  const pendingParam = url.searchParams.get('pending');
+  const pending = pendingParam === null ? null : Math.max(0, Math.min(1_000_000, Math.floor(Number(pendingParam)) || 0));
   const caps = session.user.caps;
   const audit = caps.includes('audit.view') ? 1 : 0;
   const classes = readableClasses(caps);
@@ -583,7 +606,8 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
 
   // A late record is sent to the people who decide on it (whoever may read
   // its kind of record) and to the worker it is about, as well as its sender.
-  const [maxRes, rowsRes, usersRes] = await env.DB.batch([
+  const [ledgerRes, maxRes, rowsRes, usersRes] = await env.DB.batch([
+    ledgerStmt(env),
     env.DB.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM ops'),
     env.DB.prepare(
       `SELECT * FROM ops
@@ -598,6 +622,18 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
       ? env.DB.prepare('SELECT id, name, role, active, location_id FROM users ORDER BY name')
       : env.DB.prepare('SELECT id, name, role, active, location_id FROM users WHERE id = ?').bind(session.user.id),
   ]);
+  const ledger = ledgerFrom(ledgerRes!.results[0] as { v: string } | undefined);
+  if (clientLedger !== ledger) throw ledgerMismatch(ledger);
+  // What this app still has waiting to send (it reports it on each download):
+  // the go-live readiness check refuses to start while any device has some.
+  if (pending !== null) {
+    await env.DB.prepare(
+      `INSERT INTO device_sync (device_id, user_id, synced_at, pending, ledger) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT (device_id, user_id) DO UPDATE SET synced_at = excluded.synced_at, pending = excluded.pending, ledger = excluded.ledger`,
+    )
+      .bind(session.deviceId, session.user.id, nowIso(), pending, ledger)
+      .run();
+  }
   const rows = rowsRes!.results as unknown as DbOpRow[];
   const maxSeq = (maxRes!.results[0] as { m: number } | undefined)?.m ?? 0;
   const more = rows.length === limit;

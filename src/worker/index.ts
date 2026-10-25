@@ -7,6 +7,7 @@ import type { Env } from './env';
 import { HttpError, errorResponse, json } from './http';
 import { pull, push } from './sync';
 import { marketRates, recordExport } from './fx';
+import { goLiveBackup, goLiveExecute, goLiveStatus } from './golive';
 
 export async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -53,6 +54,9 @@ export async function handle(request: Request, env: Env): Promise<Response> {
     if (m && method === 'PATCH') return await updateDevice(env, session, m[1]!, request);
     if (path === '/api/admin/events' && method === 'GET') return await listAuthEvents(env, session, url);
     if (path === '/api/admin/export' && method === 'GET') return await exportBackup(env, session);
+    if (path === '/api/admin/golive' && method === 'GET') return await goLiveStatus(env, session);
+    if (path === '/api/admin/golive/backup' && method === 'POST') return await goLiveBackup(env, session);
+    if (path === '/api/admin/golive/execute' && method === 'POST') return await goLiveExecute(env, session, request);
 
     throw new HttpError(404, 'not_found', 'Not found.');
   } catch (e) {

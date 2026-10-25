@@ -14,6 +14,7 @@ import { isLang, type Lang } from '../../shared/i18n';
 import { api, ApiError } from './api';
 import { UserDb, deviceDb, kvGet, kvSet, userDbName, type DeviceRecord, type LocalOp, type Profile } from './db';
 import { checkVerifier, getDevice, makeVerifier } from './device';
+import { INITIAL_LEDGER } from '../../shared/golive';
 
 export type Phase = 'boot' | 'setup' | 'welcome' | 'ready';
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'error' | 'demo';
@@ -55,6 +56,8 @@ export interface Snapshot {
   recoverFor: { name: string; pin: string } | null;
   /** The browser refused local storage (private window, storage blocked). */
   storageError: boolean;
+  /** Records saved on this device before go-live that were never sent; kept aside, never uploaded (ADR-005). */
+  preGoLive: number;
 }
 
 export type SubmitResult = { ok: true; op: AnyOp; flags: Flag[] } | { ok: false; error: string };
@@ -105,6 +108,7 @@ class Store {
     persisted: null,
     recoverFor: null,
     storageError: false,
+    preGoLive: 0,
   };
   private listeners = new Set<() => void>();
   private db: UserDb | null = null;
@@ -264,7 +268,12 @@ class Store {
     if (epoch !== this.epoch) return;
     this.profile = profile;
     this.db = new UserDb(userDbName(profile.userId, false));
-    const [records, directory, profiles] = await Promise.all([this.db.ops.toArray(), kvGet<UserRef[]>(this.db, 'directory'), this.loadProfiles()]);
+    const [records, directory, profiles, held] = await Promise.all([
+      this.db.ops.toArray(),
+      kvGet<UserRef[]>(this.db, 'directory'),
+      this.loadProfiles(),
+      kvGet<LocalOp[]>(this.db, 'preGoLive'),
+    ]);
     if (epoch !== this.epoch) return;
     const map = new Map(records.map((r) => [r.id, r]));
     this.localOrder = records.reduce((m, r) => Math.max(m, r.localOrder), 0);
@@ -277,6 +286,7 @@ class Store {
       directory: dir,
       ledger: this.rebuild(map, dir, profile.user),
       profiles,
+      preGoLive: held?.length ?? 0,
       sync: { ...this.snap.sync, state: navigator.onLine ? 'idle' : 'offline', lastError: null, ...this.counts(map) },
     });
     if (this.snap.persisted === null) void this.requestPersistence();
@@ -518,11 +528,14 @@ class Store {
       const touched = new Map<string, LocalOp>();
       let changed = false;
 
+      // Which business ledger this copy belongs to (a new one starts at go-live, ADR-005).
+      const ledger = (await kvGet<string>(db, 'ledger')) ?? INITIAL_LEDGER;
+
       // 1. Upload records saved on this device.
       const pending = [...records.values()].filter((r) => r.status === 'pending').sort((a, b) => a.localOrder - b.localOrder);
       for (let i = 0; i < pending.length; i += PUSH_BATCH) {
         const chunk = pending.slice(i, i + PUSH_BATCH);
-        const res = await api<PushResponse>('POST', '/sync/push', { ops: chunk.map((r) => r.op), clientNow: new Date().toISOString() }, token);
+        const res = await api<PushResponse>('POST', '/sync/push', { ops: chunk.map((r) => r.op), clientNow: new Date().toISOString(), ledger }, token);
         // Uploaded records stay uploaded (the server ignores a repeat); if the
         // person changed meanwhile, stop here without touching the new session.
         if (stale()) return;
@@ -549,7 +562,9 @@ class Store {
       let me = this.snap.user!;
       let newFromServer = false;
       for (let page = 0; page < 200; page++) {
-        const res = await api<PullResponse>('GET', `/sync/pull?since=${since}&proto=${SYNC_PROTO}`, undefined, token);
+        // `pending`: what this device still has to send, for the go-live readiness check.
+        const waiting = [...records.values()].filter((r) => r.status === 'pending').length;
+        const res = await api<PullResponse>('GET', `/sync/pull?since=${since}&proto=${SYNC_PROTO}&ledger=${encodeURIComponent(ledger)}&pending=${waiting}`, undefined, token);
         if (stale()) return;
         const incoming: LocalOp[] = res.ops.map((o) => {
           const { seq, serverTime, actorName, clockSkewMs, status, error, flags, voidedBy: _v, review, resolvedBy, ...op } = o;
@@ -632,8 +647,52 @@ class Store {
         await this.sessionEnded(err.message);
         return;
       }
+      if (err.status === 409 && err.code === 'ledger_reset' && typeof (err.body as { ledger?: unknown }).ledger === 'string') {
+        await this.startLedger(db, (err.body as { ledger: string }).ledger, epoch);
+        return;
+      }
       this.set({ sync: { ...this.snap.sync, state: err.offline ? 'offline' : 'error', lastError: err.message }, online: !err.offline });
     }
+  }
+
+  /**
+   * The server started a new business ledger (the go-live cutover, ADR-005).
+   * This device's copy belongs to the testing period: records it never sent
+   * are kept aside (shown under Me, never uploaded), everything else is
+   * dropped, and the real ledger is downloaded from the start. One
+   * transaction, so a record saved at the same moment is either kept aside or
+   * part of the new copy — never lost.
+   */
+  private async startLedger(db: UserDb, ledger: string, epoch: number) {
+    const held = await db.transaction('rw', db.ops, db.kv, async () => {
+      const unsent = (await db.ops.where('status').equals('pending').toArray()).map((r) => ({ ...r, error: 'Saved before go-live; not sent.' }));
+      const kept = [...((await kvGet<LocalOp[]>(db, 'preGoLive')) ?? []), ...unsent];
+      await db.ops.clear();
+      await kvSet(db, 'preGoLive', kept);
+      await kvSet(db, 'since', 0);
+      await kvSet(db, 'ledger', ledger);
+      return kept.length;
+    });
+    if (epoch !== this.epoch) return;
+    this.localOrder = 0;
+    this.refresh(new Map(), { preGoLive: held, sync: { ...this.snap.sync, state: 'idle', lastError: null, pending: 0, rejected: 0, held: 0 } });
+    this.requestSync(50);
+  }
+
+  /** Records kept aside at go-live, for downloading before they are removed. */
+  async preGoLiveRecords(): Promise<LocalOp[]> {
+    return this.db ? ((await kvGet<LocalOp[]>(this.db, 'preGoLive')) ?? []) : [];
+  }
+
+  async discardPreGoLive() {
+    if (!this.db) return;
+    await kvSet(this.db, 'preGoLive', []);
+    this.set({ preGoLive: 0 });
+  }
+
+  /** Called after this device ran the cutover itself: switch to the new ledger straight away. */
+  async afterGoLive(ledger: string) {
+    if (this.db) await this.startLedger(this.db, ledger, this.epoch);
   }
 
   private async sessionEnded(message: string) {

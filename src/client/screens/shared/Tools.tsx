@@ -9,6 +9,7 @@ import { errText, useT } from '../../lib/i18n';
 import { LanguageSwitch } from '../auth/Language';
 import { LatePill } from '../../ui/Late';
 import { InstallSection } from '../../ui/Install';
+import { downloadBlob } from '../../lib/csv';
 
 /** Optional banknote counter. Never part of the sales flow. */
 export function CashCounter() {
@@ -105,6 +106,7 @@ export function SyncCenter() {
           )}
           {!demo && persisted === false && <div className="note-box">{t('me.storageWarn')}</div>}
           {sync.lastError && <div className="error-box">{errText(sync.lastError)}</div>}
+          {!demo && <PreGoLiveNote />}
           {pending.length > 0 && (
             <div className="stack-sm">
               <span className="eyebrow">{t('me.waiting')}</span>
@@ -175,6 +177,49 @@ export function SyncCenter() {
           />
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * Records this device saved before go-live and never sent (ADR-005). They are
+ * not uploaded into the real records; the person can download a copy (for a
+ * manager to re-enter anything real) and then remove them. Never dropped silently.
+ */
+function PreGoLiveNote() {
+  const { preGoLive } = useApp();
+  const t = useT();
+  const [confirm, setConfirm] = useState(false);
+  if (!preGoLive) return null;
+  return (
+    <div className="error-box stack-sm" role="alert">
+      <strong>{t('me.preGoLiveTitle', { n: preGoLive })}</strong>
+      <span>{t('me.preGoLiveBody')}</span>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+        <button
+          className="btn btn-sm"
+          onClick={async () => {
+            const recs = await store.preGoLiveRecords();
+            downloadBlob(`mabubu-not-sent-before-go-live-${new Date().toISOString().slice(0, 10)}.json`, new Blob([JSON.stringify(recs.map((r) => r.op), null, 1)], { type: 'application/json' }));
+          }}
+        >
+          <Icon name="download" size={16} /> {t('me.preGoLiveDownload')}
+        </button>
+        {!confirm ? (
+          <button className="btn btn-sm btn-ghost" onClick={() => setConfirm(true)}>
+            {t('me.preGoLiveRemove')}
+          </button>
+        ) : (
+          <>
+            <button className="btn btn-sm btn-danger" onClick={() => void store.discardPreGoLive().then(() => setConfirm(false))}>
+              {t('me.preGoLiveRemoveYes', { n: preGoLive })}
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setConfirm(false)}>
+              {t('c.cancel')}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

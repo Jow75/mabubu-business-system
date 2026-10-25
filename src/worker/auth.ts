@@ -107,6 +107,43 @@ function ipFailureStmt(env: Env, ip: string): D1PreparedStatement {
   ).bind(ip, now, cutoff);
 }
 
+/**
+ * Check a person's code with the lockout rules (5/10/15 wrong → timed lock,
+ * 20 → owner unlock, plus the per-network limit). Throws on a lock or a wrong
+ * code, after recording the failure. Used by sign-in and by actions that ask
+ * for the code again (the go-live cutover).
+ */
+export async function checkPin(env: Env, user: UserRow, pin: string, ip: string, deviceId: string | null) {
+  const now = Date.now();
+  if (user.hard_locked) {
+    throw new HttpError(423, 'locked', 'This account is locked after too many wrong codes. Ask the owner to unlock it.');
+  }
+  if (user.locked_until && Date.parse(user.locked_until) > now) {
+    const retryAfterSec = Math.ceil((Date.parse(user.locked_until) - now) / 1000);
+    throw new HttpError(423, 'locked', 'Too many wrong codes. Wait before trying again.', { retryAfterSec });
+  }
+  const h = await pinHash(env.PIN_PEPPER, user.id, pin);
+  if (!safeEqual(h, user.pin_hmac)) {
+    const failed = user.failed_count + 1;
+    const hard = failed >= HARD_LOCK_AT;
+    const step = LOCK_STEPS.find((s) => s.at === failed);
+    const lockedUntil = step ? new Date(now + step.minutes * 60_000).toISOString() : user.locked_until;
+    await env.DB.batch([
+      env.DB.prepare('UPDATE users SET failed_count = ?, locked_until = ?, hard_locked = ? WHERE id = ?').bind(failed, lockedUntil, hard ? 1 : 0, user.id),
+      ipFailureStmt(env, ip),
+      eventStmt(env, hard ? 'account_locked' : 'login_wrong_code', { userId: user.id, deviceId, ip, detail: { failed } }),
+    ]);
+    if (hard) throw new HttpError(423, 'locked', 'This account is now locked. Ask the owner to unlock it.');
+    if (step) throw new HttpError(423, 'locked', `Too many wrong codes. Try again in ${step.minutes} minutes.`, { retryAfterSec: step.minutes * 60 });
+    throw new HttpError(401, 'invalid', 'That name and code do not match.', { attemptsLeft: 5 - (failed % 5) });
+  }
+}
+
+/** The per-network limit on wrong attempts, shared by sign-in and code re-checks. */
+export async function requireIpAllowed(env: Env, ip: string) {
+  if (await ipBlocked(env, ip)) throw new HttpError(429, 'rate_limited', 'Too many wrong attempts from this network. Try again in an hour.');
+}
+
 async function newSessionStmts(env: Env, userId: string, deviceId: string) {
   const token = randomToken(32);
   const tokenHash = await sha256Hex(token);
@@ -186,30 +223,7 @@ export async function login(env: Env, request: Request): Promise<Response> {
     await env.DB.batch([ipFailureStmt(env, ip), eventStmt(env, 'login_unknown_name', { deviceId: body.deviceId, ip, detail: { name: body.name.slice(0, 40) } })]);
     throw new HttpError(401, 'invalid', 'That name and code do not match.');
   }
-  const now = Date.now();
-  if (user.hard_locked) {
-    throw new HttpError(423, 'locked', 'This account is locked after too many wrong codes. Ask the owner to unlock it.');
-  }
-  if (user.locked_until && Date.parse(user.locked_until) > now) {
-    const retryAfterSec = Math.ceil((Date.parse(user.locked_until) - now) / 1000);
-    throw new HttpError(423, 'locked', 'Too many wrong codes. Wait before trying again.', { retryAfterSec });
-  }
-
-  const h = await pinHash(env.PIN_PEPPER, user.id, body.pin);
-  if (!safeEqual(h, user.pin_hmac)) {
-    const failed = user.failed_count + 1;
-    const hard = failed >= HARD_LOCK_AT;
-    const step = LOCK_STEPS.find((s) => s.at === failed);
-    const lockedUntil = step ? new Date(now + step.minutes * 60_000).toISOString() : user.locked_until;
-    await env.DB.batch([
-      env.DB.prepare('UPDATE users SET failed_count = ?, locked_until = ?, hard_locked = ? WHERE id = ?').bind(failed, lockedUntil, hard ? 1 : 0, user.id),
-      ipFailureStmt(env, ip),
-      eventStmt(env, hard ? 'account_locked' : 'login_wrong_code', { userId: user.id, deviceId: body.deviceId, ip, detail: { failed } }),
-    ]);
-    if (hard) throw new HttpError(423, 'locked', 'This account is now locked. Ask the owner to unlock it.');
-    if (step) throw new HttpError(423, 'locked', `Too many wrong codes. Try again in ${step.minutes} minutes.`, { retryAfterSec: step.minutes * 60 });
-    throw new HttpError(401, 'invalid', 'That name and code do not match.', { attemptsLeft: 5 - (failed % 5) });
-  }
+  await checkPin(env, user, body.pin, ip, body.deviceId);
 
   if (!user.active) {
     await env.DB.batch([eventStmt(env, 'login_disabled', { userId: user.id, deviceId: body.deviceId, ip })]);

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { href } from '../../lib/router';
+import type { GoLiveStatus } from '../../../shared/golive';
 import { store, useApp } from '../../lib/store';
 import { useLookups } from '../../lib/lookups';
 import { api, ApiError } from '../../lib/api';
@@ -127,6 +129,7 @@ export function SettingsPage() {
       )}
 
       {caps.includes('users.manage') && !demo && <BackupCard />}
+      {user!.role === 'owner' && !demo && <GoLiveCard />}
 
       {demo && (
         <section className="card card-pad stack">
@@ -141,6 +144,42 @@ export function SettingsPage() {
       )}
       {fx && <FxSheet onClose={() => setFx(false)} />}
     </div>
+  );
+}
+
+/** Owner only: the way to the one-time go-live cutover, or its record once done. */
+function GoLiveCard() {
+  const t = useT();
+  const { online } = useApp();
+  const [status, setStatus] = useState<GoLiveStatus | null>(null);
+  useEffect(() => {
+    api<GoLiveStatus>('GET', '/admin/golive', undefined, store.token)
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, [online]);
+  if (!status) return null;
+  if (status.phase === 'live')
+    return (
+      <section className="card card-pad stack">
+        <span className="section-title">{t('gl.title')}</span>
+        <p className="soft" style={{ margin: 0 }}>
+          {t('gl.liveSince', { when: status.cutover ? fmtDate(status.cutover.at.slice(0, 10)) : '—' })}
+        </p>
+        <a className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} href={href('/golive')}>
+          {t('gl.seeRecord')}
+        </a>
+      </section>
+    );
+  return (
+    <section className="card card-pad stack selvedge">
+      <span className="section-title">{t('gl.title')}</span>
+      <p className="soft" style={{ margin: 0 }}>
+        {t('gl.cardBody')}
+      </p>
+      <a className="btn" style={{ alignSelf: 'flex-start' }} href={href('/golive')}>
+        {t('gl.open')} <Icon name="arrowRight" size={16} />
+      </a>
+    </section>
   );
 }
 

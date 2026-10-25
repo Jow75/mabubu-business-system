@@ -24,6 +24,7 @@ import { ActivityPage } from './screens/manage/Activity';
 import { CataloguePage } from './screens/manage/Catalogue';
 import { PeoplePage } from './screens/manage/People';
 import { SettingsPage } from './screens/manage/Settings';
+import { GoLivePage } from './screens/manage/GoLive';
 import { StarterSetup } from './screens/manage/StarterSetup';
 
 const MANAGEMENT_CAPS: Capability[] = ['workers.reconcile', 'purchasing', 'shipments', 'costs.view', 'catalog.manage', 'users.manage', 'payments', 'expenses'];
@@ -266,6 +267,8 @@ function ManageRoutes() {
       return <PeoplePage />;
     case 'settings':
       return <SettingsPage />;
+    case 'golive':
+      return <GoLivePage />;
     case 'counter':
       return <CashCounter />;
     case 'convert':
