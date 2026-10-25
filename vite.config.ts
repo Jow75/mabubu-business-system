@@ -42,6 +42,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // A new version takes over at once instead of waiting until every tab
+        // and installed window is closed (phones rarely close a tab). The page
+        // then reloads safely: see src/client/lib/update.ts.
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // jsPDF's optional HTML/SVG helpers are never used by the app; don't make phones download them.
         // Font subsets for scripts the app's languages (en/fr/sw) never use: ~110 kB

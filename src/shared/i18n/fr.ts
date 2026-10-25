@@ -226,6 +226,8 @@ export const fr: Record<Key, string> = {
   'inst.browser': 'Ouverte dans le navigateur',
   'inst.how': 'Pour installer : dans Chrome ou Edge, ouvrez le menu du navigateur (⋮ ou …) et choisissez « Installer Mabubu » (dans Edge : Applications → Installer ce site en tant qu’application). Sur un téléphone Android : menu ⋮ → Installer l’application ou Ajouter à l’écran d’accueil.',
   'inst.notNow': 'Plus tard',
+  'upd.ready': "Une nouvelle version de Mabubu est prête.",
+  'upd.reload': "Recharger",
   'inst.bannerPhone': 'Installer Mabubu sur ce téléphone',
   'inst.bannerComputer': 'Installer Mabubu sur cet ordinateur',
   'inst.bannerBody': 'L’application s’ouvre depuis l’écran d’accueil dans sa propre fenêtre : plus facile à retrouver. Votre compte et vos enregistrements restent sur le serveur.',

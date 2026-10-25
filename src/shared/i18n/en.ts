@@ -237,6 +237,8 @@ export const en = {
   'inst.browser': 'Running in the browser',
   'inst.how': 'To install: in Chrome or Edge, open the browser menu (⋮ or …) and choose “Install Mabubu” (in Edge: Apps → Install this site as an app). On an Android phone: menu ⋮ → Install app or Add to Home screen.',
   'inst.notNow': 'Not now',
+  'upd.ready': "A new version of Mabubu is ready.",
+  'upd.reload': "Reload",
   'inst.bannerPhone': 'Install Mabubu on this phone',
   'inst.bannerComputer': 'Install Mabubu on this computer',
   'inst.bannerBody': 'It opens from your home screen in its own window, so it is quicker to find. Your account and records stay on the server.',

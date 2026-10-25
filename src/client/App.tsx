@@ -8,6 +8,7 @@ import { LanguageChoice } from './screens/auth/Language';
 import { DeraMark, Icon, type IconName } from './ui/Icon';
 import { LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
 import { StorageBlocked, Welcome } from './screens/auth/Welcome';
+import { useUpdateReady } from './lib/update';
 import { Setup } from './screens/auth/Setup';
 import { CloseDay, ReturnGarments, TakeGarments } from './screens/sales/SalesDay';
 import { WorkerHistory, WorkerToday } from './screens/worker/WorkerHome';
@@ -101,6 +102,21 @@ function useIdleLock(active: boolean) {
   }, [active]);
 }
 
+/** A new version is ready: reload now, or it happens by itself when the app is left. */
+function UpdateBar() {
+  const ready = useUpdateReady();
+  const t = useT();
+  if (!ready) return null;
+  return (
+    <div className="update-bar" role="status">
+      <span>{t('upd.ready')}</span>
+      <button className="btn btn-sm btn-primary" onClick={() => location.reload()}>
+        {t('upd.reload')}
+      </button>
+    </div>
+  );
+}
+
 export function App() {
   const { phase, user, firstRun, prefs, storageError } = useApp();
   // Applied during render so dates on this very render use the chosen language.
@@ -119,6 +135,7 @@ export function App() {
   return (
     <>
       {body}
+      <UpdateBar />
       <Toasts />
     </>
   );

@@ -226,6 +226,8 @@ export const sw: Record<Key, string> = {
   'inst.browser': 'Inafanya kazi kwenye kivinjari',
   'inst.how': 'Kusakinisha: kwenye Chrome au Edge, fungua menyu ya kivinjari (⋮ au …) na uchague “Install Mabubu” (kwenye Edge: Apps → Install this site as an app). Kwenye simu ya Android: menyu ⋮ → Install app au Add to Home screen.',
   'inst.notNow': 'Si sasa',
+  'upd.ready': "Toleo jipya la Mabubu liko tayari.",
+  'upd.reload': "Pakia upya",
   'inst.bannerPhone': 'Sakinisha Mabubu kwenye simu hii',
   'inst.bannerComputer': 'Sakinisha Mabubu kwenye kompyuta hii',
   'inst.bannerBody': 'Inafunguka kutoka skrini ya mwanzo katika dirisha lake, hivyo ni rahisi kuipata. Akaunti yako na rekodi zako zinabaki kwenye seva.',

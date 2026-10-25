@@ -8,11 +8,12 @@ import './styles/app.css';
 import { App } from './App';
 import { store } from './lib/store';
 import { watchInstall } from './lib/install';
+import { onNewVersion } from './lib/update';
 
 watchInstall();
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true }));
+  void import('virtual:pwa-register').then(({ registerSW }) => registerSW({ immediate: true, onNeedReload: onNewVersion }));
 }
 
 void store.boot();

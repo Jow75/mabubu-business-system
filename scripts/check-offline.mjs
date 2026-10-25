@@ -29,3 +29,12 @@ if (missing.length) {
   process.exit(1);
 }
 console.log(`Offline check: ${seen.size} start-up files, all cached.`);
+
+// A new version must take over without waiting for every tab to close (phones
+// rarely close one); otherwise old app code can run for days. See src/client/lib/update.ts.
+const swCode = readFileSync(join(dir, 'sw.js'), 'utf8');
+if (!/self\.skipWaiting\(\),\s*\w+\.clientsClaim\(\)/.test(swCode)) {
+  console.error('Update check failed: sw.js does not skip waiting and claim clients on install.');
+  process.exit(1);
+}
+console.log('Update check: new versions take over at once.');

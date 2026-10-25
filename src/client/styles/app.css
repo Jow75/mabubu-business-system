@@ -1449,6 +1449,25 @@ button.list-item {
   }
 }
 
+/* A new version is ready (see lib/update.ts). Above the worker tab bar and the phone's own bars. */
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  border: 1px dashed var(--rule-strong);
+  background: var(--card);
+  box-shadow: var(--shadow-lift);
+  font-size: 14px;
+}
+
 /* ---------- Worker home ---------- */
 .worker-hero {
   --on-indigo: #fbf8f2;
