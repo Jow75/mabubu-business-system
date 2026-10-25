@@ -654,3 +654,32 @@ describe('worker day: closed, reopened, next day (Amina scenario)', () => {
     expect(L.getOp(settle.id)!.voidedBy).toBeTruthy();
   });
 });
+
+describe('an archived person gets no new work (enforced by the rules, not only the screens)', () => {
+  const archive = (L: ReturnType<typeof seeded>, id: string, active: boolean) =>
+    L.setUsers([...[{ id: 'u-owner', name: 'Jowg', role: 'owner' as const, active: true, locationId: null }, { id: 'u-manager', name: 'Mama', role: 'manager' as const, active: true, locationId: null }], { id, name: 'Amina', role: 'worker', active, locationId: com }]);
+
+  it('refuses a new day, lets a manager finish the open one, and still replays what was accepted before', () => {
+    const L = seeded();
+    buyCollected(L, 'pur-z', hafsa, [{ garmentTypeId: HAF, qty: 40, unitCost: 8000 }]);
+    shipToComoros(L, 'shp-z', [{ garmentTypeId: HAF, qty: 40 }]);
+    const take = op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-17', lines: [{ garmentTypeId: HAF, qty: 10 }] }, 'amina');
+    ok(L, take, 'amina');
+    archive(L, 'u-amina', false);
+    // A new day for her: refused, with the reason.
+    const next = fails(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-18', lines: [{ garmentTypeId: HAF, qty: 2 }] }, 'manager'), 'manager');
+    expect(next.error).toBe('Amina is archived. Reactivate them in People & devices before giving them new work.');
+    // Her open day can be finished by a manager.
+    ok(L, op('worker.return', { workerId: 'u-amina', locationId: com, workDate: '2026-10-17', lines: [{ garmentTypeId: HAF, qty: 10 }] }, 'manager'), 'manager');
+    expect(workerHolding(L, 'u-amina', com).get(HAF) ?? 0).toBe(0);
+    // Replaying a record the server accepted before she was archived still works.
+    const R = seeded();
+    archive(R, 'u-amina', false);
+    buyCollected(R, 'pur-z', hafsa, [{ garmentTypeId: HAF, qty: 40, unitCost: 8000 }]);
+    shipToComoros(R, 'shp-z', [{ garmentTypeId: HAF, qty: 40 }]);
+    expect(R.apply(take, null).ok).toBe(true);
+    // Reactivated: new work again.
+    archive(L, 'u-amina', true);
+    ok(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-18', lines: [{ garmentTypeId: HAF, qty: 2 }] }, 'manager'), 'manager');
+  });
+});

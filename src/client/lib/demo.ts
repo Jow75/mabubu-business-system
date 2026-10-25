@@ -1,10 +1,10 @@
 import { buildDemo, DEMO_USERS } from '../../shared/demo-data';
-import { kvSet, type LocalOp, type UserDb } from './db';
+import { kvSet, type LocalOp, type RecordsDb } from './db';
 
 export { DEMO_USERS };
 
 /** Fill the demo database with sample history (local only, never synced). */
-export async function seedDemo(db: UserDb) {
+export async function seedDemo(db: RecordsDb) {
   const records: LocalOp[] = buildDemo().map((r) => ({
     id: r.op.id,
     op: r.op,

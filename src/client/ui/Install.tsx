@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { promptInstall, useInstall } from '../lib/install';
+import { useApp } from '../lib/store';
 import { useT } from '../lib/i18n';
 import { fmtDate } from '../../shared/time';
 import { Icon } from './Icon';
@@ -73,10 +74,12 @@ function readDismissed(): boolean {
  */
 export function InstallBanner() {
   const { canInstall, installed } = useInstall();
+  const { tempUntil } = useApp();
   const t = useT();
   const [dismissed, setDismissed] = useState(readDismissed);
   const [how, setHow] = useState(false);
-  if (installed || dismissed) return null;
+  // Never offered on a temporary sign-in (ADR-006): that computer is not one of the owner's devices.
+  if (installed || dismissed || tempUntil) return null;
   const kind = platform();
   const later = () => {
     setDismissed(true);

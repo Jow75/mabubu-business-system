@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { store, useApp } from '../../lib/store';
 import { useLookups } from '../../lib/lookups';
 import { api, ApiError } from '../../lib/api';
-import type { CreatePersonRequest, DeviceRow, PeopleResponse, PersonRow } from '../../../shared/api';
+import { TEMP_SIGNIN, type CreatePersonRequest, type DeviceRow, type PeopleResponse, type PersonRow, type TemporarySignInRow } from '../../../shared/api';
 import { CAPABILITIES, MIN_PIN_LENGTH, OWNER_ONLY, ROLE_CAPABILITIES, ROLES, pinPolicyError, type Capability, type Role } from '../../../shared/permissions';
 import { fmtDateTime } from '../../../shared/time';
 import { errText, tNow, useT, type T } from '../../lib/i18n';
@@ -113,6 +113,7 @@ export function PeoplePage() {
           </div>
         </section>
       )}
+      {data?.temporary && data.temporary.length > 0 && <TemporarySignIns rows={data.temporary} devices={data.devices} nameOf={nameOf} onChange={load} />}
       {data && (
         <section className="card">
           <div className="list">
@@ -136,6 +137,75 @@ export function PeoplePage() {
       {data && <Devices devices={data.devices} nameOf={nameOf} onChange={load} myDevice={device?.deviceId ?? ''} />}
       {edit && data && <PersonSheet person={edit === 'new' ? null : edit} devices={data.devices} onClose={() => setEdit(null)} onSaved={load} />}
     </div>
+  );
+}
+
+/**
+ * The owner's temporary sign-ins on computers that are not their devices
+ * (ADR-006). A live one can be signed out from here — for a computer left
+ * signed in, or one the owner does not recognise.
+ */
+function TemporarySignIns({ rows, devices, nameOf, onChange }: { rows: TemporarySignInRow[]; devices: DeviceRow[]; nameOf: (id: string) => string; onChange: () => void }) {
+  const t = useT();
+  const live = rows.filter((r) => r.live);
+  const past = rows.filter((r) => !r.live);
+  const where = (id: string) => {
+    const d = devices.find((x) => x.id === id);
+    return d ? `${d.label || uaSummary(d.userAgent, t)} · ${d.code}` : id.slice(0, 8);
+  };
+  // Not signed out: it ended at its fixed end or after the idle limit, whichever came first.
+  const endOf = (r: TemporarySignInRow) => r.endedAt ?? new Date(Math.min(Date.parse(r.expiresAt), Date.parse(r.lastUsedAt) + TEMP_SIGNIN.serverIdleMinutes * 60_000)).toISOString();
+  return (
+    <section className={live.length ? 'card selvedge' : 'card'} style={live.length ? { paddingLeft: 6 } : undefined}>
+      {live.length > 0 && (
+        <>
+          <div className="card-head">
+            <span className="section-title">{t('pp.tempLive')}</span>
+            <span className="hint">{t('pp.tempLiveHint')}</span>
+          </div>
+          <div className="list" style={{ marginTop: 8 }}>
+            {live.map((r) => (
+              <div key={`${r.deviceId}-${r.createdAt}`} className="list-item">
+                <span style={{ flex: 1 }}>
+                  <strong>{nameOf(r.userId)}</strong> <span className="mono muted">{where(r.deviceId)}</span>
+                  <div className="hint">{t('pp.tempLine', { start: fmtDateTime(r.createdAt), last: fmtDateTime(r.lastUsedAt), end: fmtDateTime(r.expiresAt) })}</div>
+                </span>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={async () => {
+                    if (await call('POST', '/admin/temporary/end', { deviceId: r.deviceId, userId: r.userId })) {
+                      toast(t('pp.tempEndedToast'));
+                      onChange();
+                    }
+                  }}
+                >
+                  {t('pp.tempEnd')}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {past.length > 0 && (
+        <details className="retired-devices" style={{ margin: '12px 16px' }}>
+          <summary className="section-title" style={{ cursor: 'pointer' }}>
+            {t('pp.tempRecent')} ({past.length})
+          </summary>
+          <div className="list" style={{ marginTop: 8 }}>
+            {past.map((r) => (
+              <div key={`${r.deviceId}-${r.createdAt}`} className="list-item" style={{ opacity: 0.8 }}>
+                <span style={{ flex: 1 }}>
+                  <strong>{nameOf(r.userId)}</strong> <span className="mono muted">{where(r.deviceId)}</span>
+                  <div className="hint">
+                    {fmtDateTime(r.createdAt)} · {t('pp.tempEndedAt', { time: fmtDateTime(endOf(r)) })}
+                  </div>
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -200,7 +270,12 @@ function ArchivedPeople({ people, onChange }: { people: PersonRow[]; onChange: (
 function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]; nameOf: (id: string) => string; onChange: () => void; myDevice: string }) {
   const t = useT();
   const [confirm, setConfirm] = useState<{ device: DeviceRow; action: 'retire' | 'reactivate' } | null>(null);
-  const active = devices.filter((d) => !d.retiredAt);
+  // In use: someone is allowed on it, or has asked to be. The rest — computers
+  // used only for a temporary sign-in, refused or removed requests — are kept
+  // for the record, out of the everyday table, like retired devices.
+  const inUse = (d: DeviceRow) => d.id === myDevice || d.access.some((a) => a.status === 'approved' || a.status === 'pending');
+  const active = devices.filter((d) => !d.retiredAt && inUse(d));
+  const unused = devices.filter((d) => !d.retiredAt && !inUse(d));
   const retired = devices.filter((d) => d.retiredAt);
   const allowedNames = (d: DeviceRow) =>
     d.access
@@ -218,59 +293,72 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
     }
   };
 
+  const table = (list: DeviceRow[]) => (
+    <div className="table-wrap" style={{ marginTop: 8 }}>
+      <table className="data">
+        <thead>
+          <tr>
+            <th>{t('pp.device')}</th>
+            <th>{t('pp.code')}</th>
+            <th>{t('pp.allowed')}</th>
+            <th>{t('pp.lastSeen')}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((d) => (
+            <tr key={d.id} style={d.revokedAt ? { opacity: 0.55 } : undefined}>
+              <td>
+                {d.label || uaSummary(d.userAgent, t)}
+                {d.id === myDevice && <span className="pill indigo" style={{ marginLeft: 6 }}>{t('pp.thisDevice')}</span>}
+                {d.revokedAt && <span className="pill red" style={{ marginLeft: 6 }}>{t('pp.blockedStatus')}</span>}
+              </td>
+              <td className="mono">{d.code}</td>
+              <td>{allowedNames(d)}</td>
+              <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
+              <td>
+                {d.id !== myDevice && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
+                      onClick={async () => {
+                        if (await call('PATCH', `/admin/devices/${d.id}`, { blocked: !d.revokedAt })) {
+                          toast(d.revokedAt ? t('pp.unblocked') : t('pp.blocked'));
+                          onChange();
+                        }
+                      }}
+                    >
+                      {d.revokedAt ? t('pp.unblock') : t('pp.block')}
+                    </button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setConfirm({ device: d, action: 'retire' })}>
+                      {t('pp.retire')}
+                    </button>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <section className="card">
       <div className="card-head">
         <span className="section-title">{t('pp.devices')}</span>
         <span className="hint">{t('pp.blockHint')}</span>
       </div>
-      <div className="table-wrap" style={{ marginTop: 8 }}>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>{t('pp.device')}</th>
-              <th>{t('pp.code')}</th>
-              <th>{t('pp.allowed')}</th>
-              <th>{t('pp.lastSeen')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {active.map((d) => (
-              <tr key={d.id} style={d.revokedAt ? { opacity: 0.55 } : undefined}>
-                <td>
-                  {d.label || uaSummary(d.userAgent, t)}
-                  {d.id === myDevice && <span className="pill indigo" style={{ marginLeft: 6 }}>{t('pp.thisDevice')}</span>}
-                  {d.revokedAt && <span className="pill red" style={{ marginLeft: 6 }}>{t('pp.blockedStatus')}</span>}
-                </td>
-                <td className="mono">{d.code}</td>
-                <td>{allowedNames(d)}</td>
-                <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
-                <td>
-                  {d.id !== myDevice && (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
-                        onClick={async () => {
-                          if (await call('PATCH', `/admin/devices/${d.id}`, { blocked: !d.revokedAt })) {
-                            toast(d.revokedAt ? t('pp.unblocked') : t('pp.blocked'));
-                            onChange();
-                          }
-                        }}
-                      >
-                        {d.revokedAt ? t('pp.unblock') : t('pp.block')}
-                      </button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setConfirm({ device: d, action: 'retire' })}>
-                        {t('pp.retire')}
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {table(active)}
+      {unused.length > 0 && (
+        <details className="retired-devices" style={{ marginTop: 14 }}>
+          <summary className="section-title" style={{ cursor: 'pointer' }}>
+            {t('pp.otherDevices')} ({unused.length})
+          </summary>
+          <p className="hint" style={{ margin: '6px 0 2px' }}>{t('pp.otherHint')}</p>
+          {table(unused)}
+        </details>
+      )}
       {retired.length > 0 && (
         <details className="retired-devices" style={{ marginTop: 14 }}>
           <summary className="section-title" style={{ cursor: 'pointer' }}>
@@ -348,6 +436,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
   const [allowHere, setAllowHere] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState<string[]>([]);
   const policy = pin ? pinPolicyError(role, pin) : null;
   const base = ROLE_CAPABILITIES[role];
   const effective = (c: Capability) => (base.includes(c) ? !revokes.includes(c) : grants.includes(c));
@@ -355,7 +444,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
     if (base.includes(c)) setRevokes(on ? revokes.filter((x) => x !== c) : [...revokes, c]);
     else setGrants(on ? [...grants, c] : grants.filter((x) => x !== c));
   };
-  const myDevices = person ? devices.filter((d) => d.access.some((a) => a.userId === person.id && a.status === 'approved')) : [];
+  const myDevices = person ? devices.filter((d) => !removing.includes(d.id) && d.access.some((a) => a.userId === person.id && a.status === 'approved')) : [];
 
   const submit = async () => {
     setBusy(true);
@@ -467,11 +556,14 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
               </span>
               <button
                 className="btn btn-sm btn-danger"
+                disabled={removing.includes(d.id)}
                 onClick={async () => {
+                  // One tap, one change: the button waits for the answer.
+                  setRemoving((r) => [...r, d.id]);
                   if (await call('POST', '/admin/access', { deviceId: d.id, userId: person.id, decision: 'revoke' })) {
                     toast(t('pp.removed'));
                     onSaved();
-                  }
+                  } else setRemoving((r) => r.filter((x) => x !== d.id));
                 }}
               >
                 {t('c.remove')}

@@ -2,15 +2,21 @@
 // See docs/decisions/ADR-001-architecture-and-access.md §6.
 
 import { z } from 'zod';
-import { normalizeName, type LoginResponse, type SessionUser } from '../shared/api';
+import { TEMP_SIGNIN, normalizeName, type LoginResponse, type SessionUser } from '../shared/api';
 import { randomToken, shortCode, uuidv7 } from '../shared/ids';
-import { effectiveCapabilities, pinPolicyError, type Role } from '../shared/permissions';
+import { OWNER_ONLY, effectiveCapabilities, pinPolicyError, type Role } from '../shared/permissions';
 import { pinHash, safeEqual, sha256Hex } from './crypto';
 import type { D1PreparedStatement, Env } from './env';
 import { HttpError, clientIp, json, nowIso, readJson } from './http';
 
 const SESSION_MS = 30 * 24 * 3600_000;
 const SESSION_TOUCH_MS = 3600_000;
+// Temporary owner sign-in (ADR-006; the numbers are in TEMP_SIGNIN). Touched
+// far more often than an ordinary session so the idle limit is exact.
+const TEMP_SESSION_MS = TEMP_SIGNIN.maxHours * 3600_000;
+const TEMP_IDLE_MS = TEMP_SIGNIN.serverIdleMinutes * 60_000;
+const TEMP_TOUCH_MS = 5 * 60_000;
+const TEMP_ENDED = 'Your temporary sign-in has ended. Sign in again.';
 const LOCK_STEPS: { at: number; minutes: number }[] = [
   { at: 5, minutes: 15 },
   { at: 10, minutes: 60 },
@@ -37,6 +43,8 @@ export interface Session {
   user: SessionUser;
   deviceId: string;
   tokenHash: string;
+  /** A temporary owner sign-in (ADR-006). */
+  temporary: boolean;
 }
 
 export interface UserRow {
@@ -65,6 +73,21 @@ export function sessionUser(u: Pick<UserRow, 'id' | 'name' | 'role' | 'grants' |
     caps: effectiveCapabilities(u.role, JSON.parse(u.grants) as string[], JSON.parse(u.revokes) as string[]),
     locationId: u.location_id,
   };
+}
+
+/**
+ * A temporary sign-in may do what the owner does with the business records,
+ * but none of the owner-only tools (people, devices, settings, go live): a
+ * code seen over the owner's shoulder must not become a permanent device.
+ */
+export function temporaryUser(u: Pick<UserRow, 'id' | 'name' | 'role' | 'grants' | 'revokes' | 'location_id'>): SessionUser {
+  const s = sessionUser(u);
+  return { ...s, caps: s.caps.filter((c) => !OWNER_ONLY.includes(c)), temporary: true };
+}
+
+/** Whether a temporary sign-in is still usable: not ended, not past its fixed end, not idle too long. */
+export function temporaryLive(s: { revoked_at: string | null; expires_at: string; last_used_at: string }, now = Date.now()): boolean {
+  return !s.revoked_at && Date.parse(s.expires_at) > now && now - Date.parse(s.last_used_at) <= TEMP_IDLE_MS;
 }
 
 export function requirePepper(env: Env) {
@@ -209,7 +232,12 @@ async function resolveDevice(env: Env, body: z.infer<typeof loginSchema> | z.inf
 
 /* ------------------------------------------------------------------ */
 
-export async function login(env: Env, request: Request): Promise<Response> {
+/**
+ * Name and code, with the network limit and the account lockout. Returns the
+ * person once their code is correct and their account is switched on. Shared
+ * by sign-in and by sign-in for now, so both are equally hard to guess.
+ */
+async function verifyPerson(env: Env, request: Request) {
   requirePepper(env);
   const ip = clientIp(request);
   const parsed = loginSchema.safeParse(await readJson(request));
@@ -229,7 +257,11 @@ export async function login(env: Env, request: Request): Promise<Response> {
     await env.DB.batch([eventStmt(env, 'login_disabled', { userId: user.id, deviceId: body.deviceId, ip })]);
     throw new HttpError(403, 'disabled', 'This account is switched off. Ask the owner.');
   }
+  return { ip, body, user };
+}
 
+export async function login(env: Env, request: Request): Promise<Response> {
+  const { ip, body, user } = await verifyPerson(env, request);
   const { device, stmts } = await resolveDevice(env, body, request, ip, user.id);
   stmts.unshift(env.DB.prepare('UPDATE users SET failed_count = 0, locked_until = NULL WHERE id = ?').bind(user.id));
   if (device.revoked_at) {
@@ -246,23 +278,92 @@ export async function login(env: Env, request: Request): Promise<Response> {
     const res: LoginResponse = { status: 'ok', token: s.token, expiresAt: s.expiresAt, user: sessionUser(user) };
     return json(res);
   }
-  if (access?.status === 'denied' || access?.status === 'revoked') {
+  const refused = access?.status === 'denied' || access?.status === 'revoked';
+  // Only the owner decides about the owner's own requests, so the owner is
+  // never stopped by "not allowed" on a computer they once refused for
+  // themselves (for example after a sign-in for now there): the request is
+  // opened again and they choose (ADR-006). Anyone else stays refused.
+  if (refused && user.role !== 'owner') {
     await env.DB.batch([...stmts, eventStmt(env, 'login_device_denied', { userId: user.id, deviceId: device.id, ip })]);
     throw new HttpError(403, 'device_denied', 'The owner has not allowed this device for you.');
   }
-  if (!access) {
+  if (!access || refused) {
     stmts.push(
-      env.DB.prepare("INSERT INTO device_access (device_id, user_id, status, requested_at) VALUES (?, ?, 'pending', ?) ON CONFLICT DO NOTHING").bind(
-        device.id,
-        user.id,
-        nowIso(),
-      ),
+      refused
+        ? env.DB.prepare(
+            "UPDATE device_access SET status = 'pending', requested_at = ?, decided_at = NULL, decided_by = NULL WHERE device_id = ? AND user_id = ? AND status IN ('denied', 'revoked')",
+          ).bind(nowIso(), device.id, user.id)
+        : env.DB.prepare("INSERT INTO device_access (device_id, user_id, status, requested_at) VALUES (?, ?, 'pending', ?) ON CONFLICT DO NOTHING").bind(device.id, user.id, nowIso()),
       eventStmt(env, 'device_requested', { userId: user.id, deviceId: device.id, ip, detail: { code: device.code, label: body.deviceLabel } }),
     );
   }
   await env.DB.batch(stmts);
   const res: LoginResponse = { status: 'pending', deviceCode: device.code, userName: user.name, role: user.role };
   return json(res, 202);
+}
+
+/**
+ * The owner signs in "for now" on a computer that is not one of their
+ * approved devices (ADR-006): a shared or public computer, or their own
+ * computer after its browser data was cleared. Name and code are checked
+ * exactly as for sign-in (same lockout, same network limit). The computer is
+ * NOT approved by this: the session has a fixed end that use never extends, a
+ * short idle limit and no owner-only rights, and the owner's open request for
+ * this computer is closed. Never for workers or managers.
+ */
+export async function loginTemporary(env: Env, request: Request): Promise<Response> {
+  const { ip, body, user } = await verifyPerson(env, request);
+  if (user.role !== 'owner') {
+    await env.DB.batch([eventStmt(env, 'temporary_refused', { userId: user.id, deviceId: body.deviceId, ip })]);
+    throw new HttpError(403, 'owner_only', 'Only the owner can use a temporary sign-in on a computer that is not approved.');
+  }
+  const { device, stmts } = await resolveDevice(env, body, request, ip, user.id);
+  stmts.unshift(env.DB.prepare('UPDATE users SET failed_count = 0, locked_until = NULL WHERE id = ?').bind(user.id));
+  if (device.revoked_at) {
+    await env.DB.batch([...stmts, eventStmt(env, 'login_device_blocked', { userId: user.id, deviceId: device.id, ip })]);
+    throw new HttpError(403, 'device_blocked', 'This device was blocked by the owner.');
+  }
+
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  // "For now" means this computer is not becoming one of the owner's devices:
+  // their own open request for it is closed (the sign-in log keeps both).
+  const open = await env.DB.prepare("SELECT 1 AS x FROM device_access WHERE device_id = ? AND user_id = ? AND status = 'pending'").bind(device.id, user.id).first();
+  if (open) {
+    stmts.push(
+      env.DB.prepare("UPDATE device_access SET status = 'denied', decided_at = ?, decided_by = ? WHERE device_id = ? AND user_id = ? AND status = 'pending'").bind(at, user.id, device.id, user.id),
+    );
+  }
+  // At most TEMP_SIGNIN.maxLive at once: a new one ends the oldest still running elsewhere.
+  const { results: live } = await env.DB.prepare(
+    'SELECT token_hash, device_id FROM sessions WHERE user_id = ?1 AND temporary = 1 AND revoked_at IS NULL AND expires_at > ?2 AND last_used_at > ?3 AND device_id <> ?4 ORDER BY created_at',
+  )
+    .bind(user.id, at, new Date(now - TEMP_IDLE_MS).toISOString(), device.id)
+    .all<{ token_hash: string; device_id: string }>();
+  for (const old of live.slice(0, Math.max(0, live.length - (TEMP_SIGNIN.maxLive - 1)))) {
+    stmts.push(
+      env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE token_hash = ?').bind(at, old.token_hash),
+      eventStmt(env, 'temporary_replaced', { userId: user.id, deviceId: old.device_id, ip }),
+    );
+  }
+  const token = randomToken(32);
+  const expiresAt = new Date(now + TEMP_SESSION_MS).toISOString();
+  stmts.push(
+    // One sign-in per person per computer: this one replaces any other there.
+    env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL').bind(at, user.id, device.id),
+    env.DB.prepare('INSERT INTO sessions (token_hash, user_id, device_id, created_at, expires_at, last_used_at, temporary) VALUES (?, ?, ?, ?, ?, ?, 1)').bind(
+      await sha256Hex(token),
+      user.id,
+      device.id,
+      at,
+      expiresAt,
+      at,
+    ),
+    eventStmt(env, 'login_temporary', { userId: user.id, deviceId: device.id, ip, detail: { code: device.code, label: body.deviceLabel, until: expiresAt, requestClosed: Boolean(open) } }),
+  );
+  await env.DB.batch(stmts);
+  const res: LoginResponse = { status: 'ok', token, expiresAt, user: temporaryUser(user), temporary: true };
+  return json(res);
 }
 
 /* ------------------------------------------------------------------ */
@@ -272,7 +373,7 @@ export async function authenticate(env: Env, request: Request): Promise<Session>
   if (!m) throw new HttpError(401, 'unauthenticated', 'Please sign in.');
   const tokenHash = await sha256Hex(m[1]!);
   const row = await env.DB.prepare(
-    `SELECT s.user_id, s.device_id, s.expires_at, s.last_used_at, s.revoked_at,
+    `SELECT s.user_id, s.device_id, s.expires_at, s.last_used_at, s.revoked_at, s.temporary,
             u.name, u.role, u.grants, u.revokes, u.location_id, u.active,
             d.revoked_at AS device_revoked, a.status AS access
        FROM sessions s
@@ -288,6 +389,7 @@ export async function authenticate(env: Env, request: Request): Promise<Session>
       expires_at: string;
       last_used_at: string;
       revoked_at: string | null;
+      temporary: number;
       name: string;
       role: Role;
       grants: string;
@@ -298,6 +400,21 @@ export async function authenticate(env: Env, request: Request): Promise<Session>
       access: string | null;
     }>();
   const now = Date.now();
+  const who = () => ({ id: row!.user_id, name: row!.name, role: row!.role, grants: row!.grants, revokes: row!.revokes, location_id: row!.location_id });
+  if (row?.temporary) {
+    // A sign-in for now (ADR-006): no device approval behind it. It ends at its
+    // fixed time, after the idle limit, when signed out, or when the computer
+    // is blocked; use never extends it. Owner only, without owner-only rights.
+    if (!temporaryLive(row, now) || !row.active || row.role !== 'owner' || row.device_revoked) throw new HttpError(401, 'session_ended', TEMP_ENDED);
+    if (now - Date.parse(row.last_used_at) > TEMP_TOUCH_MS) {
+      const iso = new Date(now).toISOString();
+      await env.DB.batch([
+        env.DB.prepare('UPDATE sessions SET last_used_at = ? WHERE token_hash = ?').bind(iso, tokenHash),
+        env.DB.prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').bind(iso, row.device_id),
+      ]);
+    }
+    return { user: temporaryUser(who()), deviceId: row.device_id, tokenHash, temporary: true };
+  }
   if (!row || row.revoked_at || Date.parse(row.expires_at) < now) throw new HttpError(401, 'session_ended', 'Your session has ended. Please sign in again.');
   if (!row.active) throw new HttpError(401, 'disabled', 'This account is switched off. Ask the owner.');
   if (row.device_revoked || row.access !== 'approved') throw new HttpError(401, 'device_blocked', 'This device is no longer allowed. Ask the owner.');
@@ -308,17 +425,13 @@ export async function authenticate(env: Env, request: Request): Promise<Session>
       env.DB.prepare('UPDATE devices SET last_seen_at = ? WHERE id = ?').bind(iso, row.device_id),
     ]);
   }
-  return {
-    user: sessionUser({ id: row.user_id, name: row.name, role: row.role, grants: row.grants, revokes: row.revokes, location_id: row.location_id }),
-    deviceId: row.device_id,
-    tokenHash,
-  };
+  return { user: sessionUser(who()), deviceId: row.device_id, tokenHash, temporary: false };
 }
 
 export async function logout(env: Env, session: Session): Promise<Response> {
   await env.DB.batch([
     env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE token_hash = ?').bind(nowIso(), session.tokenHash),
-    eventStmt(env, 'logout', { userId: session.user.id, deviceId: session.deviceId }),
+    eventStmt(env, 'logout', { userId: session.user.id, deviceId: session.deviceId, detail: session.temporary ? { temporary: true } : {} }),
   ]);
   return json({ ok: true });
 }

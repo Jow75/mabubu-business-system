@@ -1136,3 +1136,246 @@ describe('first setup is server-authoritative and happens once', () => {
     expect((env.DB.raw.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
   });
 });
+
+describe('temporary owner sign-in on a computer that is not approved (ADR-006)', () => {
+  beforeEach(async () => {
+    await setupOwner();
+    await seedCatalogue();
+  });
+
+  type Answer = LoginResponse & { error?: string; message?: string };
+  const temporary = (name: string, pin: string, dev: ReturnType<typeof device>) => call<Answer>('POST', '/api/auth/temporary', { name, pin, ...dev });
+  const one = (sql: string, ...params: string[]) => env.DB.raw.prepare(sql).get(...params) as Record<string, string | number>;
+  const tokenOf = (r: { body: Answer }) => {
+    if (r.body.status !== 'ok') throw new Error(`expected a session, got ${JSON.stringify(r.body)}`);
+    return r.body.token;
+  };
+  const me = (token: string) => call<{ error?: string; message?: string }>('GET', '/api/auth/me', undefined, token);
+
+  it('lets the owner in with name and code; approves nothing, closes their open request, keeps one owner', async () => {
+    const pc = device('Cybercafe computer');
+    expect((await signIn('Jowg', '470915', pc)).status).toBe(202); // the usual "new device" answer first
+    const r = await temporary('jowg', '470915', pc);
+    expect(r.status).toBe(200);
+    if (r.body.status !== 'ok') throw new Error('expected ok');
+    expect(r.body).toMatchObject({ temporary: true, user: { role: 'owner', temporary: true } });
+    expect(r.body.user.caps).not.toContain('users.manage');
+    expect(r.body.user.caps).not.toContain('settings.manage');
+    expect(r.body.user.caps).toContain('purchasing');
+    const hours = (Date.parse(r.body.expiresAt) - Date.now()) / 3600_000;
+    expect(hours).toBeGreaterThan(7.9);
+    expect(hours).toBeLessThanOrEqual(8);
+    expect(one("SELECT COUNT(*) AS n FROM device_access WHERE device_id = ? AND status = 'approved'", pc.deviceId).n).toBe(0);
+    expect(one('SELECT status FROM device_access WHERE device_id = ?', pc.deviceId).status).toBe('denied');
+    expect(one('SELECT COUNT(*) AS n FROM devices WHERE id = ?', pc.deviceId).n).toBe(1);
+    expect(one('SELECT temporary FROM sessions WHERE device_id = ?', pc.deviceId).temporary).toBe(1);
+    expect(one('SELECT COUNT(*) AS n FROM users').n).toBe(1);
+    expect(one("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'login_temporary'").n).toBe(1);
+  });
+
+  it('can work with the business records but none of the owner-only tools', async () => {
+    const pc = device('Cybercafe computer');
+    const token = tokenOf(await temporary('Jowg', '470915', pc));
+    const pulled = await pullAll(token, 2);
+    expect(pulled.ops.length).toBeGreaterThan(0);
+    expect(pulled.me.temporary).toBe(true);
+    const vendor = await pushOps(token, [mk('vendor.upsert', { id: 'ven-new', name: 'New vendor', phone: '', notes: '', active: true }, owner.id, pc.deviceId)]);
+    expect(vendor.body.results[0]!.status).toBe('applied');
+    const settings = await pushOps(token, [mk('settings.set', { localCountLabel: 'local count' }, owner.id, pc.deviceId)]);
+    expect(settings.body.results[0]!.status).toBe('rejected');
+    const refused: [string, string, unknown?][] = [
+      ['GET', '/api/admin/people'],
+      ['POST', '/api/admin/people', { name: 'Second Owner', role: 'owner', pin: '582047', locationId: null, grants: [], revokes: [], allowOnDeviceId: pc.deviceId }],
+      ['POST', '/api/admin/access', { deviceId: pc.deviceId, userId: owner.id, decision: 'approve' }],
+      ['PATCH', `/api/admin/devices/${ownerDev.deviceId}`, { blocked: true }],
+      ['POST', `/api/admin/people/${owner.id}/pin`, { pin: '582047' }],
+      ['POST', '/api/admin/temporary/end', { deviceId: pc.deviceId, userId: owner.id }],
+      ['GET', '/api/admin/export'],
+      ['GET', '/api/admin/golive'],
+      ['POST', '/api/admin/golive/backup', {}],
+    ];
+    for (const [method, path, body] of refused) expect((await call(method, path, body, token)).status, `${method} ${path}`).toBe(403);
+    // Still one owner, and this computer is still not approved.
+    expect(one("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").n).toBe(1);
+    expect(one("SELECT COUNT(*) AS n FROM device_access WHERE device_id = ? AND status = 'approved'", pc.deviceId).n).toBe(0);
+  });
+
+  it('is for the owner only: a worker or a manager is refused, gets no session, and still waits for approval', async () => {
+    await createPerson('Amina', 'worker', '4826', 'loc-com');
+    await createPerson('Mama', 'manager', '582613');
+    const pc = device('Cybercafe computer');
+    for (const [name, pin] of [
+      ['Amina', '4826'],
+      ['Mama', '582613'],
+    ] as const) {
+      const r = await temporary(name, pin, pc);
+      expect(r.status).toBe(403);
+      expect(r.body.error).toBe('owner_only');
+    }
+    expect(one('SELECT COUNT(*) AS n FROM sessions WHERE device_id = ?', pc.deviceId).n).toBe(0);
+    expect(one("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'temporary_refused'").n).toBe(2);
+    expect((await signIn('Amina', '4826', pc)).status).toBe(202);
+  });
+
+  it('wrong codes count towards the same lockout as sign-in; unknown names count against the network', async () => {
+    const pc = device('Cybercafe computer');
+    for (let i = 0; i < 4; i++) expect((await temporary('Jowg', '111111', pc)).status).toBe(401);
+    expect((await temporary('Jowg', '111111', pc)).status).toBe(423);
+    expect((await temporary('Jowg', '470915', pc)).status).toBe(423);
+    expect((await signIn('Jowg', '470915', pc)).status).toBe(423);
+    expect((await temporary('Nobody', '470915', pc)).status).toBe(401);
+    expect(one('SELECT COUNT(*) AS n FROM sessions WHERE temporary = 1').n).toBe(0);
+  });
+
+  it('ends at its fixed time, after 30 minutes without use, and on sign-out; use never extends it', async () => {
+    const pc = device('Cybercafe computer');
+    const token = tokenOf(await temporary('Jowg', '470915', pc));
+    const live = () => one('SELECT token_hash, expires_at, last_used_at FROM sessions WHERE device_id = ? AND revoked_at IS NULL', pc.deviceId);
+    const first = live();
+    // Used 10 minutes later: still on; the last use moves, the end does not.
+    env.DB.raw.prepare('UPDATE sessions SET last_used_at = ? WHERE token_hash = ?').run(new Date(Date.now() - 10 * 60_000).toISOString(), first.token_hash as string);
+    expect((await me(token)).status).toBe(200);
+    expect(live().expires_at).toBe(first.expires_at);
+    expect(Date.now() - Date.parse(live().last_used_at as string)).toBeLessThan(60_000);
+    // 31 minutes without use: ended, with its own message.
+    env.DB.raw.prepare('UPDATE sessions SET last_used_at = ? WHERE token_hash = ?').run(new Date(Date.now() - 31 * 60_000).toISOString(), first.token_hash as string);
+    const idle = await me(token);
+    expect(idle.status).toBe(401);
+    expect(idle.body.message).toBe('Your temporary sign-in has ended. Sign in again.');
+    // Past its fixed end, even if just used: ended.
+    const token2 = tokenOf(await temporary('Jowg', '470915', pc));
+    env.DB.raw
+      .prepare('UPDATE sessions SET expires_at = ?, last_used_at = ? WHERE token_hash = ?')
+      .run(new Date(Date.now() - 1000).toISOString(), new Date().toISOString(), live().token_hash as string);
+    expect((await me(token2)).status).toBe(401);
+    // Signing out ends it at once, and the log says it was a temporary one.
+    const token3 = tokenOf(await temporary('Jowg', '470915', pc));
+    expect((await call('POST', '/api/auth/logout', {}, token3)).status).toBe(200);
+    expect((await me(token3)).status).toBe(401);
+    expect(one("SELECT detail FROM auth_events WHERE kind = 'logout' ORDER BY id DESC LIMIT 1").detail).toBe('{"temporary":true}');
+  });
+
+  it('the owner sees them in People & devices and can sign one out from their own device', async () => {
+    const pc = device('Cybercafe computer');
+    const token = tokenOf(await temporary('Jowg', '470915', pc));
+    const people = await call<PeopleResponse>('GET', '/api/admin/people', undefined, owner.token);
+    expect(people.body.temporary).toEqual([expect.objectContaining({ deviceId: pc.deviceId, userId: owner.id, live: true, endedAt: null })]);
+    expect((await call('POST', '/api/admin/temporary/end', { deviceId: pc.deviceId, userId: owner.id }, owner.token)).status).toBe(200);
+    expect((await me(token)).status).toBe(401);
+    const after = await call<PeopleResponse>('GET', '/api/admin/people', undefined, owner.token);
+    expect(after.body.temporary![0]).toMatchObject({ live: false });
+    expect(after.body.temporary![0]!.endedAt).not.toBeNull();
+    expect(one("SELECT actor_id FROM auth_events WHERE kind = 'temporary_ended'").actor_id).toBe(owner.id);
+  });
+
+  it('at most three at once: a fourth computer ends the oldest; signing in again on one computer replaces its own', async () => {
+    const pcs = [1, 2, 3, 4].map((i) => device(`Computer ${i}`));
+    const tokens: string[] = [];
+    for (const pc of pcs) tokens.push(tokenOf(await temporary('Jowg', '470915', pc)));
+    expect((await me(tokens[0]!)).status).toBe(401);
+    for (const t of tokens.slice(1)) expect((await me(t)).status).toBe(200);
+    expect(one("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'temporary_replaced'").n).toBe(1);
+    tokenOf(await temporary('Jowg', '470915', pcs[3]!));
+    expect((await me(tokens[3]!)).status).toBe(401);
+    expect((await me(tokens[1]!)).status).toBe(200);
+    expect(one('SELECT COUNT(*) AS n FROM sessions WHERE temporary = 1 AND revoked_at IS NULL').n).toBe(3);
+    // The owner's own device was never touched.
+    expect((await me(owner.token)).status).toBe(200);
+  });
+
+  it('a blocked or retired computer is refused; blocking or a new code ends a running one', async () => {
+    const pc = device('Cybercafe computer');
+    const token = tokenOf(await temporary('Jowg', '470915', pc));
+    expect((await call('PATCH', `/api/admin/devices/${pc.deviceId}`, { blocked: true }, owner.token)).status).toBe(200);
+    expect((await me(token)).status).toBe(401);
+    expect((await temporary('Jowg', '470915', pc)).status).toBe(403);
+    expect((await call('PATCH', `/api/admin/devices/${pc.deviceId}`, { retired: true }, owner.token)).status).toBe(200);
+    expect((await temporary('Jowg', '470915', pc)).status).toBe(403);
+    expect((await signIn('Jowg', '470915', pc)).status).toBe(403);
+    // A new owner code, set from the owner's own device, ends every other sign-in, temporary ones included.
+    const pc2 = device('Another computer');
+    const token2 = tokenOf(await temporary('Jowg', '470915', pc2));
+    expect((await call('POST', `/api/admin/people/${owner.id}/pin`, { pin: '582047' }, owner.token)).status).toBe(200);
+    expect((await me(token2)).status).toBe(401);
+    expect((await me(owner.token)).status).toBe(200);
+  });
+
+  it('never leaves the owner facing "not allowed" on a computer they refused for themselves; a worker stays refused', async () => {
+    const pc = device('Cybercafe computer');
+    await signIn('Jowg', '470915', pc);
+    await call('POST', '/api/admin/access', { deviceId: pc.deviceId, userId: owner.id, decision: 'deny' }, owner.token);
+    const again = await signIn('Jowg', '470915', pc);
+    expect(again.status).toBe(202);
+    expect(again.body).toMatchObject({ status: 'pending', role: 'owner' });
+    expect(one('SELECT status FROM device_access WHERE device_id = ?', pc.deviceId).status).toBe('pending');
+    // After a temporary sign-in there (which closes the request), the same holds.
+    tokenOf(await temporary('Jowg', '470915', pc));
+    expect((await signIn('Jowg', '470915', pc)).status).toBe(202);
+    const w = await createPerson('Amina', 'worker', '4826', 'loc-com');
+    const phone = device('Amina phone');
+    await signIn('Amina', '4826', phone);
+    await call('POST', '/api/admin/access', { deviceId: phone.deviceId, userId: w.id, decision: 'deny' }, owner.token);
+    expect((await signIn('Amina', '4826', phone)).status).toBe(403);
+  });
+
+  it('repeated sign-ins and retries from one computer reuse one device row and one request', async () => {
+    const pc = device('Laptop');
+    for (let i = 0; i < 3; i++) expect((await signIn('Jowg', '470915', pc)).status).toBe(202);
+    tokenOf(await temporary('Jowg', '470915', pc));
+    tokenOf(await temporary('Jowg', '470915', pc));
+    expect(one('SELECT COUNT(*) AS n FROM devices WHERE id = ?', pc.deviceId).n).toBe(1);
+    expect(one('SELECT COUNT(*) AS n FROM device_access WHERE device_id = ?', pc.deviceId).n).toBe(1);
+    expect(one("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'device_requested' AND device_id = ?", pc.deviceId).n).toBe(1);
+  });
+});
+
+describe('archived people (enforced by the server, not only the screens)', () => {
+  beforeEach(async () => {
+    await setupOwner();
+    await seedCatalogue();
+  });
+
+  const day = (offset: number) => new Date(Date.now() + 3 * 3600_000 + offset * 86400_000).toISOString().slice(0, 10);
+
+  it('no new day for an archived worker; their open day can still be finished; reactivating restores it', async () => {
+    const amina = await approvedWorker('Amina', '4826');
+    const today = day(0);
+    const take = await pushOps(amina.token, [mk('worker.issue', { workerId: amina.id, locationId: 'loc-com', workDate: today, lines: [{ garmentTypeId: 'gt-haf', qty: 10 }] }, amina.id, amina.dev.deviceId)]);
+    expect(take.body.results[0]!.status).toBe('applied');
+    expect((await call('PATCH', `/api/admin/people/${amina.id}`, { active: false }, owner.token)).status).toBe(200);
+    // Her session ended with the archive.
+    expect((await call('GET', '/api/auth/me', undefined, amina.token)).status).toBe(401);
+    // The owner finishes the day she left open: the return is accepted.
+    const ret = await pushOps(owner.token, [mk('worker.return', { workerId: amina.id, locationId: 'loc-com', workDate: today, lines: [{ garmentTypeId: 'gt-haf', qty: 10 }] }, owner.id, ownerDev.deviceId)]);
+    expect(ret.body.results[0]!.status).toBe('applied');
+    // No new day for her, with the reason.
+    const next = await pushOps(owner.token, [mk('worker.issue', { workerId: amina.id, locationId: 'loc-com', workDate: day(1), lines: [{ garmentTypeId: 'gt-haf', qty: 2 }] }, owner.id, ownerDev.deviceId)]);
+    expect(next.body.results[0]).toMatchObject({ status: 'rejected', error: 'Amina is archived. Reactivate them in People & devices before giving them new work.' });
+    // Her history still downloads and replays for the owner.
+    const all = await pullAll(owner.token, 2);
+    const L = new Ledger();
+    L.setUsers(all.directory);
+    for (const o of all.ops.filter((x) => x.status === 'applied')) expect(L.apply(o, null).ok).toBe(true);
+    // Reactivated: new work is possible again.
+    await call('PATCH', `/api/admin/people/${amina.id}`, { active: true }, owner.token);
+    const again = await pushOps(owner.token, [mk('worker.issue', { workerId: amina.id, locationId: 'loc-com', workDate: day(1), lines: [{ garmentTypeId: 'gt-haf', qty: 2 }] }, owner.id, ownerDev.deviceId)]);
+    expect(again.body.results[0]!.status).toBe('applied');
+  });
+
+  it('a download tells each device who may no longer sign in on it (ids only, no names)', async () => {
+    const amina = await approvedWorker('Amina', '4826');
+    const said = await createPerson('Said', 'worker', '5937', 'loc-com');
+    await signIn('Said', '5937', amina.dev);
+    await call('POST', '/api/admin/access', { deviceId: amina.dev.deviceId, userId: said.id, decision: 'approve' }, owner.token);
+    const pull = () => call<PullResponse>('GET', '/api/sync/pull?since=0&proto=2', undefined, amina.token);
+    expect((await pull()).body.deviceUsers).toEqual(expect.arrayContaining([{ id: amina.id, canSignIn: true }, { id: said.id, canSignIn: true }]));
+    await call('PATCH', `/api/admin/people/${said.id}`, { active: false }, owner.token);
+    const after = (await pull()).body.deviceUsers!;
+    expect(after).toEqual(expect.arrayContaining([{ id: amina.id, canSignIn: true }, { id: said.id, canSignIn: false }]));
+    expect(after.every((u) => Object.keys(u).join() === 'id,canSignIn')).toBe(true);
+    // Removing someone's access on this device counts the same.
+    await call('PATCH', `/api/admin/people/${said.id}`, { active: true }, owner.token);
+    await call('POST', '/api/admin/access', { deviceId: amina.dev.deviceId, userId: said.id, decision: 'revoke' }, owner.token);
+    expect((await pull()).body.deviceUsers).toEqual(expect.arrayContaining([{ id: said.id, canSignIn: false }]));
+  });
+});

@@ -1,0 +1,12 @@
+-- Temporary owner sign-in (ADR-006). Additive only: one column, default 0.
+--
+-- sessions.temporary = 1: the owner signed in "for now" on a computer that is
+-- not one of their approved devices (a shared or public computer). Such a
+-- session is not tied to a device approval: it has a fixed end (never
+-- extended), ends after a short time without use, and carries no owner-only
+-- rights (people, devices, settings, go live). The computer is not approved
+-- by it. Every existing session is an ordinary device session (0).
+--
+-- An older Worker version ignores the column; it refuses a temporary session
+-- (no device approval), which is the safe direction for a rollback.
+ALTER TABLE sessions ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0;

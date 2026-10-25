@@ -606,7 +606,7 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
 
   // A late record is sent to the people who decide on it (whoever may read
   // its kind of record) and to the worker it is about, as well as its sender.
-  const [ledgerRes, maxRes, rowsRes, usersRes] = await env.DB.batch([
+  const [ledgerRes, maxRes, rowsRes, usersRes, deviceRes] = await env.DB.batch([
     ledgerStmt(env),
     env.DB.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM ops'),
     env.DB.prepare(
@@ -621,6 +621,9 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
     fullDirectory
       ? env.DB.prepare('SELECT id, name, role, active, location_id FROM users ORDER BY name')
       : env.DB.prepare('SELECT id, name, role, active, location_id FROM users WHERE id = ?').bind(session.user.id),
+    // Who else may still sign in on this device: an archived person, or one
+    // whose access here was removed, is taken off its sign-in list.
+    env.DB.prepare('SELECT a.user_id AS id, a.status, u.active FROM device_access a JOIN users u ON u.id = a.user_id WHERE a.device_id = ?').bind(session.deviceId),
   ]);
   const ledger = ledgerFrom(ledgerRes!.results[0] as { v: string } | undefined);
   if (clientLedger !== ledger) throw ledgerMismatch(ledger);
@@ -654,7 +657,8 @@ export async function pull(env: Env, session: Session, url: URL): Promise<Respon
   const directory = (usersRes!.results as { id: string; name: string; role: UserRef['role']; active: number; location_id: string | null }[]).map(
     (u): UserRef => ({ id: u.id, name: u.name, role: u.role, active: Boolean(u.active), locationId: u.location_id }),
   );
+  const deviceUsers = (deviceRes!.results as { id: string; status: string; active: number }[]).map((u) => ({ id: u.id, canSignIn: Boolean(u.active) && u.status === 'approved' }));
   return rawJson(
-    `{"ops":[${opsJson}],"next":${next},"more":${more},"directory":${s(directory)},"me":${s(session.user)},"serverTime":${s(new Date().toISOString())}}`,
+    `{"ops":[${opsJson}],"next":${next},"more":${more},"directory":${s(directory)},"me":${s(session.user)},"serverTime":${s(new Date().toISOString())},"deviceUsers":${s(deviceUsers)}}`,
   );
 }

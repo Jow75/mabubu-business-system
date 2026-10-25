@@ -9,6 +9,7 @@ import { errText, useT } from '../../lib/i18n';
 import { LanguageSwitch } from '../auth/Language';
 import { LatePill } from '../../ui/Late';
 import { InstallSection } from '../../ui/Install';
+import { SignOutButton } from '../../ui/Temporary';
 import { downloadBlob } from '../../lib/csv';
 
 /** Optional banknote counter. Never part of the sales flow. */
@@ -54,9 +55,10 @@ export function CashCounter() {
 
 /** Account, sync status and records that need attention. */
 export function SyncCenter() {
-  const { user, sync, records, ledger, prefs, demo, persisted, online } = useApp();
+  const { user, sync, records, ledger, prefs, demo, persisted, online, tempUntil } = useApp();
   const lk = useLookups();
   const t = useT();
+  const temporary = Boolean(tempUntil);
   const mine = [...records.values()].filter((r) => r.op.actorId === user!.id);
   const pending = mine.filter((r) => r.status === 'pending').sort((a, b) => a.localOrder - b.localOrder);
   const lateWaiting = mine.filter((r) => r.status === 'rejected' && r.review === 'waiting');
@@ -75,10 +77,15 @@ export function SyncCenter() {
             </div>
           </div>
         </div>
-        <button className="btn" onClick={() => store.lock()}>
-          <Icon name="lock" size={18} /> {t('me.lock')}
-        </button>
+        {temporary ? (
+          <SignOutButton className="btn btn-primary" />
+        ) : (
+          <button className="btn" onClick={() => store.lock()}>
+            <Icon name="lock" size={18} /> {t('me.lock')}
+          </button>
+        )}
       </section>
+      {temporary && <div className="info-box">{t('temp.meNote')}</div>}
 
       <section className="card">
         <div className="card-head">
@@ -100,11 +107,15 @@ export function SyncCenter() {
               <dd>{sync.lastSyncAt ? fmtDateTime(sync.lastSyncAt) : t('c.notYet')}</dd>
               <dt>{t('me.waitingCount')}</dt>
               <dd>{sync.pending}</dd>
-              <dt>{t('me.storage')}</dt>
-              <dd>{persisted === null ? '—' : persisted ? t('c.yes') : t('me.storageNo')}</dd>
+              {!temporary && (
+                <>
+                  <dt>{t('me.storage')}</dt>
+                  <dd>{persisted === null ? '—' : persisted ? t('c.yes') : t('me.storageNo')}</dd>
+                </>
+              )}
             </dl>
           )}
-          {!demo && persisted === false && <div className="note-box">{t('me.storageWarn')}</div>}
+          {!demo && !temporary && persisted === false && <div className="note-box">{t('me.storageWarn')}</div>}
           {sync.lastError && <div className="error-box">{errText(sync.lastError)}</div>}
           {!demo && <PreGoLiveNote />}
           {pending.length > 0 && (
@@ -152,7 +163,7 @@ export function SyncCenter() {
         </div>
       </section>
 
-      {!demo && <InstallSection />}
+      {!demo && !temporary && <InstallSection />}
 
       <section className="card card-pad stack">
         <span className="section-title">{t('me.display')}</span>

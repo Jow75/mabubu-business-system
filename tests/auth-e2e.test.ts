@@ -93,8 +93,13 @@ describe('owner: first setup, routine sign-in, reload, cleared data, recovery', 
     expect(s.device?.deviceId).toBe(firstDeviceId);
     const owner = s.profiles.find((p) => !p.demo)!;
     expect(owner.role).toBe('owner');
-    // Wrong code: refused on the device.
-    await expect(store.unlock(owner, '111111')).rejects.toThrow(/Wrong code/);
+    // Wrong code with no connection: refused on the device, which counts it.
+    Object.defineProperty(globalThis.navigator, 'onLine', { value: false, configurable: true });
+    await expect(store.unlock(owner, '111111')).rejects.toThrow(/Wrong code\. 4 tries left on this device/);
+    Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true });
+    // Wrong code online: the server decides (it may know a new code), with its own lockout.
+    await expect(store.unlock(store.getSnapshot().profiles[0]!, '111111')).rejects.toThrow(/do not match/);
+    expect(n("SELECT failed_count AS n FROM users WHERE role = 'owner'")).toBe(1);
     expect(await store.unlock(store.getSnapshot().profiles[0]!, '470915')).toBeNull();
     expect(store.getSnapshot().phase).toBe('ready');
     expect(n('SELECT COUNT(*) AS n FROM devices')).toBe(1);

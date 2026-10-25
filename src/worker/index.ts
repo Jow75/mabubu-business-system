@@ -1,8 +1,8 @@
 // Cloudflare Worker entry point. Static app files are served by Cloudflare
 // directly; only /api/* requests reach this code (see wrangler.jsonc).
 
-import { authenticate, login, logout, setup, setupStatus } from './auth';
-import { createPerson, decideAccess, exportBackup, listAuthEvents, listPeople, resetPin, unlockPerson, updateDevice, updatePerson } from './admin';
+import { authenticate, login, loginTemporary, logout, setup, setupStatus } from './auth';
+import { createPerson, decideAccess, endTemporary, exportBackup, listAuthEvents, listPeople, resetPin, unlockPerson, updateDevice, updatePerson } from './admin';
 import type { Env } from './env';
 import { HttpError, errorResponse, json } from './http';
 import { pull, push } from './sync';
@@ -29,6 +29,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
     if (path === '/api/setup/status' && method === 'GET') return await setupStatus(env);
     if (path === '/api/setup' && method === 'POST') return await setup(env, request);
     if (path === '/api/auth/login' && method === 'POST') return await login(env, request);
+    if (path === '/api/auth/temporary' && method === 'POST') return await loginTemporary(env, request);
 
     // Everything else needs a valid session
     const session = await authenticate(env, request);
@@ -50,6 +51,7 @@ export async function handle(request: Request, env: Env): Promise<Response> {
       if (m[2] === '/unlock' && method === 'POST') return await unlockPerson(env, session, id);
     }
     if (path === '/api/admin/access' && method === 'POST') return await decideAccess(env, session, request);
+    if (path === '/api/admin/temporary/end' && method === 'POST') return await endTemporary(env, session, request);
     m = /^\/api\/admin\/devices\/([A-Za-z0-9_-]{8,64})$/.exec(path);
     if (m && method === 'PATCH') return await updateDevice(env, session, m[1]!, request);
     if (path === '/api/admin/events' && method === 'GET') return await listAuthEvents(env, session, url);

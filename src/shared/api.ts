@@ -12,12 +12,29 @@ import type { UserRef } from './model';
  */
 export const SYNC_PROTO = 2;
 
+/**
+ * The owner's sign-in "for now" on a computer that is not one of their
+ * approved devices (ADR-006). The server enforces every number here.
+ */
+export const TEMP_SIGNIN = {
+  /** Fixed end after signing in; never extended by use. */
+  maxHours: 8,
+  /** The app signs out after this long without a touch or key press. */
+  idleMinutes: 20,
+  /** The server ends it after this long without any request (a closed tab). */
+  serverIdleMinutes: 30,
+  /** At most this many at once; a new one ends the oldest. */
+  maxLive: 3,
+} as const;
+
 export interface SessionUser {
   id: string;
   name: string;
   role: Role;
   caps: Capability[];
   locationId: string | null;
+  /** A temporary owner sign-in (ADR-006): no owner-only rights, nothing kept on the device. */
+  temporary?: boolean;
 }
 
 export interface DeviceIdentity {
@@ -43,7 +60,8 @@ export type LoginResponse =
   // when the business has no records at all yet (first creation, or a first
   // setup that was interrupted before the starter places were saved). The
   // client shows the starter-setup screen only when it is true.
-  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser; created?: boolean; starterNeeded?: boolean }
+  // `temporary` is set only by /auth/temporary: a sign-in for now (ADR-006).
+  | { status: 'ok'; token: string; expiresAt: string; user: SessionUser; created?: boolean; starterNeeded?: boolean; temporary?: boolean }
   // `role` is returned only after the code was verified, so the app can tell an
   // owner (who can recover with the setup key) from a worker (who must wait).
   | { status: 'pending'; deviceCode: string; userName: string; role: Role };
@@ -99,6 +117,12 @@ export interface PullResponse {
   directory: UserRef[];
   me: SessionUser;
   serverTime: string;
+  /**
+   * Everyone who has asked for or had access on THIS device, and whether they
+   * may still sign in on it. The app uses it to take an archived or removed
+   * person off this device's sign-in list. Absent from older servers.
+   */
+  deviceUsers?: { id: string; canSignIn: boolean }[];
 }
 
 export interface PersonRow {
@@ -137,9 +161,23 @@ export interface DeviceRow {
   access: DeviceAccessRow[];
 }
 
+/** A temporary owner sign-in (ADR-006), as People & devices lists it. */
+export interface TemporarySignInRow {
+  deviceId: string;
+  userId: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  endedAt: string | null;
+  /** Still usable now: not signed out, not past its end, not idle too long. */
+  live: boolean;
+}
+
 export interface PeopleResponse {
   people: PersonRow[];
   devices: DeviceRow[];
+  /** Recent temporary sign-ins, newest first. Absent from older servers. */
+  temporary?: TemporarySignInRow[];
 }
 
 export interface CreatePersonRequest {

@@ -788,12 +788,16 @@ function purchaseLine(tx: Tx, pur: Purchase, gt: string) {
 
 /** Load (or start) the worker's day and check it may still change. */
 function workerDay(tx: Tx, op: AnyOp, workerId: string, locationId: string, workDate: string): WorkerDay {
-  needUser(tx, workerId);
+  const worker = needUser(tx, workerId);
   const loc = needLocation(tx, locationId);
   const key = K.day(workerId, workDate);
   let day = tx.edit<WorkerDay>(key);
   if (!day) {
     if (tx.sign === -1) throw notFound('Work day not found.');
+    // An archived person is kept for history but is given no new work. A day
+    // already started can still be finished (return, close, review), and
+    // records the server accepted earlier always replay.
+    if (!tx.replay && !worker.active) throw invalid(`${worker.name} is archived. Reactivate them in People & devices before giving them new work.`);
     day = {
       key,
       workerId,

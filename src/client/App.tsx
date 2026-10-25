@@ -7,6 +7,8 @@ import type { Key } from '../shared/i18n';
 import { LanguageChoice } from './screens/auth/Language';
 import { DeraMark, Icon, type IconName } from './ui/Icon';
 import { LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
+import { TemporaryRibbon } from './ui/Temporary';
+import { TEMP_SIGNIN } from '../shared/api';
 import { StorageBlocked, Welcome } from './screens/auth/Welcome';
 import { useUpdateReady } from './lib/update';
 import { Setup } from './screens/auth/Setup';
@@ -83,7 +85,10 @@ function useTheme() {
   }, [prefs.theme]);
 }
 
-/** Lock after 20 minutes without any touch or key press. */
+/**
+ * After 20 minutes without any touch or key press: lock — or, on a temporary
+ * sign-in, sign out (ADR-006; not while its records are still unsent).
+ */
 function useIdleLock(active: boolean) {
   useEffect(() => {
     if (!active) return;
@@ -92,7 +97,7 @@ function useIdleLock(active: boolean) {
     window.addEventListener('pointerdown', bump);
     window.addEventListener('keydown', bump);
     const t = setInterval(() => {
-      if (Date.now() - last > 20 * 60_000) store.lock();
+      if (Date.now() - last > TEMP_SIGNIN.idleMinutes * 60_000) store.idle();
     }, 30_000);
     return () => {
       window.removeEventListener('pointerdown', bump);
@@ -101,6 +106,20 @@ function useIdleLock(active: boolean) {
     };
   }, [active]);
 }
+
+/** Closing the tab during a temporary sign-in with unsent records loses them: let the browser ask first. */
+function useLeaveGuard() {
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!store.reloadUnsafe()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onLeave);
+    return () => window.removeEventListener('beforeunload', onLeave);
+  }, []);
+}
+
 
 /** A new version is ready: reload now, or it happens by itself when the app is left. */
 function UpdateBar() {
@@ -124,6 +143,7 @@ export function App() {
   const t = useT();
   useTheme();
   useIdleLock(phase === 'ready');
+  useLeaveGuard();
   let body: ReactNode;
   if (phase === 'boot') body = <div className="empty" style={{ minHeight: '100dvh', justifyContent: 'center' }}>{t('c.opening')}</div>;
   else if (!prefs.lang) body = <LanguageChoice />;
@@ -172,6 +192,7 @@ function ManageShell() {
   return (
     <div>
       <DemoRibbon />
+      <TemporaryRibbon />
       <div className="shell">
         <aside className="sidebar">
           <a className="brand" href={href('/')}>

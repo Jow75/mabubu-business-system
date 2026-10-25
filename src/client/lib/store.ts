@@ -12,7 +12,7 @@ import type { UserRef } from '../../shared/model';
 import { uuidv7 } from '../../shared/ids';
 import { isLang, type Lang } from '../../shared/i18n';
 import { api, ApiError } from './api';
-import { UserDb, deviceDb, kvGet, kvSet, userDbName, type DeviceRecord, type LocalOp, type Profile } from './db';
+import { MemoryRecordsDb, UserDb, deviceDb, kvGet, kvSet, userDbName, type DeviceRecord, type LocalOp, type Profile, type RecordsDb } from './db';
 import { checkVerifier, getDevice, makeVerifier } from './device';
 import { INITIAL_LEDGER } from '../../shared/golive';
 
@@ -58,6 +58,12 @@ export interface Snapshot {
   storageError: boolean;
   /** Records saved on this device before go-live that were never sent; kept aside, never uploaded (ADR-005). */
   preGoLive: number;
+  /** A temporary sign-in (ADR-006) is open until this time; null otherwise. */
+  tempUntil: string | null;
+  /** A temporary sign-in just ended: why (null = the person signed out) and how many of its records are still unsent in this page. */
+  tempEnded: { message: string | null; unsent: number; name: string } | null;
+  /** People just taken off this device's sign-in list because they may no longer sign in here. */
+  removedNames: string[];
 }
 
 export type SubmitResult = { ok: true; op: AnyOp; flags: Flag[] } | { ok: false; error: string };
@@ -66,6 +72,38 @@ const PREFS_KEY = 'mabubu.prefs';
 const DEMO_DB = 'mabubu-demo';
 const PUSH_BATCH = 25;
 const SYNC_INTERVAL_MS = 30_000;
+/** Same text as the server's, so it is translated on screen like the server's. */
+const TEMP_ENDED = 'Your temporary sign-in has ended. Sign in again.';
+
+/**
+ * A temporary sign-in (ADR-006) is kept for this browser tab only, so a reload
+ * does not sign the owner out; closing the tab forgets it. Never in the
+ * device database, never with a saved profile or an offline code check.
+ */
+const TEMP_KEY = 'mabubu.temporary';
+interface TempSignIn {
+  token: string;
+  expiresAt: string;
+  user: SessionUser;
+}
+
+function readTemporary(): TempSignIn | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(TEMP_KEY) ?? 'null') as TempSignIn | null;
+    return v && typeof v.token === 'string' && Date.parse(v.expiresAt) > Date.now() ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepTemporary(v: TempSignIn | null) {
+  try {
+    if (v) sessionStorage.setItem(TEMP_KEY, JSON.stringify(v));
+    else sessionStorage.removeItem(TEMP_KEY);
+  } catch {
+    /* no tab storage: a reload simply signs out */
+  }
+}
 
 function loadPrefs(): Prefs {
   const d: Prefs = { localCount: false, scope: null, theme: 'system', lang: null };
@@ -109,11 +147,17 @@ class Store {
     recoverFor: null,
     storageError: false,
     preGoLive: 0,
+    tempUntil: null,
+    tempEnded: null,
+    removedNames: [],
   };
   private listeners = new Set<() => void>();
-  private db: UserDb | null = null;
+  private db: RecordsDb | null = null;
   private profile: Profile | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private tempTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Records of a temporary sign-in that ended before they were sent; a new temporary sign-in by the same person sends them. */
+  private carry: { userId: string; ops: LocalOp[] } | null = null;
   private syncing: Promise<void> | null = null;
   private syncAgain = false;
   /**
@@ -158,6 +202,13 @@ class Store {
       this.set({ storageError: true, phase: 'welcome' });
       return;
     }
+    // A temporary sign-in in this tab (ADR-006) survives a reload of the tab, never more.
+    const temp = readTemporary();
+    if (temp) {
+      this.set({ device, profiles });
+      await this.openTemporary(temp);
+      return;
+    }
     // Ask to keep this device's storage as early as possible, before anyone
     // signs in. The device identity and the signed-in profile live only in
     // IndexedDB; if the browser evicts it, the device becomes unrecognised and
@@ -198,13 +249,32 @@ class Store {
         await this.open({ ...profile, failedUnlocks: 0, lastUsedAt: new Date().toISOString() });
         return null;
       }
+      // Not the code this device remembers. Online, the server decides — the
+      // owner may have given this person a new code — with its own lockout.
+      if (navigator.onLine) {
+        try {
+          return await this.signInFor(profile, pin);
+        } catch (e) {
+          if (!(e instanceof ApiError && e.offline)) throw e;
+        }
+      }
       const failed = profile.failedUnlocks + 1;
       const updated: Profile = { ...profile, failedUnlocks: failed, ...(failed >= 5 ? { verifier: null, needsOnline: 'Too many wrong codes on this device.' } : {}) };
       await deviceDb.profiles.put(updated);
       this.set({ profiles: await this.loadProfiles() });
       throw new ApiError(401, 'invalid', failed >= 5 ? 'Too many wrong codes. Connect to the internet and sign in again.' : `Wrong code. ${5 - failed} tries left on this device.`);
     }
-    return this.signIn(profile.name, pin);
+    return this.signInFor(profile, pin);
+  }
+
+  /** Online sign-in for a saved profile; someone the server no longer lets in here is taken off this device's list. */
+  private async signInFor(profile: Profile, pin: string): Promise<LoginResponse> {
+    try {
+      return await this.signIn(profile.name, pin);
+    } catch (e) {
+      if (e instanceof ApiError && (e.code === 'disabled' || e.code === 'device_denied')) await this.retireProfile(profile.userId);
+      throw e;
+    }
   }
 
   async signIn(name: string, pin: string): Promise<LoginResponse> {
@@ -232,6 +302,72 @@ class Store {
       // interrupted before anything was saved finish its starter step.
       this.set({ recoverFor: null, ...(res.starterNeeded ?? res.created ? { firstRun: true } : {}) });
     }
+  }
+
+  /**
+   * The owner's temporary sign-in on a computer that is not one of their
+   * devices (ADR-006): the server checks name and code as for any sign-in, but
+   * approves nothing. The records are kept in memory, no profile is saved,
+   * and the tab forgets it when closed.
+   */
+  async signInTemporary(name: string, pin: string) {
+    const device = this.snap.device ?? (await getDevice());
+    const res = await api<LoginResponse>('POST', '/auth/temporary', { name, pin, deviceId: device.deviceId, deviceSecret: device.deviceSecret, deviceLabel: device.label });
+    if (res.status === 'ok') await this.openTemporary({ token: res.token, expiresAt: res.expiresAt, user: res.user });
+  }
+
+  private async openTemporary(t: TempSignIn) {
+    keepTemporary(t);
+    const profile: Profile = {
+      userId: t.user.id,
+      name: t.user.name,
+      role: t.user.role,
+      user: t.user,
+      token: t.token,
+      expiresAt: t.expiresAt,
+      verifier: null,
+      failedUnlocks: 0,
+      lastUsedAt: new Date().toISOString(),
+      needsOnline: null,
+      demo: false,
+      temporary: true,
+    };
+    const db = new MemoryRecordsDb();
+    // Records from an earlier temporary sign-in in this page that ended before they were sent.
+    if (this.carry?.userId === t.user.id) await db.ops.bulkPut(this.carry.ops);
+    this.carry = null;
+    await this.open(profile, db);
+    if (this.tempTimer) clearTimeout(this.tempTimer);
+    this.tempTimer = setTimeout(() => void this.sessionEnded(TEMP_ENDED), Math.min(Math.max(0, Date.parse(t.expiresAt) - Date.now()), 2_000_000_000));
+  }
+
+  /**
+   * End a temporary sign-in (ADR-006). Refused while records are still waiting
+   * to send (they exist only in this page), unless the person confirmed.
+   */
+  signOut(force = false): boolean {
+    if (!this.profile?.temporary) return false;
+    if (!force && this.snap.sync.pending > 0) return false;
+    const name = this.profile.name;
+    this.carry = null;
+    this.lock();
+    this.set({ tempEnded: { message: null, unsent: 0, name } });
+    return true;
+  }
+
+  /** Nobody touched the app for a while: lock it — or end a temporary sign-in, unless records are still waiting to send. */
+  idle() {
+    if (this.profile?.temporary) this.signOut();
+    else this.lock();
+  }
+
+  /** A reload now would lose records that exist only in this page (a temporary sign-in's unsent records). */
+  reloadUnsafe(): boolean {
+    return Boolean(this.carry?.ops.length) || (Boolean(this.profile?.temporary) && this.snap.sync.pending > 0);
+  }
+
+  dismissTempEnded() {
+    this.set({ tempEnded: null, removedNames: [] });
   }
 
   private async afterOnlineAuth(res: Extract<LoginResponse, { status: 'ok' }>, pin: string) {
@@ -262,12 +398,13 @@ class Store {
     }
   }
 
-  private async open(profile: Profile) {
+  private async open(profile: Profile, db: RecordsDb = new UserDb(userDbName(profile.userId, false))) {
     const epoch = ++this.epoch;
-    await deviceDb.profiles.put(profile);
+    // A temporary sign-in is never saved on the device (ADR-006).
+    if (!profile.temporary) await deviceDb.profiles.put(profile);
     if (epoch !== this.epoch) return;
     this.profile = profile;
-    this.db = new UserDb(userDbName(profile.userId, false));
+    this.db = db;
     const [records, directory, profiles, held] = await Promise.all([
       this.db.ops.toArray(),
       kvGet<UserRef[]>(this.db, 'directory'),
@@ -287,25 +424,57 @@ class Store {
       ledger: this.rebuild(map, dir, profile.user),
       profiles,
       preGoLive: held?.length ?? 0,
+      tempUntil: profile.temporary ? profile.expiresAt : null,
+      tempEnded: null,
+      removedNames: [],
       sync: { ...this.snap.sync, state: navigator.onLine ? 'idle' : 'offline', lastError: null, ...this.counts(map) },
     });
-    if (this.snap.persisted === null) void this.requestPersistence();
+    if (this.snap.persisted === null && !profile.temporary) void this.requestPersistence();
     this.startTimer();
     this.requestSync(50);
   }
 
   lock() {
     const epoch = ++this.epoch;
+    const temporary = this.profile?.temporary ? this.profile : null;
     this.stopTimer();
+    if (this.tempTimer) clearTimeout(this.tempTimer);
+    this.tempTimer = null;
     this.db?.close();
     this.db = null;
     this.profile = null;
+    if (temporary) {
+      // Nothing of a temporary sign-in stays: the tab forgets it and the server ends it.
+      keepTemporary(null);
+      if (temporary.token) void api('POST', '/auth/logout', {}, temporary.token).catch(() => undefined);
+    }
     void this.loadProfiles()
       .catch(() => [] as Profile[])
       .then((profiles) => {
         // Someone may already have signed in again; do not undo that.
-        if (epoch === this.epoch) this.set({ phase: 'welcome', user: null, demo: false, records: new Map(), ledger: new Ledger(), directory: [], firstRun: false, profiles });
+        if (epoch === this.epoch)
+          this.set({ phase: 'welcome', user: null, demo: false, records: new Map(), ledger: new Ledger(), directory: [], firstRun: false, profiles, tempUntil: null, sync: { ...this.snap.sync, pending: 0, rejected: 0, held: 0 } });
       });
+  }
+
+  /**
+   * The server says this person may no longer sign in on this device
+   * (archived, or their access here was removed): take them off its sign-in
+   * list, with their local copy of the records. If records they saved here
+   * were never sent, they stay listed and marked instead — nothing is lost
+   * without the person seeing it.
+   */
+  private async retireProfile(userId: string) {
+    const p = await deviceDb.profiles.get(userId);
+    if (!p || p.demo || p.temporary || this.profile?.userId === userId) return;
+    if ((await this.unsentCount(userId)) > 0) {
+      await deviceDb.profiles.put({ ...p, blocked: true, token: null });
+      this.set({ profiles: await this.loadProfiles() });
+      return;
+    }
+    await deviceDb.profiles.delete(userId);
+    await new UserDb(userDbName(userId, false)).delete();
+    this.set({ profiles: await this.loadProfiles(), removedNames: [...this.snap.removedNames, p.name] });
   }
 
   /** Records this person saved on this device that have not reached the server. */
@@ -560,6 +729,7 @@ class Store {
       if (((await kvGet<number>(db, 'proto')) ?? 1) < SYNC_PROTO) since = 0;
       let directory = this.snap.directory;
       let me = this.snap.user!;
+      let deviceUsers: PullResponse['deviceUsers'];
       let newFromServer = false;
       for (let page = 0; page < 200; page++) {
         // `pending`: what this device still has to send, for the go-live readiness check.
@@ -609,6 +779,7 @@ class Store {
         since = res.next;
         directory = res.directory;
         me = res.me;
+        deviceUsers = res.deviceUsers;
         await kvSet(db, 'since', since);
         await kvSet(db, 'directory', directory);
         if (!res.more) break;
@@ -618,10 +789,15 @@ class Store {
       if (stale()) return;
       if (JSON.stringify(me) !== JSON.stringify(this.snap.user)) {
         const updated = { ...profile, user: me, name: me.name, role: me.role };
-        await deviceDb.profiles.put(updated);
+        if (updated.temporary) keepTemporary({ token: updated.token!, expiresAt: updated.expiresAt!, user: me });
+        else await deviceDb.profiles.put(updated);
         if (stale()) return;
         this.profile = updated;
       }
+      // Anyone else on this device's sign-in list who may no longer sign in here goes off it.
+      const gone = new Set((deviceUsers ?? []).filter((u) => !u.canSignIn && u.id !== me.id).map((u) => u.id));
+      for (const p of this.snap.profiles) if (gone.has(p.userId) && !p.blocked) await this.retireProfile(p.userId);
+      if (stale()) return;
       const merged = new Map(this.snap.records);
       for (const [id, r] of touched) merged.set(id, r);
       const syncInfo: SyncInfo = { state: 'idle', lastSyncAt: new Date().toISOString(), lastError: null, ...this.counts(merged) };
@@ -644,7 +820,7 @@ class Store {
       if (stale()) return;
       const err = e instanceof ApiError ? e : new ApiError(500, 'error', String(e));
       if (err.status === 401) {
-        await this.sessionEnded(err.message);
+        await this.sessionEnded(err.message, err.code);
         return;
       }
       if (err.status === 409 && err.code === 'ledger_reset' && typeof (err.body as { ledger?: unknown }).ledger === 'string') {
@@ -663,8 +839,8 @@ class Store {
    * transaction, so a record saved at the same moment is either kept aside or
    * part of the new copy — never lost.
    */
-  private async startLedger(db: UserDb, ledger: string, epoch: number) {
-    const held = await db.transaction('rw', db.ops, db.kv, async () => {
+  private async startLedger(db: RecordsDb, ledger: string, epoch: number) {
+    const held = await db.atomic(async () => {
       const unsent = (await db.ops.where('status').equals('pending').toArray()).map((r) => ({ ...r, error: 'Saved before go-live; not sent.' }));
       const kept = [...((await kvGet<LocalOp[]>(db, 'preGoLive')) ?? []), ...unsent];
       await db.ops.clear();
@@ -695,13 +871,25 @@ class Store {
     if (this.db) await this.startLedger(this.db, ledger, this.epoch);
   }
 
-  private async sessionEnded(message: string) {
+  private async sessionEnded(message: string, code?: string) {
     if (!this.profile) return;
+    if (this.profile.temporary) {
+      // Unsent records exist only in this page: keep them until the tab is
+      // closed, for a new temporary sign-in to send (ADR-006).
+      const unsent = [...this.snap.records.values()].filter((r) => r.status === 'pending');
+      const name = this.profile.name;
+      this.carry = unsent.length ? { userId: this.profile.userId, ops: unsent } : null;
+      this.lock();
+      this.set({ tempEnded: { message, unsent: unsent.length, name } });
+      return;
+    }
     const p: Profile = { ...this.profile, token: null, needsOnline: message };
     await deviceDb.profiles.put(p);
     this.profile = p;
     this.set({ sync: { ...this.snap.sync, state: 'error', lastError: `${message} Your saved records stay on this device until you sign in again.` } });
     this.lock();
+    // An archived person goes off this device's sign-in list (kept if records here were never sent).
+    if (code === 'disabled') await this.retireProfile(p.userId);
   }
 
   /* ---------------- demo mode ---------------- */

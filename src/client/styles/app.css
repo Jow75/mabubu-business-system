@@ -1203,6 +1203,34 @@ button.list-item {
   font-weight: 700;
   cursor: pointer;
 }
+/* A temporary owner sign-in (ADR-006): when it ends, and Sign out, always in view. */
+.temp-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 12px;
+  padding: 7px 12px;
+  background: #232c6b;
+  color: #fbf8f2;
+  border-bottom: 2px dashed var(--saffron);
+  font-weight: 650;
+  font-size: 13px;
+  text-align: center;
+}
+.temp-ribbon button {
+  min-height: 34px;
+  border: 1px solid rgba(251, 248, 242, 0.55);
+  background: transparent;
+  color: inherit;
+  border-radius: 10px;
+  padding: 4px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.temp-ribbon button:hover {
+  background: rgba(251, 248, 242, 0.12);
+}
 
 /* ---------- Auth screens ---------- */
 .auth {

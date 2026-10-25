@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { normalizeName, type AuthEventRow, type DeviceRow, type PeopleResponse, type PersonRow } from '../shared/api';
 import { uuidv7 } from '../shared/ids';
 import { CAPABILITIES, ROLES, effectiveCapabilities, pinPolicyError, type Capability, type Role } from '../shared/permissions';
-import { eventStmt, requirePepper, type Session, type UserRow } from './auth';
+import { eventStmt, requirePepper, temporaryLive, type Session, type UserRow } from './auth';
 import { pinHash } from './crypto';
 import type { D1PreparedStatement, Env } from './env';
 import { HttpError, json, nowIso, readJson } from './http';
@@ -66,11 +66,13 @@ async function getUser(env: Env, id: string): Promise<UserRow> {
 
 export async function listPeople(env: Env, session: Session): Promise<Response> {
   requireCap(session, 'users.manage');
-  const [users, devices, access] = await env.DB.batch([
+  const [users, devices, access, temps] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM users ORDER BY active DESC, name'),
     env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices ORDER BY created_at DESC'),
     env.DB.prepare('SELECT device_id, user_id, status, requested_at, decided_at FROM device_access ORDER BY requested_at DESC'),
+    env.DB.prepare('SELECT user_id, device_id, created_at, last_used_at, expires_at, revoked_at FROM sessions WHERE temporary = 1 ORDER BY created_at DESC LIMIT 30'),
   ]);
+  const now = Date.now();
   const byDevice = new Map<string, DeviceRow['access']>();
   for (const a of access!.results as { device_id: string; user_id: string; status: DeviceRow['access'][number]['status']; requested_at: string; decided_at: string | null }[]) {
     const list = byDevice.get(a.device_id) ?? [];
@@ -90,8 +92,32 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
       retiredAt: d.retired_at,
       access: byDevice.get(d.id) ?? [],
     })),
+    temporary: (temps!.results as { user_id: string; device_id: string; created_at: string; last_used_at: string; expires_at: string; revoked_at: string | null }[]).map((s) => ({
+      deviceId: s.device_id,
+      userId: s.user_id,
+      createdAt: s.created_at,
+      lastUsedAt: s.last_used_at,
+      expiresAt: s.expires_at,
+      endedAt: s.revoked_at,
+      live: temporaryLive(s, now),
+    })),
   };
   return json(res);
+}
+
+const endTemporarySchema = z.object({ deviceId: z.string().max(64), userId: z.string().max(64) });
+
+/** End a temporary sign-in from one of the owner's own devices (ADR-006): for a computer left signed in. */
+export async function endTemporary(env: Env, session: Session, request: Request): Promise<Response> {
+  requireCap(session, 'users.manage');
+  const parsed = endTemporarySchema.safeParse(await readJson(request));
+  if (!parsed.success) throw new HttpError(400, 'invalid_request', 'Invalid request.');
+  const { deviceId, userId } = parsed.data;
+  await env.DB.batch([
+    env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE device_id = ? AND user_id = ? AND temporary = 1 AND revoked_at IS NULL').bind(nowIso(), deviceId, userId),
+    eventStmt(env, 'temporary_ended', { userId, deviceId, actorId: session.user.id }),
+  ]);
+  return json({ ok: true });
 }
 
 export async function createPerson(env: Env, session: Session, request: Request): Promise<Response> {

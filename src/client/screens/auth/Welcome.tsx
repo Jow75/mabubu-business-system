@@ -3,6 +3,7 @@ import { store, useApp } from '../../lib/store';
 import { ApiError } from '../../lib/api';
 import type { Profile } from '../../lib/db';
 import { DEMO_USERS } from '../../../shared/demo-data';
+import { TEMP_SIGNIN } from '../../../shared/api';
 import { MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
 import { DeraMark, Icon } from '../../ui/Icon';
 import { Monogram } from '../../ui/kit';
@@ -62,6 +63,7 @@ export function Welcome() {
 
   return (
     <AuthLayout>
+      {(mode.kind === 'list' || mode.kind === 'other') && <SignInNotices />}
       {mode.kind === 'list' && (
         <div className="stack" style={{ gap: 20 }}>
           <div>
@@ -78,7 +80,7 @@ export function Welcome() {
                 <span className="muted" style={{ fontSize: 12.5 }}>
                   {t(`role.${p.role}`)}
                 </span>
-                {p.needsOnline && <span className="pill saffron">{t('auth.signInOnline')}</span>}
+                {p.blocked ? <span className="pill red wrap">{t('auth.notAllowedHere')}</span> : p.needsOnline && <span className="pill saffron">{t('auth.signInOnline')}</span>}
               </button>
             ))}
             <button className="profile" onClick={() => setMode({ kind: 'other' })}>
@@ -105,6 +107,28 @@ export function Welcome() {
       {mode.kind === 'pending' && <PendingStep {...mode} onBack={() => setMode(real.length ? { kind: 'list' } : { kind: 'other' })} />}
       {mode.kind === 'demo' && <DemoStep onBack={() => setMode(real.length ? { kind: 'list' } : { kind: 'other' })} />}
     </AuthLayout>
+  );
+}
+
+/** What just happened on this device's sign-in: a temporary sign-in ended, or someone was taken off the list. */
+function SignInNotices() {
+  const { tempEnded, removedNames } = useApp();
+  const t = useT();
+  if (!tempEnded && !removedNames.length) return null;
+  return (
+    <div className="stack-sm">
+      {tempEnded && (
+        <div className={tempEnded.unsent ? 'error-box stack-sm' : 'note-box'} role="status">
+          <span>{tempEnded.message ? errText(tempEnded.message) : t('auth.tempSignedOut')}</span>
+          {tempEnded.unsent > 0 && <span>{t('auth.tempCarry', { n: tempEnded.unsent })}</span>}
+        </div>
+      )}
+      {removedNames.map((name) => (
+        <div key={name} className="note-box" role="status">
+          {t('auth.profileRemoved', { name })}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -205,9 +229,10 @@ function RemoveProfile({ profile, onRemoved }: { profile: Profile; onRemoved: ()
 }
 
 function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null; onPending: OnPending; onDemo: () => void }) {
-  const { online } = useApp();
+  const { online, tempEnded } = useApp();
   const t = useT();
-  const [name, setName] = useState('');
+  // After a temporary sign-in ended with records still unsent, its name is filled in to send them quickly.
+  const [name, setName] = useState(tempEnded?.unsent ? tempEnded.name : '');
   const [stage, setStage] = useState<'name' | 'pin'>('name');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -284,6 +309,7 @@ function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: str
   const t = useT();
   const [msg, setMsg] = useState<string | null>(null);
   const [stopped, setStopped] = useState(false);
+  const [busy, setBusy] = useState(false);
   const started = useRef(Date.now());
   const owner = role === 'owner';
   const check = useCallback(async () => {
@@ -294,8 +320,19 @@ function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: str
       setMsg(errorText(e, t));
     }
   }, [name, pin, t]);
+  // The owner's temporary sign-in (ADR-006): in at once, nothing kept, this computer not approved.
+  const temporary = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await store.signInTemporary(name, pin);
+    } catch (e) {
+      setMsg(errorText(e, t));
+      setBusy(false);
+    }
+  };
   useEffect(() => {
-    if (stopped) return;
+    if (stopped || busy) return;
     let timer: ReturnType<typeof setTimeout>;
     const next = () => {
       const age = Date.now() - started.current;
@@ -313,31 +350,67 @@ function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: str
     };
     next();
     return () => clearTimeout(timer);
-  }, [check, stopped]);
+  }, [check, stopped, busy]);
   const recheck = () => {
     started.current = Date.now();
     setStopped(false);
     void check();
   };
+  if (owner) {
+    return (
+      <div className="stack" style={{ gap: 18 }}>
+        <div>
+          <div className="eyebrow">{t('auth.newDevice')}</div>
+          <h2 className="page-title" style={{ marginTop: 6 }}>
+            {t('auth.ownerChoiceTitle')}
+          </h2>
+          <p className="soft" style={{ marginTop: 8 }}>
+            {t('auth.ownerChoiceBody')}
+          </p>
+        </div>
+        <section className="card card-pad selvedge stack-sm" style={{ paddingLeft: 22 }}>
+          <strong>{t('auth.tempTitle')}</strong>
+          <span className="soft">{t('auth.tempBody', { idle: TEMP_SIGNIN.idleMinutes, hours: TEMP_SIGNIN.maxHours })}</span>
+          <button type="button" className="btn btn-primary btn-lg btn-wrap" disabled={busy} onClick={() => void temporary()}>
+            {busy ? t('c.opening') : t('auth.tempButton')}
+          </button>
+        </section>
+        <section className="card card-pad stack-sm">
+          <strong>{t('auth.ownTitle')}</strong>
+          <span className="soft">{t('auth.ownBody')}</span>
+          <div className="device-code">{code}</div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-wrap" disabled={busy} onClick={() => store.goTo('setup', { name, pin })}>
+              <Icon name="key" size={18} /> {t('auth.useRecoveryKey')}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={recheck}>
+              <Icon name="refresh" size={18} /> {t('auth.checkAgain')}
+            </button>
+          </div>
+          <p className="hint">{stopped ? t('auth.autoCheckStopped') : t('auth.ownerAutoCheck')}</p>
+        </section>
+        {msg && <div className="note-box">{msg}</div>}
+        <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={onBack}>
+          {t('c.cancel')}
+        </button>
+        <p className="hint">{t('auth.whyNewDevice')}</p>
+      </div>
+    );
+  }
   return (
     <div className="stack" style={{ gap: 20 }}>
       <div>
         <div className="eyebrow">{t('auth.newDevice')}</div>
         <h2 className="page-title" style={{ marginTop: 6 }}>
-          {owner ? t('auth.ownerNewDeviceTitle') : t('auth.waitingOwner')}
+          {t('auth.waitingOwner')}
         </h2>
         <p className="soft" style={{ marginTop: 8 }}>
-          {owner ? t('auth.ownerNewDeviceBody') : t('auth.pendingBody')}
+          {t('auth.pendingBody')}
         </p>
       </div>
       <div className="device-code">{code}</div>
-      {owner && (
-        <button type="button" className="btn btn-primary btn-lg btn-wrap" onClick={() => store.goTo('setup', { name, pin })}>
-          <Icon name="key" size={18} /> {t('auth.useRecoveryKey')}
-        </button>
-      )}
       <div className="row">
-        <button className={owner ? 'btn' : 'btn btn-primary'} onClick={recheck}>
+        <button className="btn btn-primary" onClick={recheck}>
           <Icon name="refresh" size={18} /> {t('auth.checkAgain')}
         </button>
         <button className="btn btn-ghost" onClick={onBack}>
@@ -345,7 +418,7 @@ function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: str
         </button>
       </div>
       {msg && <div className="note-box">{msg}</div>}
-      <p className="hint">{stopped ? t('auth.autoCheckStopped') : owner ? t('auth.ownerAutoCheck') : t('auth.autoCheck')}</p>
+      <p className="hint">{stopped ? t('auth.autoCheckStopped') : t('auth.autoCheck')}</p>
       <p className="hint">{t('auth.whyNewDevice')}</p>
     </div>
   );

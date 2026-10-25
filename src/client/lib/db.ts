@@ -5,6 +5,9 @@
 // - One database per person: their operation log and sync position. Keeping
 //   people apart means a worker signing in on the family laptop never loads
 //   the owner's cached records.
+// - A temporary owner sign-in (ADR-006) keeps its copy in memory instead
+//   (MemoryRecordsDb): nothing of the business is written to a shared or
+//   public computer's disk, and closing the tab leaves nothing behind.
 
 import Dexie, { type Table } from 'dexie';
 import type { AnyOp, Flag, LateReview } from '../../shared/ops';
@@ -38,6 +41,10 @@ export interface Profile {
   /** Set when the server ended the session; an online sign-in is needed. */
   needsOnline: string | null;
   demo: boolean;
+  /** A temporary owner sign-in (ADR-006): never stored in the device database. */
+  temporary?: boolean;
+  /** The server says this person may no longer sign in on this device; kept only while records here are unsent. */
+  blocked?: boolean;
 }
 
 export class DeviceDb extends Dexie {
@@ -72,13 +79,68 @@ export interface UserKv {
   value: unknown;
 }
 
-export class UserDb extends Dexie {
+/** What the store needs from one person's copy of the records, on disk (UserDb) or in memory (MemoryRecordsDb). */
+export interface RecordsDb {
+  ops: {
+    toArray(): Promise<LocalOp[]>;
+    put(rec: LocalOp): Promise<unknown>;
+    bulkPut(recs: LocalOp[]): Promise<unknown>;
+    delete(id: string): Promise<void>;
+    clear(): Promise<void>;
+    where(index: 'status'): { equals(value: LocalOp['status']): { toArray(): Promise<LocalOp[]>; count(): Promise<number> } };
+  };
+  kv: { get(key: string): Promise<UserKv | undefined>; put(item: UserKv): Promise<unknown> };
+  /** Run reads and writes as one unit (one IndexedDB transaction). */
+  atomic<T>(fn: () => Promise<T>): Promise<T>;
+  close(): void;
+}
+
+export class UserDb extends Dexie implements RecordsDb {
   ops!: Table<LocalOp, string>;
   kv!: Table<UserKv, string>;
   constructor(name: string) {
     super(name);
     this.version(1).stores({ ops: 'id, status, seq, localOrder', kv: 'key' });
   }
+  atomic<T>(fn: () => Promise<T>): Promise<T> {
+    return this.transaction('rw', this.ops, this.kv, fn);
+  }
+}
+
+/**
+ * A copy of the records that lives only in this page (temporary sign-in,
+ * ADR-006). Values are cloned on the way in and out, as IndexedDB would.
+ */
+export class MemoryRecordsDb implements RecordsDb {
+  private rows = new Map<string, LocalOp>();
+  private values = new Map<string, UserKv>();
+  private withStatus = (status: LocalOp['status']) => [...this.rows.values()].filter((r) => r.status === status);
+  ops: RecordsDb['ops'] = {
+    toArray: async () => [...this.rows.values()].map((r) => structuredClone(r)),
+    put: async (rec) => void this.rows.set(rec.id, structuredClone(rec)),
+    bulkPut: async (recs) => {
+      for (const r of recs) this.rows.set(r.id, structuredClone(r));
+    },
+    delete: async (id) => void this.rows.delete(id),
+    clear: async () => this.rows.clear(),
+    where: () => ({
+      equals: (status) => ({
+        toArray: async () => this.withStatus(status).map((r) => structuredClone(r)),
+        count: async () => this.withStatus(status).length,
+      }),
+    }),
+  };
+  kv: RecordsDb['kv'] = {
+    get: async (key) => {
+      const v = this.values.get(key);
+      return v ? structuredClone(v) : undefined;
+    },
+    put: async (item) => void this.values.set(item.key, structuredClone(item)),
+  };
+  atomic<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+  close() {}
 }
 
 export const deviceDb = new DeviceDb();
@@ -87,10 +149,10 @@ export function userDbName(userId: string, demo: boolean) {
   return demo ? `mabubu-demo-${userId}` : `mabubu-u-${userId}`;
 }
 
-export async function kvGet<T>(db: UserDb, key: string): Promise<T | undefined> {
+export async function kvGet<T>(db: RecordsDb, key: string): Promise<T | undefined> {
   return (await db.kv.get(key))?.value as T | undefined;
 }
-export async function kvSet(db: UserDb, key: string, value: unknown) {
+export async function kvSet(db: RecordsDb, key: string, value: unknown) {
   await db.kv.put({ key, value });
 }
 

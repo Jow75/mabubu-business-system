@@ -57,7 +57,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
           <option value="all">{t('days.everyone')}</option>
           {lk.people.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.active ? p.name : `${p.name} (${t('pp.archived')})`}
             </option>
           ))}
         </select>
@@ -148,8 +148,8 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
   );
 }
 
-const EVENTS = new Set(['login_ok', 'login_wrong_code', 'login_unknown_name', 'account_locked', 'login_disabled', 'login_device_blocked', 'login_device_denied', 'device_requested', 'device_approved', 'device_denied', 'device_revoked', 'device_blocked', 'device_unblocked', 'device_mismatch', 'logout', 'setup_owner', 'setup_recover_owner', 'setup_wrong_key', 'person_created', 'person_updated', 'pin_reset', 'person_unlocked', 'report_exported', 'backup_exported', 'device_retired', 'device_reactivated', 'person_archived', 'person_reactivated', 'cutover_backup', 'cutover_completed']);
-const BAD = new Set(['login_wrong_code', 'login_unknown_name', 'account_locked', 'device_mismatch', 'setup_wrong_key', 'login_device_blocked', 'login_device_denied']);
+const EVENTS = new Set(['login_ok', 'login_wrong_code', 'login_unknown_name', 'account_locked', 'login_disabled', 'login_device_blocked', 'login_device_denied', 'device_requested', 'device_approved', 'device_denied', 'device_revoked', 'device_blocked', 'device_unblocked', 'device_mismatch', 'logout', 'setup_owner', 'setup_recover_owner', 'setup_wrong_key', 'person_created', 'person_updated', 'pin_reset', 'person_unlocked', 'report_exported', 'backup_exported', 'device_retired', 'device_reactivated', 'person_archived', 'person_reactivated', 'cutover_backup', 'cutover_completed', 'login_temporary', 'temporary_ended', 'temporary_replaced', 'temporary_refused']);
+const BAD = new Set(['login_wrong_code', 'login_unknown_name', 'account_locked', 'device_mismatch', 'setup_wrong_key', 'login_device_blocked', 'login_device_denied', 'temporary_refused']);
 
 function SignIns() {
   const { demo, online } = useApp();

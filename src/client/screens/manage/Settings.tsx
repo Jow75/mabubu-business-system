@@ -129,7 +129,7 @@ export function SettingsPage() {
       )}
 
       {caps.includes('users.manage') && !demo && <BackupCard />}
-      {user!.role === 'owner' && !demo && <GoLiveCard />}
+      {user!.role === 'owner' && caps.includes('users.manage') && !demo && <GoLiveCard />}
 
       {demo && (
         <section className="card card-pad stack">
