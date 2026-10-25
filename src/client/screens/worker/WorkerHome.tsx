@@ -12,9 +12,10 @@ import { errText, rich, useT } from '../../lib/i18n';
 import { Greeting } from '../../ui/Greeting';
 import { LatePill } from '../../ui/Late';
 import { lateRecords } from '../../../shared/late';
+import { InstallBanner } from '../../ui/Install';
 
 export function WorkerToday() {
-  const { ledger, user, version, records } = useApp();
+  const { ledger, user, version, records, demo } = useApp();
   const lk = useLookups();
   const today = businessDate();
   const holding = useMemo(() => workerHolding(ledger, user!.id), [ledger, user, version]);
@@ -42,6 +43,8 @@ export function WorkerToday() {
         <div className="eyebrow">{fmtDate(today)}</div>
         <Greeting name={user!.name} seed={user!.id} />
       </div>
+
+      {!demo && <InstallBanner />}
 
       {openEarlier.map((d) => (
         <button key={d.key} className="note-box row-between" style={{ border: 0, cursor: 'pointer', textAlign: 'left' }} onClick={() => navigate(`/close?date=${d.workDate}`)}>

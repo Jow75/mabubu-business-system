@@ -116,7 +116,7 @@ export function PeoplePage() {
       {data && (
         <section className="card">
           <div className="list">
-            {data.people.map((p) => (
+            {data.people.filter((p) => p.active).map((p) => (
               <button key={p.id} className="list-item" onClick={() => setEdit(p)}>
                 <Monogram name={p.name} id={p.id} />
                 <span style={{ flex: 1 }}>
@@ -125,17 +125,75 @@ export function PeoplePage() {
                     {t(`role.${p.role}`)} · {t('pp.nDevices', { n: data.devices.filter((d) => d.access.some((a) => a.userId === p.id && a.status === 'approved') && !d.revokedAt).length })}
                   </div>
                 </span>
-                {!p.active && <span className="pill">{t('pp.off')}</span>}
                 {(p.hardLocked || (p.lockedUntil && Date.parse(p.lockedUntil) > Date.now())) && <span className="pill red">{t('pp.locked')}</span>}
                 <Icon name="right" size={16} />
               </button>
             ))}
           </div>
+          <ArchivedPeople people={data.people.filter((p) => !p.active)} onChange={load} />
         </section>
       )}
       {data && <Devices devices={data.devices} nameOf={nameOf} onChange={load} myDevice={device?.deviceId ?? ''} />}
       {edit && data && <PersonSheet person={edit === 'new' ? null : edit} devices={data.devices} onClose={() => setEdit(null)} onSaved={load} />}
     </div>
+  );
+}
+
+/** People no longer working with the business: kept for history, out of the everyday list. */
+function ArchivedPeople({ people, onChange }: { people: PersonRow[]; onChange: () => void }) {
+  const t = useT();
+  const [confirm, setConfirm] = useState<PersonRow | null>(null);
+  if (!people.length) return null;
+  return (
+    <details className="retired-devices" style={{ margin: '14px 16px 12px' }}>
+      <summary className="section-title" style={{ cursor: 'pointer' }}>
+        {t('pp.archivedPeople')} ({people.length})
+      </summary>
+      <p className="hint" style={{ margin: '6px 0 2px' }}>{t('pp.archivedHint')}</p>
+      <div className="list" style={{ marginTop: 8 }}>
+        {people.map((p) => (
+          <div key={p.id} className="list-item" style={{ opacity: 0.8 }}>
+            <Monogram name={p.name} id={p.id} />
+            <span style={{ flex: 1 }}>
+              <strong>{p.name}</strong>
+              <div className="hint">
+                {t(`role.${p.role}`)} · <span className="pill">{t('pp.archived')}</span>
+              </div>
+            </span>
+            <button className="btn btn-sm" onClick={() => setConfirm(p)}>
+              {t('pp.reactivate')}
+            </button>
+          </div>
+        ))}
+      </div>
+      {confirm && (
+        <Sheet
+          title={t('pp.reactivatePersonTitle', { name: confirm.name })}
+          onClose={() => setConfirm(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setConfirm(null)}>
+                {t('c.cancel')}
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  if (await call('PATCH', `/admin/people/${confirm.id}`, { active: true })) {
+                    toast(t('pp.reactivatedPersonToast', { name: confirm.name }));
+                    setConfirm(null);
+                    onChange();
+                  }
+                }}
+              >
+                {t('pp.reactivate')}
+              </button>
+            </>
+          }
+        >
+          <p className="soft">{t('pp.reactivatePersonBody', { name: confirm.name })}</p>
+        </Sheet>
+      )}
+    </details>
   );
 }
 
@@ -288,7 +346,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
   const [revokes, setRevokes] = useState<string[]>(person?.revokes ?? []);
   const [pin, setPin] = useState('');
   const [allowHere, setAllowHere] = useState(false);
-  const [active, setActive] = useState(person?.active ?? true);
+  const [archiving, setArchiving] = useState(false);
   const [busy, setBusy] = useState(false);
   const policy = pin ? pinPolicyError(role, pin) : null;
   const base = ROLE_CAPABILITIES[role];
@@ -309,7 +367,7 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
         onClose();
       }
     } else {
-      const ok = await call('PATCH', `/admin/people/${person.id}`, { name: name.trim(), role, active, locationId: locationId || null, grants, revokes });
+      const ok = await call('PATCH', `/admin/people/${person.id}`, { name: name.trim(), role, locationId: locationId || null, grants, revokes });
       if (ok && pin) await call('POST', `/admin/people/${person.id}/pin`, { pin });
       if (ok) {
         toast(t('pp.saved'));
@@ -369,11 +427,6 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
           <input type="checkbox" checked={allowHere} onChange={(e) => setAllowHere(e.target.checked)} /> {t('pp.allowHere')}
         </label>
       )}
-      {person && person.id !== user!.id && (
-        <label className="check">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t('pp.switchedOn')}
-        </label>
-      )}
       {person && (person.hardLocked || (person.lockedUntil && Date.parse(person.lockedUntil) > Date.now())) && (
         <div className="error-box row-between">
           <span>{t('pp.lockedAfter', { n: person.failedCount })}</span>
@@ -425,6 +478,40 @@ function PersonSheet({ person, devices, onClose, onSaved }: { person: PersonRow 
               </button>
             </div>
           ))}
+        </div>
+      )}
+      {person && person.active && person.id !== user!.id && (
+        <div className="stack-sm" style={{ borderTop: '1px dashed var(--rule-strong)', paddingTop: 14 }}>
+          {!archiving ? (
+            <button className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start', color: 'var(--hibiscus)' }} onClick={() => setArchiving(true)}>
+              {t('pp.archive')}
+            </button>
+          ) : (
+            <div className="error-box stack-sm" role="alert">
+              <strong>{t('pp.archiveTitle', { name: person.name })}</strong>
+              <span>{t('pp.archiveBody', { name: person.name })}</span>
+              <div className="row">
+                <button
+                  className="btn btn-sm btn-danger"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    if (await call('PATCH', `/admin/people/${person.id}`, { active: false })) {
+                      toast(t('pp.archivedToast', { name: person.name }));
+                      onSaved();
+                      onClose();
+                    }
+                    setBusy(false);
+                  }}
+                >
+                  {t('pp.archive')}
+                </button>
+                <button className="btn btn-sm btn-ghost" onClick={() => setArchiving(false)}>
+                  {t('c.cancel')}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Sheet>

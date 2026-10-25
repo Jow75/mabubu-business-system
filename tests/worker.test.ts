@@ -1043,6 +1043,56 @@ describe('account lifecycle: a returning account is not a returning device', () 
     expect(dup.status).toBe(409);
   });
 
+  it('a recognised device signing in again (restart, reload, repeated attempts) never makes another device row', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    const devicesBefore = count('SELECT COUNT(*) AS n FROM devices');
+    for (let i = 0; i < 5; i++) expect((await signIn('Amina', '4770', a.dev)).status).toBe(200);
+    await Promise.all([signIn('Amina', '4770', a.dev), signIn('Amina', '4770', a.dev)]);
+    expect(count('SELECT COUNT(*) AS n FROM devices')).toBe(devicesBefore);
+    expect(count('SELECT COUNT(*) AS n FROM device_access WHERE device_id = ?', a.dev.deviceId)).toBe(1);
+    expect(count("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'device_requested' AND device_id = ?", a.dev.deviceId)).toBe(1);
+    // Only one session stays live for this person on this device.
+    expect(count('SELECT COUNT(*) AS n FROM sessions WHERE device_id = ? AND revoked_at IS NULL', a.dev.deviceId)).toBe(1);
+  });
+
+  it('archiving a person: no sign-in, sessions end, waiting requests close, history untouched; reactivating is separate', async () => {
+    const a = await approvedWorker('Amina', '4770');
+    // A take of pieces the store does not hold is refused by the rules but still kept in the log: history either way.
+    const take = mk('worker.issue', { workerId: a.id, locationId: 'loc-com', workDate: new Date().toISOString().slice(0, 10), lines: [{ garmentTypeId: 'gt-haf', qty: 2 }] }, a.id, a.dev.deviceId);
+    await pushOps(a.token, [take]);
+    const opsBefore = count('SELECT COUNT(*) AS n FROM ops WHERE actor_id = ?', a.id);
+    expect(opsBefore).toBe(1);
+    const otherPhone = device('Amina second phone');
+    expect((await signIn('Amina', '4770', otherPhone)).status).toBe(202);
+
+    const r = await call<PersonRow>('PATCH', `/api/admin/people/${a.id}`, { active: false }, owner.token);
+    expect(r.status).toBe(200);
+    expect(r.body.active).toBe(false);
+    expect((await call('GET', '/api/auth/me', undefined, a.token)).status).toBe(401);
+    expect(((await signIn('Amina', '4770', a.dev)).body as { error: string }).error).toBe('disabled');
+    expect((env.DB.raw.prepare('SELECT status FROM device_access WHERE device_id = ?').get(otherPhone.deviceId) as { status: string }).status).toBe('denied');
+    expect(count('SELECT COUNT(*) AS n FROM ops WHERE actor_id = ?', a.id)).toBe(opsBefore);
+    expect(count('SELECT COUNT(*) AS n FROM users WHERE id = ?', a.id)).toBe(1);
+    expect(events('person_archived')).toHaveLength(1);
+    // Her approved device is not changed by archiving the person.
+    expect((env.DB.raw.prepare('SELECT revoked_at, retired_at FROM devices WHERE id = ?').get(a.dev.deviceId) as Record<string, unknown>)).toEqual({ revoked_at: null, retired_at: null });
+    // Still listed (for history), marked archived.
+    const people = await call<PeopleResponse>('GET', '/api/admin/people', undefined, owner.token);
+    expect(people.body.people.find((p) => p.id === a.id)?.active).toBe(false);
+
+    const back = await call<PersonRow>('PATCH', `/api/admin/people/${a.id}`, { active: true }, owner.token);
+    expect(back.body.active).toBe(true);
+    expect(events('person_reactivated')).toHaveLength(1);
+    expect((await signIn('Amina', '4770', a.dev)).status).toBe(200);
+  });
+
+  it('the owner cannot archive their own account, and the last owner is always kept', async () => {
+    const self = await call<{ error: string }>('PATCH', `/api/admin/people/${owner.id}`, { active: false }, owner.token);
+    expect(self.status).toBe(400);
+    expect(self.body.error).toBe('own_account');
+    expect(count("SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND active = 1")).toBe(1);
+  });
+
   it('a worker cannot create people, promote themselves, approve devices or export', async () => {
     const a = await approvedWorker('Amina', '4770');
     expect((await call('POST', '/api/admin/people', { name: 'Boss', role: 'owner', pin: '583920', locationId: null, grants: [], revokes: [], allowOnDeviceId: null }, a.token)).status).toBe(403);

@@ -144,6 +144,7 @@ export async function updatePerson(env: Env, session: Session, id: string, reque
   // Only an owner may promote anyone to owner (defence in depth; see createPerson).
   if (b.role === 'owner' && session.user.role !== 'owner') throw new HttpError(403, 'forbidden', 'Only an owner can make someone an owner.');
   const u = await getUser(env, id);
+  if (b.active === false && id === session.user.id) throw new HttpError(400, 'own_account', 'You cannot archive your own account.');
   const losingOwner = u.role === 'owner' && u.active && ((b.role && b.role !== 'owner') || b.active === false);
   if (losingOwner && (await activeOwnerCount(env)) <= 1) {
     throw new HttpError(400, 'last_owner', 'There must always be at least one active owner.');
@@ -169,7 +170,20 @@ export async function updatePerson(env: Env, session: Session, id: string, reque
     ),
     eventStmt(env, 'person_updated', { userId: id, actorId: session.user.id, detail: { changes: b } }),
   ];
+  // Archiving a person (active → off) is separate from retiring their devices:
+  // they cannot sign in or be picked for new work, their sessions end, and any
+  // device request still waiting for them is closed. Nothing they recorded is
+  // touched, and reactivating is a separate, logged action.
+  const archiving = b.active === false && Boolean(u.active);
+  const reactivating = b.active === true && !u.active;
   if (b.active === false) stmts.push(env.DB.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').bind(now, id));
+  if (archiving) {
+    stmts.push(
+      env.DB.prepare("UPDATE device_access SET status = 'denied', decided_at = ?, decided_by = ? WHERE user_id = ? AND status = 'pending'").bind(now, session.user.id, id),
+      eventStmt(env, 'person_archived', { userId: id, actorId: session.user.id, detail: { name: u.name, role: u.role } }),
+    );
+  }
+  if (reactivating) stmts.push(eventStmt(env, 'person_reactivated', { userId: id, actorId: session.user.id, detail: { name: u.name, role: u.role } }));
   await env.DB.batch(stmts);
   return json(toPerson(await getUser(env, id)));
 }

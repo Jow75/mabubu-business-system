@@ -147,6 +147,7 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^Invalid request\.$/, 'err.invalidRequest', []],
   [/^Device not found\.$/, 'err.deviceNotFound', []],
   [/^You cannot block or retire the device you are using\.$/, 'err.ownDevice', []],
+  [/^You cannot archive your own account\.$/, 'err.ownAccount', []],
   [/^The business was just set up from another device\. Try again to recover owner access\.$/, 'err.setupRace', []],
   [/^Another device was saving at the same moment\. Try again\.$/, 'err.busy', []],
   [/^Unknown vendor\.$/, 'err.unknownVendor', []],

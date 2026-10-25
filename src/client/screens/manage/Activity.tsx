@@ -148,7 +148,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
   );
 }
 
-const EVENTS = new Set(['login_ok', 'login_wrong_code', 'login_unknown_name', 'account_locked', 'login_disabled', 'login_device_blocked', 'login_device_denied', 'device_requested', 'device_approved', 'device_denied', 'device_revoked', 'device_blocked', 'device_unblocked', 'device_mismatch', 'logout', 'setup_owner', 'setup_recover_owner', 'setup_wrong_key', 'person_created', 'person_updated', 'pin_reset', 'person_unlocked', 'report_exported', 'backup_exported']);
+const EVENTS = new Set(['login_ok', 'login_wrong_code', 'login_unknown_name', 'account_locked', 'login_disabled', 'login_device_blocked', 'login_device_denied', 'device_requested', 'device_approved', 'device_denied', 'device_revoked', 'device_blocked', 'device_unblocked', 'device_mismatch', 'logout', 'setup_owner', 'setup_recover_owner', 'setup_wrong_key', 'person_created', 'person_updated', 'pin_reset', 'person_unlocked', 'report_exported', 'backup_exported', 'device_retired', 'device_reactivated', 'person_archived', 'person_reactivated', 'cutover_backup', 'cutover_completed']);
 const BAD = new Set(['login_wrong_code', 'login_unknown_name', 'account_locked', 'device_mismatch', 'setup_wrong_key', 'login_device_blocked', 'login_device_denied']);
 
 function SignIns() {

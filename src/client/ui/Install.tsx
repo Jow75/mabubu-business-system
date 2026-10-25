@@ -35,48 +35,83 @@ export function InstallSection() {
             </button>
           ) : (
             <p className="hint" style={{ margin: 0 }}>
-              {t('inst.how')}
+              {howText(platform(), t)}
             </p>
           )}
         </>
       )}
+      <p className="hint" style={{ margin: 0 }}>
+        {t('inst.facts')}
+      </p>
     </section>
   );
 }
 
-/** A one-line, dismissible offer on the overview, shown only when the browser can install right now. */
+type Platform = 'android' | 'ios' | 'computer';
+function platform(): Platform {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/.test(ua)) return 'ios';
+  return 'computer';
+}
+
+function readDismissed(): boolean {
+  try {
+    return localStorage.getItem(DISMISS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The offer to install, shown after sign-in (overview and the worker's Today)
+ * until it is installed or the person taps Later — that choice is remembered on
+ * this device and the same help stays under Me. When the browser has offered an
+ * install, the button opens the browser's own dialog; otherwise "How to install"
+ * shows the steps for this kind of device. Never blocks anything, and never
+ * claims that installing keeps the device's identity safe from a data clear.
+ */
 export function InstallBanner() {
   const { canInstall, installed } = useInstall();
   const t = useT();
-  const [dismissed, setDismissed] = useState(() => {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const [how, setHow] = useState(false);
+  if (installed || dismissed) return null;
+  const kind = platform();
+  const later = () => {
+    setDismissed(true);
     try {
-      return localStorage.getItem(DISMISS_KEY) === '1';
+      localStorage.setItem(DISMISS_KEY, '1');
     } catch {
-      return false;
+      /* storage unavailable: the offer just returns next time */
     }
-  });
-  if (!canInstall || installed || dismissed) return null;
+    toast(t('inst.laterNote'));
+  };
   return (
-    <div className="info-box row-between" style={{ flexWrap: 'wrap', gap: 10 }}>
-      <span>{t('inst.title')}</span>
-      <span className="row" style={{ gap: 6 }}>
-        <button className="btn btn-sm btn-primary" onClick={() => void install(t)}>
-          {t('inst.button')}
-        </button>
-        <button
-          className="btn btn-sm btn-ghost"
-          onClick={() => {
-            setDismissed(true);
-            try {
-              localStorage.setItem(DISMISS_KEY, '1');
-            } catch {
-              /* storage unavailable: the banner just returns next time */
-            }
-          }}
-        >
-          {t('inst.notNow')}
+    <section className="info-box install-offer stack-sm" aria-label={t('inst.title')}>
+      <strong>{kind === 'computer' ? t('inst.bannerComputer') : t('inst.bannerPhone')}</strong>
+      <span>{t('inst.bannerBody')}</span>
+      {how && <span className="hint">{howText(kind, t)}</span>}
+      <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {canInstall ? (
+          <button className="btn btn-sm btn-primary" onClick={() => void install(t)}>
+            <Icon name="plus" size={16} /> {t('inst.button')}
+          </button>
+        ) : (
+          !how && (
+            <button className="btn btn-sm btn-primary" onClick={() => setHow(true)}>
+              {t('inst.howButton')}
+            </button>
+          )
+        )}
+        <button className="btn btn-sm btn-ghost" onClick={later}>
+          {t('inst.later')}
         </button>
       </span>
-    </div>
+    </section>
   );
+}
+
+function howText(kind: Platform, t: ReturnType<typeof useT>): string {
+  return kind === 'android' ? t('inst.howAndroid') : kind === 'ios' ? t('inst.howIos') : t('inst.how');
 }
