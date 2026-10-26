@@ -156,12 +156,19 @@ function errorText(e: unknown, t: T): string {
   return t('c.somethingWrong');
 }
 
+/** The code itself was not the problem (no connection, a server fault): the digits stay so Enter can try again. */
+function keepsCode(e: unknown): boolean {
+  return !(e instanceof ApiError) || e.offline || e.status >= 500;
+}
+
+type PinError = { text: string; keep: boolean } | null;
+
 type OnPending = (name: string, pin: string, code: string, role: Role) => void;
 
 function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () => void; onPending: OnPending }) {
   const t = useT();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PinError>(null);
   const submit = useCallback(
     async (pin: string) => {
       setBusy(true);
@@ -170,7 +177,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         const r = await store.unlock(profile, pin);
         if (r?.status === 'pending') onPending(profile.name, pin, r.deviceCode, r.role);
       } catch (e) {
-        setError(errorText(e, t));
+        setError({ text: errorText(e, t), keep: keepsCode(e) });
       } finally {
         setBusy(false);
       }
@@ -187,7 +194,7 @@ function PinStep({ profile, onBack, onPending }: { profile: Profile; onBack: () 
         <h2 className="page-title">{profile.name}</h2>
         <span className="muted">{profile.needsOnline ? t('auth.enterCodeOnline', { reason: errText(profile.needsOnline) }) : t('auth.enterCode')}</span>
       </div>
-      <PinPad onSubmit={submit} busy={busy} error={error} role={profile.role} onCancel={onBack} />
+      <PinPad onSubmit={submit} busy={busy} error={error?.text} keepOnError={error?.keep} role={profile.role} onCancel={onBack} />
       <RemoveProfile profile={profile} onRemoved={onBack} />
     </div>
   );
@@ -235,7 +242,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
   const [name, setName] = useState(tempEnded?.unsent ? tempEnded.name : '');
   const [stage, setStage] = useState<'name' | 'pin'>('name');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PinError>(null);
   const submit = useCallback(
     async (pin: string) => {
       setBusy(true);
@@ -244,7 +251,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
         const r = await store.signIn(name.trim(), pin);
         if (r.status === 'pending') onPending(name.trim(), pin, r.deviceCode, r.role);
       } catch (e) {
-        setError(errorText(e, t));
+        setError({ text: errorText(e, t), keep: keepsCode(e) });
       } finally {
         setBusy(false);
       }
@@ -292,7 +299,7 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
             <h2 className="page-title">{name}</h2>
             <span className="muted">{t('auth.enterCode')}</span>
           </div>
-          <PinPad onSubmit={submit} busy={busy} error={error} role={null} onCancel={() => setStage('name')} />
+          <PinPad onSubmit={submit} busy={busy} error={error?.text} keepOnError={error?.keep} role={null} onCancel={() => setStage('name')} />
         </div>
       )}
     </div>

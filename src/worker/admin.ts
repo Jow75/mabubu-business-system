@@ -14,6 +14,18 @@ export function requireCap(session: Session, cap: Capability) {
   if (!session.user.caps.includes(cap)) throw new HttpError(403, 'forbidden', 'You do not have permission for this.');
 }
 
+/**
+ * The owner's temporary sign-in (ADR-006, amended 26 Oct) may look at People &
+ * devices and end temporary sign-ins: both only protect the account. Changing
+ * anything there — approving a device, adding a person, a new code, blocking —
+ * still needs users.manage, which a temporary sign-in never carries, so a code
+ * seen over the owner's shoulder can never become a permanent device.
+ */
+function requireOwnerView(session: Session) {
+  if (session.temporary && session.user.role === 'owner') return;
+  requireCap(session, 'users.manage');
+}
+
 const capList = z.array(z.enum(CAPABILITIES)).max(CAPABILITIES.length);
 const createSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -65,7 +77,7 @@ async function getUser(env: Env, id: string): Promise<UserRow> {
 }
 
 export async function listPeople(env: Env, session: Session): Promise<Response> {
-  requireCap(session, 'users.manage');
+  requireOwnerView(session);
   const [users, devices, access, temps] = await env.DB.batch([
     env.DB.prepare('SELECT * FROM users ORDER BY active DESC, name'),
     env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices ORDER BY created_at DESC'),
@@ -107,9 +119,9 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
 
 const endTemporarySchema = z.object({ deviceId: z.string().max(64), userId: z.string().max(64) });
 
-/** End a temporary sign-in from one of the owner's own devices (ADR-006): for a computer left signed in. */
+/** End a temporary sign-in (ADR-006): for a computer left signed in. From the owner's own device or from another temporary sign-in. */
 export async function endTemporary(env: Env, session: Session, request: Request): Promise<Response> {
-  requireCap(session, 'users.manage');
+  requireOwnerView(session);
   const parsed = endTemporarySchema.safeParse(await readJson(request));
   if (!parsed.success) throw new HttpError(400, 'invalid_request', 'Invalid request.');
   const { deviceId, userId } = parsed.data;

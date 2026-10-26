@@ -8,8 +8,11 @@
 //
 // The number row counts by the key's place, not the character it types: on a
 // French (AZERTY) keyboard those keys type & é " ' ( - è _ ç à without Shift.
-// Shortcuts with Ctrl, Alt or ⌘ are left to the browser, and a held-down Enter
-// does not send the code again.
+// Shortcuts with Ctrl, Alt or ⌘ are left to the browser. A key held down does
+// not repeat on this screen: a digit held a moment too long would otherwise
+// add itself two or three times (seen with real key events: 1, 2 held, 3 gave
+// six digits), and a held-down Enter does not send the code again. Holding
+// Backspace still removes digit after digit.
 
 import { MAX_PIN_LENGTH } from '../../shared/permissions';
 
@@ -22,22 +25,23 @@ export interface PinKeyEvent {
   altKey?: boolean;
 }
 
-export type PinAction = { kind: 'digit'; digit: string } | { kind: 'back' } | { kind: 'clear' } | { kind: 'submit' } | { kind: 'cancel' };
+/** `ignore`: a key that belongs to the code screen (a repeat) but does nothing — still kept from the browser. */
+export type PinAction = { kind: 'digit'; digit: string } | { kind: 'back' } | { kind: 'clear' } | { kind: 'submit' } | { kind: 'cancel' } | { kind: 'ignore' };
 
 export function pinAction(e: PinKeyEvent): PinAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   // The key's place: the number row on any layout (AZERTY included), and the
   // keypad with NumLock off, where the key reads Insert/End/… but the code still names the digit.
   const place = /^(?:Digit|Numpad)(\d)$/.exec(e.code ?? '');
-  if (place) return { kind: 'digit', digit: place[1]! };
-  if (/^\d$/.test(e.key)) return { kind: 'digit', digit: e.key };
+  const digit = place ? place[1]! : /^\d$/.test(e.key) ? e.key : null;
+  if (digit !== null) return e.repeat ? { kind: 'ignore' } : { kind: 'digit', digit };
   switch (e.key) {
     case 'Backspace':
       return { kind: 'back' };
     case 'Delete':
       return { kind: 'clear' };
     case 'Enter':
-      return e.repeat ? null : { kind: 'submit' };
+      return e.repeat ? { kind: 'ignore' } : { kind: 'submit' };
     case 'Escape':
       return { kind: 'cancel' };
     default:
@@ -62,4 +66,13 @@ export function nextPin(pin: string, a: PinAction): string {
 /** Digits from pasted text (a password manager, or a code copied from a note), up to the maximum length. */
 export function pastedPin(pin: string, text: string): string {
   return (pin + text.replace(/\D/g, '')).slice(0, MAX_PIN_LENGTH);
+}
+
+/**
+ * The code after the field's own text changed without a key we handle — a
+ * phone keyboard (its keys arrive as "Unidentified"), paste, or autofill:
+ * only its digits, up to the maximum length.
+ */
+export function fieldPin(value: string): string {
+  return value.replace(/\D/g, '').slice(0, MAX_PIN_LENGTH);
 }

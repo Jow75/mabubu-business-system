@@ -1184,12 +1184,13 @@ describe('temporary owner sign-in on a computer that is not approved (ADR-006)',
     const settings = await pushOps(token, [mk('settings.set', { localCountLabel: 'local count' }, owner.id, pc.deviceId)]);
     expect(settings.body.results[0]!.status).toBe('rejected');
     const refused: [string, string, unknown?][] = [
-      ['GET', '/api/admin/people'],
       ['POST', '/api/admin/people', { name: 'Second Owner', role: 'owner', pin: '582047', locationId: null, grants: [], revokes: [], allowOnDeviceId: pc.deviceId }],
       ['POST', '/api/admin/access', { deviceId: pc.deviceId, userId: owner.id, decision: 'approve' }],
       ['PATCH', `/api/admin/devices/${ownerDev.deviceId}`, { blocked: true }],
       ['POST', `/api/admin/people/${owner.id}/pin`, { pin: '582047' }],
-      ['POST', '/api/admin/temporary/end', { deviceId: pc.deviceId, userId: owner.id }],
+      ['PATCH', `/api/admin/people/${owner.id}`, { name: 'Renamed' }],
+      ['POST', `/api/admin/people/${owner.id}/unlock`, {}],
+      ['PATCH', `/api/admin/devices/${pc.deviceId}`, { retired: true }],
       ['GET', '/api/admin/export'],
       ['GET', '/api/admin/golive'],
       ['POST', '/api/admin/golive/backup', {}],
@@ -1198,6 +1199,43 @@ describe('temporary owner sign-in on a computer that is not approved (ADR-006)',
     // Still one owner, and this computer is still not approved.
     expect(one("SELECT COUNT(*) AS n FROM users WHERE role = 'owner'").n).toBe(1);
     expect(one("SELECT COUNT(*) AS n FROM device_access WHERE device_id = ? AND status = 'approved'", pc.deviceId).n).toBe(0);
+  });
+
+  it('may look at People & devices and end temporary sign-ins, but changes nothing there (amended 26 Oct)', async () => {
+    const pc = device('Cybercafe computer');
+    const other = device('Library computer');
+    const token = tokenOf(await temporary('Jowg', '470915', pc));
+    tokenOf(await temporary('Jowg', '470915', other));
+    const before = JSON.stringify([
+      env.DB.raw.prepare('SELECT * FROM users ORDER BY id').all(),
+      env.DB.raw.prepare('SELECT * FROM devices ORDER BY id').all(),
+      env.DB.raw.prepare('SELECT * FROM device_access ORDER BY device_id, user_id').all(),
+    ]);
+    const people = await call<PeopleResponse>('GET', '/api/admin/people', undefined, token);
+    expect(people.status).toBe(200);
+    expect(people.body.people.map((p: PersonRow) => p.name)).toEqual(['Jowg']);
+    expect((people.body.temporary ?? []).filter((x) => x.live)).toHaveLength(2);
+    // Looking changed nothing: no person, device or approval.
+    const after = JSON.stringify([
+      env.DB.raw.prepare('SELECT * FROM users ORDER BY id').all(),
+      env.DB.raw.prepare('SELECT * FROM devices ORDER BY id').all(),
+      env.DB.raw.prepare('SELECT * FROM device_access ORDER BY device_id, user_id').all(),
+    ]);
+    expect(after).toBe(before);
+    // Ending the sign-in left on another computer works and is logged.
+    expect((await call('POST', '/api/admin/temporary/end', { deviceId: other.deviceId, userId: owner.id }, token)).status).toBe(200);
+    expect(one("SELECT COUNT(*) AS n FROM sessions WHERE device_id = ? AND temporary = 1 AND revoked_at IS NULL", other.deviceId).n).toBe(0);
+    expect(one("SELECT actor_id FROM auth_events WHERE kind = 'temporary_ended' ORDER BY id DESC LIMIT 1").actor_id).toBe(owner.id);
+    // A manager's ordinary session still cannot look.
+    const mamaRow = await createPerson('Mama', 'manager', '582613');
+    const phone = device('Manager phone');
+    expect((await signIn('Mama', '582613', phone)).status).toBe(202);
+    await call('POST', '/api/admin/access', { deviceId: phone.deviceId, userId: mamaRow.id, decision: 'approve' }, owner.token);
+    const mama = await signIn('Mama', '582613', phone);
+    expect(mama.status).toBe(200);
+    if (mama.body.status !== 'ok') throw new Error('expected ok');
+    expect((await call('GET', '/api/admin/people', undefined, mama.body.token)).status).toBe(403);
+    expect((await call('POST', '/api/admin/temporary/end', { deviceId: pc.deviceId, userId: owner.id }, mama.body.token)).status).toBe(403);
   });
 
   it('is for the owner only: a worker or a manager is refused, gets no session, and still waits for approval', async () => {

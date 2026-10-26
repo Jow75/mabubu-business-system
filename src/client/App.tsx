@@ -2,11 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { store, useApp } from './lib/store';
 import { href, navigate, useRoute } from './lib/router';
 import type { Capability } from '../shared/permissions';
+import type { SessionUser } from '../shared/api';
 import { applyLang, useT } from './lib/i18n';
 import type { Key } from '../shared/i18n';
 import { LanguageChoice } from './screens/auth/Language';
 import { DeraMark, Icon, type IconName } from './ui/Icon';
-import { LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
+import { Empty, LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
 import { TemporaryRibbon } from './ui/Temporary';
 import { TEMP_SIGNIN } from '../shared/api';
 import { StorageBlocked, Welcome } from './screens/auth/Welcome';
@@ -37,6 +38,8 @@ interface NavItem {
   label: Key;
   icon: IconName;
   cap?: Capability | Capability[];
+  /** Also open, to look at only, in the owner's temporary sign-in (ADR-006). */
+  temporaryOwner?: boolean;
 }
 
 const NAV: { group: Key; items: NavItem[] }[] = [
@@ -63,7 +66,7 @@ const NAV: { group: Key; items: NavItem[] }[] = [
     items: [
       { to: '/activity', label: 'nav.activity', icon: 'clock', cap: 'audit.view' },
       { to: '/catalogue', label: 'nav.catalogue', icon: 'tag' },
-      { to: '/people', label: 'nav.people', icon: 'key', cap: 'users.manage' },
+      { to: '/people', label: 'nav.people', icon: 'key', cap: 'users.manage', temporaryOwner: true },
       { to: '/settings', label: 'nav.settings', icon: 'gear' },
       { to: '/counter', label: 'nav.counter', icon: 'coins' },
       { to: '/convert', label: 'nav.convert', icon: 'swap' },
@@ -74,6 +77,37 @@ const NAV: { group: Key; items: NavItem[] }[] = [
 function allowed(caps: readonly Capability[], cap?: Capability | Capability[]) {
   if (!cap) return true;
   return (Array.isArray(cap) ? cap : [cap]).some((c) => caps.includes(c));
+}
+
+function canOpen(user: SessionUser, item: NavItem) {
+  return allowed(user.caps, item.cap) || Boolean(item.temporaryOwner && user.temporary && user.role === 'owner');
+}
+
+/** Pages that need a right, by their first path part; go live is the owner's own device only. */
+const PAGE_RIGHTS: Record<string, NavItem> = {
+  ...Object.fromEntries(NAV.flatMap((g) => g.items).map((i) => [i.to.slice(1), i])),
+  golive: { to: '/golive', label: 'nav.settings', icon: 'gear', cap: 'users.manage' },
+};
+
+/**
+ * A page opened from a link or a typed address that this sign-in may not use.
+ * The server refuses it anyway; this says why in plain words, instead of an
+ * error from the server.
+ */
+function NotAvailable() {
+  const { user } = useApp();
+  const t = useT();
+  const temp = Boolean(user?.temporary);
+  return (
+    <div className="page">
+      <Empty icon="lock" title={temp ? t('guard.tempTitle') : t('guard.title')}>
+        {temp ? t('guard.tempBody') : t('guard.body')}
+      </Empty>
+      <a className="btn" style={{ alignSelf: 'flex-start' }} href={href('/')}>
+        <Icon name="left" size={17} /> {t('guard.home')}
+      </a>
+    </div>
+  );
 }
 
 function useTheme() {
@@ -93,15 +127,21 @@ function useIdleLock(active: boolean) {
   useEffect(() => {
     if (!active) return;
     let last = Date.now();
-    const bump = () => (last = Date.now());
+    const bump = () => {
+      last = Date.now();
+      store.shareActivity();
+    };
     window.addEventListener('pointerdown', bump);
     window.addEventListener('keydown', bump);
+    // Work in another tab sharing a temporary sign-in counts too.
+    const off = store.onActivity(() => (last = Date.now()));
     const t = setInterval(() => {
       if (Date.now() - last > TEMP_SIGNIN.idleMinutes * 60_000) store.idle();
     }, 30_000);
     return () => {
       window.removeEventListener('pointerdown', bump);
       window.removeEventListener('keydown', bump);
+      off();
       clearInterval(t);
     };
   }, [active]);
@@ -182,11 +222,10 @@ function ManageShell() {
   const t = useT();
   const route = useRoute();
   const [more, setMore] = useState(false);
-  const caps = user!.caps;
   const first = route.parts[0] ?? '';
   const current = (to: string) => (to === '/' ? first === '' : `/${first}` === to);
 
-  const items = NAV.flatMap((g) => g.items).filter((i) => allowed(caps, i.cap));
+  const items = NAV.flatMap((g) => g.items).filter((i) => canOpen(user!, i));
   const mobileMain = ['/', '/stock', '/days', '/shipments'].map((to) => items.find((i) => i.to === to)).filter(Boolean) as NavItem[];
 
   return (
@@ -200,7 +239,7 @@ function ManageShell() {
             <span className="brand-word">mabubu</span>
           </a>
           {NAV.map((g) => {
-            const visible = g.items.filter((i) => allowed(caps, i.cap));
+            const visible = g.items.filter((i) => canOpen(user!, i));
             if (!visible.length) return null;
             return (
               <nav key={g.group} className="nav-group" aria-label={t(g.group)}>
@@ -278,8 +317,11 @@ function ManageShell() {
 }
 
 function ManageRoutes() {
+  const { user } = useApp();
   const { parts } = useRoute();
   const [a = '', b, c] = parts;
+  const rights = PAGE_RIGHTS[a];
+  if (rights && !canOpen(user!, rights)) return <NotAvailable />;
   switch (a) {
     case '':
       return <Overview />;

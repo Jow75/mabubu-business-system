@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { MAX_PIN_LENGTH, MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
 import { useT } from '../../lib/i18n';
-import { nextPin, pastedPin, pinAction, type PinAction } from '../../lib/pin-keys';
+import { fieldPin, nextPin, pastedPin, pinAction, type PinAction } from '../../lib/pin-keys';
 import { useHoldReload } from '../../lib/update';
 
 /** Typing into a real field (a name, a note, a search) must never feed the code. */
@@ -11,26 +11,46 @@ function typingInField(target: EventTarget | null): boolean {
   return Boolean(el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
 }
 
+/** A phone or tablet: the big on-screen keypad is the way in, so the code field never opens the phone's own keyboard. */
+function touchFirst(): boolean {
+  try {
+    return matchMedia('(pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Code entry, by tapping the numbers or typing on a keyboard (see pin-keys.ts).
+ *
+ * The code lives in a real field laid over the dots: on a computer it has the
+ * focus as soon as the screen opens (with a visible ring), so the laptop's own
+ * keys — number row or numeric keypad — type into it, and clicking a keypad
+ * button keeps the focus there. On a phone the field asks for no keyboard
+ * (`inputMode="none"`), so the on-screen keypad is the only way in and no digit
+ * arrives twice. Keys pressed while the focus is somewhere neutral (the page,
+ * a button) still reach the code; keys typed into another field never do.
+ *
  * When the role is known (a saved profile), the dots and hint show that role's
  * minimum. When it is not known yet (someone typing their name on a new
- * device), we show the general rule and name the owner/manager range, so an
- * owner is never left thinking a 6-digit code is rejected because four circles
- * appeared. A dashed circle after the minimum shows more digits are allowed,
- * which is why the code is never sent by itself at six digits: Enter (or the
- * Enter button) sends it, so seven- and eight-digit codes still work.
+ * device), we show the general rule and name the owner/manager range. A dashed
+ * circle after the minimum shows more digits are allowed, which is why the
+ * code is never sent by itself at six digits: Enter (or the Enter button)
+ * sends it, so seven- and eight-digit codes still work.
  */
 export function PinPad({
   onSubmit,
   busy,
   error,
+  keepOnError,
   role,
   onCancel,
 }: {
   onSubmit: (pin: string) => void;
   busy?: boolean;
   error?: string | null;
+  /** The error was not about the code (no connection, server unreachable): keep the digits so Enter can try again. */
+  keepOnError?: boolean;
   role?: Role | null;
   /** Escape on an empty code: go back a step. */
   onCancel?: () => void;
@@ -38,6 +58,8 @@ export function PinPad({
   const t = useT();
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(false);
+  const [touch] = useState(touchFirst);
+  const field = useRef<HTMLInputElement>(null);
   const minLength = role ? MIN_PIN_LENGTH[role] : MIN_PIN_LENGTH.worker;
   // The latest code and state for the key handler, and whether this code was
   // already sent: a held-down key, a double tap or Enter on a focused button
@@ -55,18 +77,26 @@ export function PinPad({
     setPin(next);
   }, []);
 
+  const focusField = useCallback(() => {
+    if (!touch) field.current?.focus({ preventScroll: true });
+  }, [touch]);
+
   useEffect(() => {
     if (!busy) sent.current = false;
   }, [busy]);
 
+  // On a computer the keyboard types into the code at once.
+  useEffect(focusField, [focusField]);
+
   useEffect(() => {
     if (error) {
       setShake(true);
-      update('');
+      if (!keepOnError) update('');
+      focusField();
       const t = setTimeout(() => setShake(false), 400);
       return () => clearTimeout(t);
     }
-  }, [error, update]);
+  }, [error, keepOnError, update, focusField]);
 
   // Nothing of the code stays in memory once the screen closes.
   useEffect(() => () => void (pinRef.current = ''), []);
@@ -74,6 +104,7 @@ export function PinPad({
   const act = useCallback(
     (a: PinAction) => {
       const { busy, minLength, onSubmit, onCancel } = live.current;
+      if (a.kind === 'ignore') return;
       if (a.kind === 'submit') {
         if (busy || sent.current || pinRef.current.length < minLength) return;
         sent.current = true;
@@ -86,6 +117,7 @@ export function PinPad({
     [update],
   );
 
+  // Keys and paste while the focus is not in any field (the page, a keypad button).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || typingInField(e.target)) return;
@@ -94,6 +126,7 @@ export function PinPad({
       // Handled here, so a focused keypad button does not also act on Enter.
       e.preventDefault();
       act(a);
+      focusField();
     };
     const onPaste = (e: ClipboardEvent) => {
       if (typingInField(e.target) || live.current.busy) return;
@@ -108,9 +141,11 @@ export function PinPad({
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('paste', onPaste);
     };
-  }, [act, update]);
+  }, [act, update, focusField]);
 
   const press = (d: string) => act({ kind: 'digit', digit: d });
+  // A click on a keypad button leaves the focus in the code, so the keyboard keeps working.
+  const keepFocus = touch ? undefined : (e: MouseEvent) => e.preventDefault();
   const ready = pin.length >= minLength;
   // Dots: at least the role minimum, growing as the person types; a dashed
   // circle once the minimum is reached (and below the maximum) makes clear that
@@ -120,10 +155,36 @@ export function PinPad({
   const slots = base + (showOptional ? 1 : 0);
   return (
     <div className="pin-entry stack">
-      <div className={`pin-dots ${shake ? 'shake' : ''}`} role="status" aria-live="polite" aria-label={t('pin.digits', { n: pin.length })}>
-        {Array.from({ length: slots }, (_, i) => (
-          <span key={i} className={i < pin.length ? 'on' : showOptional && i === slots - 1 ? 'opt' : ''} />
-        ))}
+      <div className="pin-display">
+        <div className={`pin-dots ${shake ? 'shake' : ''}`} role="status" aria-live="polite" aria-label={t('pin.digits', { n: pin.length })}>
+          {Array.from({ length: slots }, (_, i) => (
+            <span key={i} className={i < pin.length ? 'on' : showOptional && i === slots - 1 ? 'opt' : ''} />
+          ))}
+        </div>
+        <input
+          ref={field}
+          className="pin-field"
+          type="text"
+          inputMode={touch ? 'none' : 'numeric'}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="go"
+          aria-label={t('pin.field')}
+          value={pin}
+          readOnly={busy}
+          onKeyDown={(e) => {
+            const a = pinAction(e.nativeEvent);
+            if (!a) return;
+            e.preventDefault();
+            act(a);
+          }}
+          // A phone keyboard, paste or autofill: whatever arrives, only its digits count.
+          onChange={(e) => {
+            if (!busy) update(fieldPin(e.target.value));
+          }}
+        />
       </div>
       <p className="hint pin-hint">
         {role ? t('pin.lenHint', { min: minLength, max: MAX_PIN_LENGTH }) : t('pin.lenAny', { w: MIN_PIN_LENGTH.worker, o: MIN_PIN_LENGTH.owner, max: MAX_PIN_LENGTH })}
@@ -135,17 +196,17 @@ export function PinPad({
       )}
       <div className="pinpad" role="group" aria-label={t('pin.keypad')}>
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-          <button key={d} type="button" onClick={() => press(d)} disabled={busy}>
+          <button key={d} type="button" onMouseDown={keepFocus} onClick={() => press(d)} disabled={busy}>
             {d}
           </button>
         ))}
-        <button type="button" className="fn" onClick={() => act({ kind: 'back' })} disabled={busy || !pin} aria-label={t('pin.deleteLast')}>
+        <button type="button" className="fn" onMouseDown={keepFocus} onClick={() => act({ kind: 'back' })} disabled={busy || !pin} aria-label={t('pin.deleteLast')}>
           {t('pin.delete')}
         </button>
-        <button type="button" onClick={() => press('0')} disabled={busy}>
+        <button type="button" onMouseDown={keepFocus} onClick={() => press('0')} disabled={busy}>
           0
         </button>
-        <button type="button" className={`fn pin-enter${ready ? ' ready' : ''}`} disabled={busy || !ready} onClick={() => act({ kind: 'submit' })}>
+        <button type="button" className={`fn pin-enter${ready ? ' ready' : ''}`} onMouseDown={keepFocus} disabled={busy || !ready} onClick={() => act({ kind: 'submit' })}>
           {busy ? '…' : t('pin.enter')}
         </button>
       </div>

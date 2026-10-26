@@ -2,7 +2,7 @@
 // type 456789 and press Enter instead of clicking each digit.
 
 import { describe, expect, it } from 'vitest';
-import { nextPin, pastedPin, pinAction, type PinKeyEvent } from '../src/client/lib/pin-keys';
+import { fieldPin, nextPin, pastedPin, pinAction, type PinKeyEvent } from '../src/client/lib/pin-keys';
 import { MAX_PIN_LENGTH } from '../src/shared/permissions';
 
 const type = (keys: PinKeyEvent[], start = '') => keys.reduce((pin, k) => {
@@ -36,7 +36,21 @@ describe('PIN keyboard entry', () => {
   it('Enter (main or keypad) asks to sign in once; a held-down Enter does not repeat', () => {
     expect(pinAction({ key: 'Enter', code: 'Enter' })).toEqual({ kind: 'submit' });
     expect(pinAction({ key: 'Enter', code: 'NumpadEnter' })).toEqual({ kind: 'submit' });
-    expect(pinAction({ key: 'Enter', code: 'Enter', repeat: true })).toBeNull();
+    expect(pinAction({ key: 'Enter', code: 'Enter', repeat: true })).toEqual({ kind: 'ignore' });
+  });
+
+  it('a digit key held down a moment too long adds its digit once (keyboard auto-repeat is ignored)', () => {
+    // Reproduced on staging with real Windows key events (26 Oct): 1, 2 held ~0.6 s, 3
+    // gave six digits, so a correct code reached the server as a wrong one.
+    const held = (d: string, repeats: number, code = `Digit${d}`) => [{ key: d, code }, ...Array.from({ length: repeats }, () => ({ key: d, code, repeat: true }))];
+    expect(type([...row('1'), ...held('2', 3), ...row('3')])).toBe('123');
+    expect(type([...held('4', 5, 'Numpad4'), ...held('5', 2, 'Numpad5')])).toBe('45');
+    // A repeat is still the code screen's key: kept from the browser, it just does nothing.
+    expect(pinAction({ key: '7', code: 'Digit7', repeat: true })).toEqual({ kind: 'ignore' });
+  });
+
+  it('holding Backspace keeps removing digits', () => {
+    expect(type([...row('456789'), { key: 'Backspace', code: 'Backspace' }, { key: 'Backspace', code: 'Backspace', repeat: true }, { key: 'Backspace', code: 'Backspace', repeat: true }])).toBe('456');
   });
 
   it('Escape means cancel (the screen clears the code, or goes back when it is empty)', () => {
@@ -64,6 +78,13 @@ describe('PIN keyboard entry', () => {
   it('pasting keeps only digits, up to the maximum', () => {
     expect(pastedPin('', ' 456-789 ')).toBe('456789');
     expect(pastedPin('12', '3456789999')).toBe('12345678');
+  });
+
+  it('text arriving in the code field another way (phone keyboard, paste, autofill) keeps only its digits', () => {
+    expect(fieldPin('4567')).toBe('4567');
+    expect(fieldPin('45a6 7-')).toBe('4567');
+    expect(fieldPin('1234567890')).toBe('12345678');
+    expect(fieldPin('')).toBe('');
   });
 });
 

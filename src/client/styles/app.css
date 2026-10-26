@@ -675,6 +675,28 @@ h3 {
   color: var(--lagoon);
 }
 
+/* People & devices: every state counted on one stitched line. */
+.pp-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 0;
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px dashed var(--rule-strong);
+  border-bottom: 1px dashed var(--rule-strong);
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.pp-summary span {
+  padding: 0 12px;
+  border-left: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.pp-summary span:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
 /* Segmented control */
 .seg {
   display: inline-flex;
@@ -1395,6 +1417,44 @@ button.list-item {
 }
 .pin-dots.shake {
   animation: shake 0.35s;
+}
+/* The code field sits over the dots: it holds the focus and the typed digits,
+   the dots show them. Its own text, caret and selection are never visible. */
+.pin-display {
+  position: relative;
+  align-self: center;
+  border-radius: 14px;
+}
+.pin-field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-size: 16px; /* no zoom-on-focus on phones */
+  color: transparent;
+  caret-color: transparent;
+  background: transparent;
+  cursor: text;
+}
+/* With a keyboard and a mouse the field is a visible box, stitched while
+   waiting and indigo once it has the focus — where typing goes is never a guess. */
+@media (hover: hover) and (pointer: fine) {
+  .pin-display {
+    padding: 13px 22px;
+    min-width: 220px;
+    border: 1.5px dashed var(--rule-strong);
+    background: var(--card);
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  .pin-display:focus-within {
+    border-style: solid;
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px var(--indigo-tint);
+  }
 }
 @keyframes shake {
   20%,

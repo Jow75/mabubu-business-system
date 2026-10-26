@@ -30,8 +30,10 @@ function uaSummary(ua: string, t: T) {
 }
 
 export function PeoplePage() {
-  const { demo, online, device } = useApp();
+  const { demo, online, device, user } = useApp();
   const t = useT();
+  // The owner's temporary sign-in (ADR-006): look, and end temporary sign-ins; change nothing.
+  const viewOnly = Boolean(user?.temporary);
   const [data, setData] = useState<PeopleResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edit, setEdit] = useState<PersonRow | 'new' | null>(null);
@@ -57,23 +59,42 @@ export function PeoplePage() {
       </div>
     );
 
-  const pending = data?.devices.flatMap((d) => d.access.filter((a) => a.status === 'pending').map((a) => ({ d, a }))) ?? [];
+  const pending = data?.devices.flatMap((d) => d.access.filter((a) => a.status === 'pending' && !d.revokedAt).map((a) => ({ d, a }))) ?? [];
   const nameOf = (id: string) => data?.people.find((p) => p.id === id)?.name ?? t('pp.unknown');
+  const groups = data ? deviceGroups(data.devices, device?.deviceId ?? '') : null;
   return (
     <div className="page">
       <PageHead
         title={t('nav.people')}
         lead={t('pp.lead')}
         actions={
-          <>
-            {data && <DownloadButton build={() => peopleReport(reportCtx(), data)} />}
-            <button className="btn btn-primary" onClick={() => setEdit('new')} disabled={!data}>
-              <Icon name="plus" size={18} /> {t('pp.add')}
-            </button>
-          </>
+          viewOnly ? undefined : (
+            <>
+              {data && <DownloadButton build={() => peopleReport(reportCtx(), data)} />}
+              <button className="btn btn-primary" onClick={() => setEdit('new')} disabled={!data}>
+                <Icon name="plus" size={18} /> {t('pp.add')}
+              </button>
+            </>
+          )
         }
       />
+      {viewOnly && (
+        <div className="note-box" role="status">
+          {t('pp.tempViewOnly')}
+        </div>
+      )}
       {error && <div className="error-box">{error}</div>}
+      {data && groups && (
+        <p className="pp-summary" aria-label={t('pp.summaryLabel')}>
+          <span>{t('pp.sumPeople', { n: data.people.filter((p) => p.active).length })}</span>
+          <span>{t('pp.sumArchived', { n: data.people.filter((p) => !p.active).length })}</span>
+          <span>{t('pp.sumInUse', { n: groups.active.length })}</span>
+          <span>{t('pp.sumBlocked', { n: groups.blocked.length })}</span>
+          <span>{t('pp.sumRetired', { n: groups.retired.length })}</span>
+          <span>{t('pp.sumWaiting', { n: pending.length })}</span>
+          <span>{t('pp.sumTemp', { n: (data.temporary ?? []).filter((x) => x.live).length })}</span>
+        </p>
+      )}
       {pending.length > 0 && (
         <section className="card selvedge" style={{ paddingLeft: 6 }}>
           <div className="card-head">
@@ -89,6 +110,8 @@ export function PeoplePage() {
                   <strong>{nameOf(a.userId)}</strong> {t('pp.onDevice', { device: d.label || uaSummary(d.userAgent, t) })}
                   <div className="hint">{t('pp.asked', { time: fmtDateTime(a.requestedAt) })}</div>
                 </span>
+                {!viewOnly && (
+                  <>
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={async () => {
@@ -108,6 +131,8 @@ export function PeoplePage() {
                 >
                   {t('pp.refuse')}
                 </button>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -118,7 +143,7 @@ export function PeoplePage() {
         <section className="card">
           <div className="list">
             {data.people.filter((p) => p.active).map((p) => (
-              <button key={p.id} className="list-item" onClick={() => setEdit(p)}>
+              <button key={p.id} className="list-item" onClick={() => setEdit(p)} disabled={viewOnly}>
                 <Monogram name={p.name} id={p.id} />
                 <span style={{ flex: 1 }}>
                   <strong>{p.name}</strong>
@@ -127,14 +152,14 @@ export function PeoplePage() {
                   </div>
                 </span>
                 {(p.hardLocked || (p.lockedUntil && Date.parse(p.lockedUntil) > Date.now())) && <span className="pill red">{t('pp.locked')}</span>}
-                <Icon name="right" size={16} />
+                {!viewOnly && <Icon name="right" size={16} />}
               </button>
             ))}
           </div>
-          <ArchivedPeople people={data.people.filter((p) => !p.active)} onChange={load} />
+          <ArchivedPeople people={data.people.filter((p) => !p.active)} onChange={load} viewOnly={viewOnly} />
         </section>
       )}
-      {data && <Devices devices={data.devices} nameOf={nameOf} onChange={load} myDevice={device?.deviceId ?? ''} />}
+      {groups && <Devices groups={groups} nameOf={nameOf} onChange={load} myDevice={device?.deviceId ?? ''} viewOnly={viewOnly} />}
       {edit && data && <PersonSheet person={edit === 'new' ? null : edit} devices={data.devices} onClose={() => setEdit(null)} onSaved={load} />}
     </div>
   );
@@ -210,7 +235,7 @@ function TemporarySignIns({ rows, devices, nameOf, onChange }: { rows: Temporary
 }
 
 /** People no longer working with the business: kept for history, out of the everyday list. */
-function ArchivedPeople({ people, onChange }: { people: PersonRow[]; onChange: () => void }) {
+function ArchivedPeople({ people, onChange, viewOnly }: { people: PersonRow[]; onChange: () => void; viewOnly: boolean }) {
   const t = useT();
   const [confirm, setConfirm] = useState<PersonRow | null>(null);
   if (!people.length) return null;
@@ -230,9 +255,11 @@ function ArchivedPeople({ people, onChange }: { people: PersonRow[]; onChange: (
                 {t(`role.${p.role}`)} · <span className="pill">{t('pp.archived')}</span>
               </div>
             </span>
-            <button className="btn btn-sm" onClick={() => setConfirm(p)}>
-              {t('pp.reactivate')}
-            </button>
+            {!viewOnly && (
+              <button className="btn btn-sm" onClick={() => setConfirm(p)}>
+                {t('pp.reactivate')}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -267,16 +294,28 @@ function ArchivedPeople({ people, onChange }: { people: PersonRow[]; onChange: (
   );
 }
 
-function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]; nameOf: (id: string) => string; onChange: () => void; myDevice: string }) {
+type DeviceGroups = Record<'active' | 'blocked' | 'unused' | 'retired', DeviceRow[]>;
+
+/**
+ * Every device is in exactly one group. In use: not blocked, and someone is
+ * allowed on it or has asked to be. Temporarily blocked: can be unblocked.
+ * Not in use: computers used only for a temporary sign-in, refused or removed
+ * requests. Retired: kept for history, cannot sign in.
+ */
+function deviceGroups(devices: DeviceRow[], myDevice: string): DeviceGroups {
+  const inUse = (d: DeviceRow) => d.id === myDevice || d.access.some((a) => a.status === 'approved' || a.status === 'pending');
+  return {
+    active: devices.filter((d) => !d.retiredAt && !d.revokedAt && inUse(d)),
+    blocked: devices.filter((d) => !d.retiredAt && d.revokedAt),
+    unused: devices.filter((d) => !d.retiredAt && !d.revokedAt && !inUse(d)),
+    retired: devices.filter((d) => d.retiredAt),
+  };
+}
+
+function Devices({ groups, nameOf, onChange, myDevice, viewOnly }: { groups: DeviceGroups; nameOf: (id: string) => string; onChange: () => void; myDevice: string; viewOnly: boolean }) {
   const t = useT();
   const [confirm, setConfirm] = useState<{ device: DeviceRow; action: 'retire' | 'reactivate' } | null>(null);
-  // In use: someone is allowed on it, or has asked to be. The rest — computers
-  // used only for a temporary sign-in, refused or removed requests — are kept
-  // for the record, out of the everyday table, like retired devices.
-  const inUse = (d: DeviceRow) => d.id === myDevice || d.access.some((a) => a.status === 'approved' || a.status === 'pending');
-  const active = devices.filter((d) => !d.retiredAt && inUse(d));
-  const unused = devices.filter((d) => !d.retiredAt && !inUse(d));
-  const retired = devices.filter((d) => d.retiredAt);
+  const { active, blocked, unused, retired } = groups;
   const allowedNames = (d: DeviceRow) =>
     d.access
       .filter((a) => a.status === 'approved')
@@ -317,7 +356,7 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
               <td>{allowedNames(d)}</td>
               <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
               <td>
-                {d.id !== myDevice && (
+                {d.id !== myDevice && !viewOnly && (
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button
                       className={`btn btn-sm ${d.revokedAt ? '' : 'btn-danger'}`}
@@ -350,6 +389,17 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
         <span className="hint">{t('pp.blockHint')}</span>
       </div>
       {table(active)}
+      {blocked.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <span className="section-title">
+            {t('pp.blockedDevices')} ({blocked.length})
+          </span>
+          <p className="hint" style={{ margin: '6px 0 2px' }}>
+            {t('pp.blockedHint')}
+          </p>
+          {table(blocked)}
+        </div>
+      )}
       {unused.length > 0 && (
         <details className="retired-devices" style={{ marginTop: 14 }}>
           <summary className="section-title" style={{ cursor: 'pointer' }}>
@@ -387,9 +437,11 @@ function Devices({ devices, nameOf, onChange, myDevice }: { devices: DeviceRow[]
                     <td>{allowedNames(d)}</td>
                     <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
                     <td>
-                      <button className="btn btn-sm" onClick={() => setConfirm({ device: d, action: 'reactivate' })}>
-                        {t('pp.reactivate')}
-                      </button>
+                      {!viewOnly && (
+                        <button className="btn btn-sm" onClick={() => setConfirm({ device: d, action: 'reactivate' })}>
+                          {t('pp.reactivate')}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

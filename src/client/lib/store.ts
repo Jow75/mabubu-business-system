@@ -105,6 +105,30 @@ function keepTemporary(v: TempSignIn | null) {
   }
 }
 
+function usableTemporary(v: unknown): TempSignIn | null {
+  const t = v as Partial<TempSignIn> | null;
+  return t && typeof t.token === 'string' && typeof t.expiresAt === 'string' && Date.parse(t.expiresAt) > Date.now() && t.user?.temporary ? (t as TempSignIn) : null;
+}
+
+/**
+ * Other tabs of this browser share a live temporary sign-in (ADR-006): a link
+ * opened or pasted into a new tab continues it instead of asking for the code
+ * again — which would also have ended the first tab's sign-in, as there is one
+ * per computer. Nothing is written to the computer for this: the tabs answer
+ * each other only while they are open, and Sign out in one ends it in all.
+ */
+const TEMP_CHANNEL = 'mabubu.temporary';
+type TempMessage = { kind: 'ask' } | { kind: 'share'; temp: TempSignIn } | { kind: 'ended'; token: string } | { kind: 'activity'; token: string };
+const TEMP_ASK_MS = 350;
+
+function tempChannel(): BroadcastChannel | null {
+  try {
+    return typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(TEMP_CHANNEL);
+  } catch {
+    return null;
+  }
+}
+
 function loadPrefs(): Prefs {
   const d: Prefs = { localCount: false, scope: null, theme: 'system', lang: null };
   try {
@@ -158,6 +182,9 @@ class Store {
   private tempTimer: ReturnType<typeof setTimeout> | null = null;
   /** Records of a temporary sign-in that ended before they were sent; a new temporary sign-in by the same person sends them. */
   private carry: { userId: string; ops: LocalOp[] } | null = null;
+  private channel: BroadcastChannel | null = null;
+  private activityShared = 0;
+  private activityListeners = new Set<() => void>();
   private syncing: Promise<void> | null = null;
   private syncAgain = false;
   /**
@@ -191,6 +218,10 @@ class Store {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') this.requestSync();
     });
+    this.channel = tempChannel();
+    if (this.channel) this.channel.onmessage = (e: MessageEvent<TempMessage>) => this.onTempMessage(e.data);
+    // Asked while the device opens, so another tab's answer costs no extra wait.
+    const shared = readTemporary() ? Promise.resolve(null) : this.askOtherTabs();
     let device: DeviceRecord;
     let profiles: Profile[];
     try {
@@ -202,8 +233,9 @@ class Store {
       this.set({ storageError: true, phase: 'welcome' });
       return;
     }
-    // A temporary sign-in in this tab (ADR-006) survives a reload of the tab, never more.
-    const temp = readTemporary();
+    // A temporary sign-in in this tab (ADR-006) survives a reload of the tab,
+    // and continues in a new tab while another tab still has it; never more.
+    const temp = readTemporary() ?? (await shared);
     if (temp) {
       this.set({ device, profiles });
       await this.openTemporary(temp);
@@ -230,6 +262,64 @@ class Store {
 
   private async loadProfiles() {
     return (await deviceDb.profiles.toArray()).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+  }
+
+  /** Whether another open tab of this browser has a live temporary sign-in (answered within a moment, or not at all). */
+  private askOtherTabs(): Promise<TempSignIn | null> {
+    const ch = this.channel;
+    if (!ch) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const done = (v: TempSignIn | null) => {
+        clearTimeout(timer);
+        ch.removeEventListener('message', onReply);
+        resolve(v);
+      };
+      const onReply = (e: MessageEvent<TempMessage>) => {
+        if (e.data?.kind === 'share') {
+          const temp = usableTemporary(e.data.temp);
+          if (temp) done(temp);
+        }
+      };
+      const timer = setTimeout(() => done(null), TEMP_ASK_MS);
+      ch.addEventListener('message', onReply);
+      try {
+        ch.postMessage({ kind: 'ask' } satisfies TempMessage);
+      } catch {
+        done(null);
+      }
+    });
+  }
+
+  /** Tell the other tabs; a channel that is gone (the page is closing) is no reason to fail. */
+  private tell(m: TempMessage) {
+    try {
+      this.channel?.postMessage(m);
+    } catch {
+      /* closed: nobody to tell */
+    }
+  }
+
+  private onTempMessage(m: TempMessage) {
+    const p = this.profile;
+    if (!p?.temporary || !p.token) return;
+    if (m?.kind === 'ask') this.tell({ kind: 'share', temp: { token: p.token, expiresAt: p.expiresAt!, user: p.user } } satisfies TempMessage);
+    // Signed out in another tab: the server has ended it, so this tab ends too.
+    else if (m?.kind === 'ended' && m.token === p.token) void this.sessionEnded(TEMP_ENDED);
+    // Someone is working in another tab: this one is not "unused".
+    else if (m?.kind === 'activity' && m.token === p.token) for (const fn of this.activityListeners) fn();
+  }
+
+  /** A touch or key press here; tabs sharing a temporary sign-in hear of it (at most every 30 s), so an idle tab never signs out a busy one. */
+  shareActivity() {
+    const p = this.profile;
+    if (!p?.temporary || !p.token || Date.now() - this.activityShared < 30_000) return;
+    this.activityShared = Date.now();
+    this.tell({ kind: 'activity', token: p.token } satisfies TempMessage);
+  }
+
+  onActivity(fn: () => void) {
+    this.activityListeners.add(fn);
+    return () => void this.activityListeners.delete(fn);
   }
 
   /** `recoverFor` carries the owner's name and verified code into recovery. */
@@ -444,9 +534,13 @@ class Store {
     this.db = null;
     this.profile = null;
     if (temporary) {
-      // Nothing of a temporary sign-in stays: the tab forgets it and the server ends it.
+      // Nothing of a temporary sign-in stays: the tab forgets it, the server
+      // ends it, and the other tabs sharing it end too.
       keepTemporary(null);
-      if (temporary.token) void api('POST', '/auth/logout', {}, temporary.token).catch(() => undefined);
+      if (temporary.token) {
+        void api('POST', '/auth/logout', {}, temporary.token).catch(() => undefined);
+        this.tell({ kind: 'ended', token: temporary.token } satisfies TempMessage);
+      }
     }
     void this.loadProfiles()
       .catch(() => [] as Profile[])

@@ -44,9 +44,11 @@ let store: StoreModule['store'];
 /** A reload of this tab: new module instances, same browser and tab storage. The old page simply stops. */
 async function reload() {
   if (store) {
-    const old = store as unknown as { stopTimer(): void; epoch: number };
+    // The old page is gone: its timers, and its line to the other tabs.
+    const old = store as unknown as { stopTimer(): void; epoch: number; channel: BroadcastChannel | null };
     old.stopTimer();
     old.epoch++;
+    old.channel?.close();
   }
   vi.resetModules();
   ({ store } = await import('../src/client/lib/store'));
@@ -200,6 +202,43 @@ describe('the owner on a computer that is not theirs: temporary sign-in (ADR-006
     await store.syncNow();
     expect(n("SELECT COUNT(*) AS n FROM ops WHERE payload LIKE '%ven-carry%'")).toBe(1);
     expect(store.reloadUnsafe()).toBe(false);
+  });
+
+  it('a link opened in another tab continues the same sign-in; Sign out there ends it in both tabs', async () => {
+    await store.signInTemporary('George', '470915');
+    await store.syncNow();
+    const tabA = store;
+    const logins = n("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'login_temporary'");
+    const sessions = n('SELECT COUNT(*) AS n FROM sessions');
+    // A second tab of the same browser: its own (empty) tab storage, same computer.
+    vi.stubGlobal('sessionStorage', new TabStorage());
+    vi.resetModules();
+    const tabB = (await import('../src/client/lib/store')).store;
+    await tabB.boot();
+    try {
+      expect(tabB.getSnapshot().phase).toBe('ready');
+      expect(tabB.getSnapshot().user).toMatchObject({ role: 'owner', temporary: true });
+      // No second sign-in on the server, so the first tab was not signed out by it.
+      expect(n("SELECT COUNT(*) AS n FROM auth_events WHERE kind = 'login_temporary'")).toBe(logins);
+      expect(n('SELECT COUNT(*) AS n FROM sessions')).toBe(sessions);
+      expect(liveTemporary()).toBe(1);
+      await tabB.syncNow();
+      expect(tabA.getSnapshot().phase).toBe('ready');
+      // Signing out in the second tab ends it everywhere in this browser.
+      expect(tabB.signOut()).toBe(true);
+      await vi.waitFor(() => expect(tabA.getSnapshot().phase).toBe('welcome'));
+      await vi.waitFor(() => expect(liveTemporary()).toBe(0));
+    } finally {
+      (tabB as unknown as { channel: BroadcastChannel | null }).channel?.close();
+      vi.stubGlobal('sessionStorage', tab);
+    }
+    // In a browser each tab has its own tab storage, and the first tab's sign-out
+    // emptied its own; here both tabs share one global, so do that by hand.
+    tab.removeItem('mabubu.temporary');
+    // A tab opened when no other tab has it starts at the sign-in screen.
+    const s = await reload();
+    expect(s.phase).toBe('welcome');
+    await store.signInTemporary('George', '470915');
   });
 
   it('left alone, it signs itself out (never while a record is unsent)', async () => {
