@@ -1,6 +1,57 @@
 # Handover — next session
 
-Last updated 25 Oct 2026 (evening). Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 26 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 25–26 Oct session (2) — temporary owner sign-in, real-device keyboard and keypad, archived people, updates (deployed: `a32b930c`)
+
+Owner's master brief ("reliable sign-in…"). Commits `e3a40de` (keyboard
+layouts, phone keypad), `ade6353` (temporary owner sign-in ADR-006, archived
+people, new code works at once, migration 0006), `c1cb55b` (updates), then
+docs. 310 tests; each fix also checked by removing it (its test fails).
+
+- **What happened on 25 Oct after the previous session (production log):**
+  laptop identity `UNG-RUF` lost at 16:10 UTC (only Mabubu's site data, see
+  AUTH §3) → `5YK-3GS` recovered with the key; the owner archived Jijo,
+  Azadi, Naomi, created **Jijo 2** (approved on the Tecno `YB7-EN2`), tried
+  "another computer" in Chrome Profile 13 (`A33-8RR`, refused). On the Tecno,
+  "Jijo" still shows on the sign-in list (seen over USB). Whether Jijo's local
+  copy there holds unsent records was **not checked** (the phone was
+  disconnected on 26 Oct): if it does, the new app keeps "Jijo" listed and
+  marked "No longer allowed on this device" instead of removing it.
+- **Temporary owner sign-in** (ADR-006): `POST /api/auth/temporary`,
+  `sessions.temporary`, `TEMP_SIGNIN` limits, `MemoryRecordsDb` in the app,
+  tab storage `mabubu.temporary`, People & devices list +
+  `POST /api/admin/temporary/end`. Never give it owner-only rights or turn it
+  into device approval.
+- **Verified:** real Chrome + app window on staging with real Windows key
+  events (23/23, 24/24); owner's People & devices ending one (staging); the
+  Tecno over USB: keypad layout found broken with reason + error (706/688 px),
+  fixed, re-measured en/fr/sw; hardware keys; update bar + Reload tapped; a
+  worker day with offline take, late record, manager decision, exactly-once
+  (14/14); installed staging app reopened (standalone, same device).
+- **Production (25 Oct, after export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-25-pre-0006-temporary-signin.sql`,
+  restore-checked; Time Travel bookmark
+  `00000064-00000000-0000510f-546f0f0bc4bbe8b66113e174ec860320`):** migration
+  0006 applied, deploy `a32b930c`. Smoke: health, setup status, new endpoints
+  (400/401 without credentials), bundle contents; counts unchanged (7 people,
+  12 devices, 79 ops, 44 entities, 47 balances net 0). No sign-in on
+  production since (as of 26 Oct 09:40 UTC).
+- **Staging** (`7ec143df`, migration 0006): test profiles made devices
+  `SAZ-WYU`, `4AM-PVY`, `8G7-Y23`, `959-828`, `R35-VXA`, `VG5-ZKK` (owner,
+  recovered); 60 test pieces of TST-01 at Comoros; a closed day for Test
+  Worker today with a rejected late take. The staging "Test Owner" code
+  appeared once in the session's tool output (synthetic, staging only) —
+  change it at the next staging session and update the staging-only file.
+- **Tools used (scratchpad, not in the repo):** a DevTools client, a Windows
+  key sender (`keybd_event` with scan codes, checks the test window is in
+  front before each key), `adb shell input tap/keyevent` with a one-tap
+  calibration. `adb` must name the phone (`-s 0978354327102255`): an offline
+  `emulator-5554` entry appeared on the laptop.
+- **Not verified:** a temporary sign-in on production; the owner's own
+  installed app with the keyboard; "Jijo" leaving the Tecno's list on
+  production (needs a sign-in there on the new version); the staging app was
+  **not yet removed** from the Tecno (phone disconnected on 26 Oct).
 
 ## 25 Oct session — identity investigation, keyboard PIN, phone keypad, install offer, archive, go-live cutover (deployed: `cdc994c6`)
 
@@ -248,16 +299,17 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 
 ## Where things are
 
-| Item | State (25 Oct 2026) |
+| Item | State (26 Oct 2026) |
 |---|---|
 | Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
-| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `cdc994c6` (main `232ea73`) |
-| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0005 (phase: pre-release); real records (1 owner, 2 managers, 3 workers) |
-| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging`, D1 `mabubu-staging`, synthetic data |
+| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `a32b930c` (main `c1cb55b`) |
+| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0006 (phase: pre-release); real people (1 owner, 2 managers, 1 active worker, 3 archived), test activity |
+| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging` (`7ec143df`), D1 `mabubu-staging` (0001–0006, phase live), synthetic data |
+| Phone | Tecno `0978354327102255`: production app (`org.chromium.webapk.a7dd751d874a1ac0b_v2`, device `YB7-EN2`) and staging app (`…a56590860e5e85bd5_v2`, device `VA9-X54`) |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
 | Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
 | Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 282 tests |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 310 tests |
 
 ## Done in the 18 Oct session
 

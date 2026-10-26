@@ -1,6 +1,6 @@
 # Quality assurance & release readiness
 
-Living document. Last updated **24 Oct 2026** (approve-once fix, late records, vendor credit, desktop install). Read `CLAUDE.md`,
+Living document. Last updated **26 Oct 2026** (temporary owner sign-in, keyboard and phone keypad on real devices, archived people, updates). Read `CLAUDE.md`,
 then `docs/STATUS.md` and `docs/HANDOVER_NEXT_SESSION.md`, then this file.
 
 It records the release phase, what has actually been verified (and how), the
@@ -9,36 +9,39 @@ before a stable 1.0.0. **Stable release is the owner's decision.**
 
 ---
 
-## 0. Release-readiness matrix (25 Oct 2026)
+## 0. Release-readiness matrix (26 Oct 2026)
 
-Statuses: **Verified** (tested and seen working in the real environment) ·
-**Implemented, not physically verified** (automated tests and/or staging only) ·
-**Partial** · **Not started** · **Owner decision**. No percentage is given: the
-items are not of equal weight, and a number would hide which ones block.
+Evidence levels, in order: **I** implemented · **A** automated tests ·
+**S** tested on staging (browser) · **D** verified on a physical device (the
+owner's laptop browser in a separate test profile, or the Tecno over USB) ·
+**P** deployed to production · **V** verified in production by real use.
+"—" = not yet. No percentage is given: the items are not of equal weight, and
+a number would hide which ones block.
 
-| Area | Status | Evidence / what is missing |
-|---|---|---|
-| Sign-in, device approval, owner recovery | Verified | Server + end-to-end tests; owner recovered on staging in real Chrome 25 Oct; production recoveries 19–25 Oct |
-| Device identity persistence | Partial | App side fixed and tested (race); cause of the laptop wipes is in the browser/PC (AUTH §3) — owner action |
-| People & devices (archive / retire) | Implemented, not physically verified on production | Server tests; staging browser run (archive, reactivate, log) |
-| Keyboard PIN (desktop) | Verified on staging in Chrome | 16 real key-event checks; not yet in the owner's own Chrome |
-| Phone keypad layout | Verified | Real Tecno, en/fr/sw, with error message |
-| Install (Windows) | Verified (owner installed it 25 Oct, Profile 2) | — |
-| Install (Android) | Partial | Chrome offered a real install prompt on the Tecno; the tap itself not done |
-| Financial calculations, stock ledger | Verified (automated) | Property tests, reconciliation, production replay (20 Oct) |
-| Offline records and sync | Verified on staging phone | Take held on the phone with no connection; status shown |
-| Late records, vendor credit | Implemented, not physically verified on a phone | Engine/server/store tests; staging desktop runs (22 Oct) |
-| Backup and restore | Verified on staging; production export restore-checked | Production rollback not rehearsed (staging only) |
-| App updates (service worker) | Verified on the phone (first switch) | "Reload" bar for later updates not yet seen on a device |
-| Go-live cutover | Implemented, verified on staging (twice, incl. a real phone) | Production: preview only — **not run** |
-| Security | Verified (review 19–20 Oct; this pass: owner-only server checks, code re-check, no secrets in backups) | No external audit |
-| English / French / Swahili | Implemented | Native-speaker review not done (LANGUAGE_REVIEW §6 lists the new strings) |
-| Worker / manager day on real phones | Partial | Jijo, Said, Nancy use phones in production; a full guided day not observed |
-| Decisions | Owner decision | Exchange rates at go-live; KMF banknotes; ÷5 word; Azadi/Naomi archive; name spellings |
+| Area | I | A | S | D | P | V | Evidence / what is missing |
+|---|---|---|---|---|---|---|---|
+| Sign-in, device approval, owner recovery | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Production recoveries 19–25 Oct; staging recovery through "Make it one of my devices" 25 Oct |
+| **Temporary owner sign-in** (ADR-006) | ✓ | ✓ | ✓ | ✓ laptop | ✓ `a32b930c` | — | 10 server + 5 end-to-end tests; real Chrome and an app window on staging (23/23 and 24/24 checks): choice screen, sign in, ribbon, no People & devices, nothing stored, reload, sign out; owner ended one from People & devices. **Not yet used on production** — owner to try (§6) |
+| Keyboard PIN (desktop) | ✓ | ✓ | ✓ | ✓ laptop | ✓ | — | Real Windows key events (not simulated in the page): number row, numeric keypad, Backspace, Delete, Enter and keypad Enter; double Enter sends one sign-in; wrong code clears. AZERTY by key position (unit test). Not tried in the owner's own installed app |
+| Phone keypad layout | ✓ | — | ✓ | ✓ Tecno | ✓ | — | **Found on the Tecno:** with the "sign in online" reason and an error, Delete/0/Enter ended at 706 px of 688. Fixed; now 639 / 661 / 639 px (en / fr / sw) with both shown, keys still 54 px. Real taps and hardware keys on the phone |
+| Device identity | ✓ | ✓ | ✓ | ✓ | ✓ | partial | Same identity across reload, tab reload, app restart (staging, Tecno); retries reuse one device row (server test); the identity race test fails when the fix is removed. Laptop losses are site-data deletions outside the app (AUTH §3) |
+| People & devices: archive, retire, devices nobody may use | ✓ | ✓ | ✓ | ✓ Tecno | ✓ | — | Archived person taken off a phone's list (end-to-end test; on production Jijo is still listed on the Tecno until someone signs in there on the new version); server refuses new work for archived people |
+| New code works at once on a phone | ✓ | ✓ | — | — | ✓ | — | End-to-end test (phone remembers the old code) |
+| Install (Windows) | ✓ | — | ✓ | ✓ | ✓ | ✓ | Owner installed it 25 Oct (Profile 2); not offered during a temporary sign-in |
+| Install (Android) | ✓ | — | ✓ | ✓ | ✓ | ✓ | Staging app installed on the Tecno 25 Oct 19:17 (opens standalone, same device, language kept); production app installed since 18 Oct |
+| App updates | ✓ | ✓ | ✓ | ✓ Tecno | ✓ | — | On the Tecno: "A new version of Mabubu is ready" shown while open; a real tap on Reload loaded the new build. Background tab updated by itself. Updates now also checked while the app stays open |
+| Offline records, sync, late records | ✓ | ✓ | ✓ | ✓ Tecno | ✓ | — | Tecno (staging, 14/14): take 5 / return 2 once each; offline take saved on the phone; manager closed the day; on reconnect the take arrived once and was held; manager's rejection reached the phone; no duplicates |
+| Financial calculations, stock ledger | ✓ | ✓ | ✓ | — | ✓ | ✓ | Property tests, reconciliation, production replay (20 Oct) |
+| Backup and restore | ✓ | — | ✓ | — | ✓ | ✓ | Export of 25 Oct 18:32 restored into a fresh database: all counts equal, integrity ok. Production rollback not rehearsed (staging only) |
+| Go-live cutover | ✓ | ✓ | ✓ | ✓ | ✓ | — | Preview recomputed 25 Oct (GO_LIVE_CUTOVER §5). **Not run on production** |
+| Security | ✓ | ✓ | — | — | ✓ | — | Reviews 19–20 Oct; this pass: temporary sign-in owner-only, no owner-only rights, same lockout (tests). No external audit |
+| English / French / Swahili | ✓ | ✓ | ✓ | ✓ | ✓ | — | Native-speaker review not done (LANGUAGE_REVIEW §6–7) |
+| Worker / manager day by real people | ✓ | ✓ | ✓ | ✓ staging | ✓ | — | Said's and Nancy's phones have not connected since 21–22 Oct |
 
-**Before the clean start:** owner archives unused people, every phone syncs
-once on the new version, the go-live day itself (GO_LIVE_CUTOVER §3), then the
-real opening stock count.
+**Before the clean start:** the owner settles §12 decisions and the "Jijo /
+Jijo 2" question, every phone (incl. Said's and Nancy's) opens Mabubu online
+once, the go-live day itself (GO_LIVE_CUTOVER §3), then the real opening stock
+count.
 **Before calling it 1.0.0 (owner's approval):** a few weeks of real use without
 data problems, native-speaker review, a rehearsed production restore, the
 open decisions settled (§12).
@@ -54,21 +57,25 @@ French, the next-phase features.
   (never `1.1.0` as a first stable); then `1.0.x` fixes, `1.x.0` features;
   optional `1.0.0-rc.1`. Never change the version silently.
 
-## 2. Canonical production configuration (verified 24 Oct 2026, read-only)
+## 2. Canonical production configuration (verified 25 Oct 2026, 18:32 UTC, read-only)
 
-- **People:** 6 — George Muraguri (owner, the only owner), Said Abdou and
-  Nancy Muthoni (managers), Jijo, Azadi Mdogo and Naomi (workers).
-- **Devices:** 9 rows, history kept. Active: `EVK-NWF` owner laptop
-  (recovered 22 Oct), `THS-8GK` previous owner-laptop identity (recovered
-  21 Oct; probably dead since the 22 Oct clear; also approved for Azadi and
-  Naomi), `YB7-EN2` Jijo's Android, `E3C-59E` Said's Android, `ZWU-XJ7`
-  Nancy's Android. Blocked + retired: `WNY-S7J`, `ZZU-23X`, `WR8-WYS`, `MCS-MH4`.
-- **Records:** 77 operations (all applied; highest seq 85), 43 entities, 44
-  stock balance rows netting to zero; five sales days (19–22 Oct), four
-  purchases with payments that exactly match them. Reference data clean.
-- **Schema:** migrations 0001–0004 (0004 applied 24 Oct after the export
-  `Documents\mabubu-backups\mabubu-backup-2026-10-24-pre-0004-late-records-credit.sql`,
-  verified by a full restore into a fresh SQLite: identical counts, integrity ok).
+- **People:** 7 — George Muraguri (owner, the only owner), Said Abdou and
+  Nancy Muthoni (managers), **Jijo 2** (worker, created 25 Oct 16:22, no
+  records yet). Archived on 25 Oct, history kept: Jijo, Azadi Mdogo, Naomi.
+- **Devices:** 12 rows, history kept. In use: `5YK-3GS` owner laptop
+  (Profile 2, recovered 25 Oct 16:14), `YB7-EN2` the Tecno (Jijo 2; Jijo's
+  access removed), `E3C-59E` Said's phone, `ZWU-XJ7` Nancy's phone. Nobody
+  allowed: `A33-8RR` (Chrome Profile 13, the owner's test of "another
+  computer"; both requests refused). Blocked + retired: `WNY-S7J`, `ZZU-23X`,
+  `WR8-WYS`, `MCS-MH4`, `THS-8GK`, `EVK-NWF`, `UNG-RUF`.
+- **Records:** 79 operations (highest seq 87), 44 entities, 47 stock balance
+  rows netting to zero; all test activity (GO_LIVE_CUTOVER §5). No temporary
+  sign-in yet.
+- **Schema:** migrations 0001–0006 (0006 applied 25 Oct after the export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-25-pre-0006-temporary-signin.sql`,
+  verified by a full restore into a fresh SQLite: identical counts, integrity
+  ok, 0 foreign-key violations; Time Travel bookmark before 0006:
+  `00000064-00000000-0000510f-546f0f0bc4bbe8b66113e174ec860320`).
 - **Secrets:** `PIN_PEPPER`, `SETUP_TOKEN` only in Cloudflare, set once on
   18 Oct before the first code version (matters for rollback, §8).
 
@@ -141,6 +148,24 @@ Remaining, accepted or for the owner:
   grows without pruning (fine at family scale); unexpected server errors are
   logged (message and stack only, no request bodies).
 
+## 4a. Findings and fixes, 25–26 Oct 2026 (owner's master brief)
+
+Every fix below has a regression test, and each test was seen to **fail with
+the fix removed** (10 fixes checked that way, then restored exactly).
+
+| Sev | Finding (how it was found) | Status |
+|---|---|---|
+| High (UX) | The owner on a computer that is not theirs could only wait or use the paper key (owner's report; live log 25 Oct) | **Built**: temporary owner sign-in (ADR-006) |
+| High (UX) | Phone keypad: with the "sign in online" reason and an error, Delete / 0 / Enter ended at 706 px of a 688 px screen (**measured on the Tecno**, real taps) | **Fixed** (layout, not smaller keys); 639–661 px in en/fr/sw |
+| Medium | An archived person stayed on a phone's "Who is working?" list (Jijo on the Tecno, seen over USB) | **Fixed**: downloads say who may no longer sign in on the device; the app takes them off (kept, marked, if records are unsent) |
+| Medium | Archiving was enforced only by the screens: a manager's app or a direct request could still start a new day for an archived person | **Fixed** in the rules (server and app); a started day can be finished; replay unaffected |
+| Medium | After the owner set a new code, the phone still refused it ("Wrong code, N tries left on this device") until 5 tries — the likely reason "Jijo 2" was created | **Fixed**: online, a code the phone does not recognise is checked by the server |
+| Medium | An app left open never checked for a new version (screen changes do not ask the server) | **Fixed**: checks on return to view and hourly |
+| Low | A new version could reload the page on leaving it while a form or the code was half typed | **Fixed**: waits until nothing is in progress |
+| Low | French (AZERTY) number row typed `& é " '…` instead of digits on the code screen | **Fixed**: digits by key position |
+| Low | "Remove" (a person's access on a device) could be pressed twice (two log entries 3 s apart on 25 Oct) | **Fixed**: the line disappears at once and waits for the answer |
+| Info | The laptop's identity was lost again at 16:10 UTC 25 Oct — Mabubu's site data only, deleted outside the app (AUTH_AND_RECOVERY §3) | Explained; temporary sign-in removes the key from ordinary use |
+
 ## 5. Open business questions found by testing (owner decides)
 
 1. ~~A take arriving after its day was closed is refused.~~ **Decided and
@@ -156,17 +181,25 @@ Remaining, accepted or for the owner:
 4. Removing the public "Explore the demo" entry at release (keep it during
    testing).
 
-## 6. Owner action needed now
+## 6. Owner action needed now (26 Oct)
 
-- **Done by you on 21 Oct** (recovered as `THS-8GK`, retired `WR8-WYS` and
-  `MCS-MH4`) — and **again on 22 Oct** (recovered as `EVK-NWF`): the browser
-  cleared the site's data once more. After fixing the setting below, retire
-  `THS-8GK` in People & devices and re-approve Azadi and Naomi on the laptop
-  if they use it there.
-- **Stop the laptop forgetting itself:** in Chrome, *Settings → Privacy and
-  security → Third-party cookies / Site data*: turn off "Delete data sites have
-  saved … when you close all windows", or add `mabubu.mabubu-family.workers.dev`
-  to "Allowed to save data". Open Mabubu from the installed app.
+- **Try the temporary sign-in once** (the first real use on production): in a
+  normal Chrome window of another profile or another computer, open
+  <https://mabubu.mabubu-family.workers.dev>, type your name and code, choose
+  **Sign in temporarily**, look around, press **Sign out**. Then on your laptop
+  open People & devices: it is listed under "Recent temporary sign-ins".
+- **Type your code on the laptop keyboard** in the installed app (number row
+  and numeric keypad, Backspace, Delete, Enter) and say if anything differs.
+- **Approve your phone as a second owner device:** on the Tecno's production
+  app, "Someone else" → your name and code → "Make it one of my devices" →
+  approve its code from People & devices on the laptop. Then a laptop that
+  forgets itself can be approved from the phone, without the key.
+- **Jijo / Jijo 2:** tell us which one is the real worker (GO_LIVE_CUTOVER §5
+  point 5). On the Tecno, "Jijo" leaves the sign-in list the next time
+  Jijo 2 signs in there (or when "Jijo" is tapped) — unless records saved as
+  Jijo on that phone never reached the server; then it stays, marked "No
+  longer allowed on this device", until they are dealt with.
+- Ask **Said and Nancy** to open Mabubu online once (not seen since 21–22 Oct).
 - Copy `C:\Users\Admin\Documents\mabubu-backups\` to a USB stick / Drive.
 
 ## 7. Safe testing
@@ -197,8 +230,10 @@ its own secrets; the staging-only key and test codes are in
   sign-in on the rolled-back version, exactly as predicted. **Production is
   safe today:** its secrets were set before the first code version, so every
   rollback target uses the current secrets.
-- **Production rollback targets:** current `380168bd` (main `8360a43`, 24 Oct
-  2026, schema 0001–0004); previous `d20cecee` (`444a88b`), `6b124483`
+- **Production rollback targets (26 Oct):** current `a32b930c` (main
+  `c1cb55b`, 25 Oct 2026, schema 0001–0006); previous `cdc994c6` (`232ea73`,
+  schema 0005 — runs on 0006, refuses temporary sign-ins: safe, see DEPLOY.md);
+  before that `380168bd` (main `8360a43`, 24 Oct 2026, schema 0001–0004); previous `d20cecee` (`444a88b`), `6b124483`
   (`5533d88`), `d78753fe` (`6586145`), `6bd4ba0f` (`47c895e`). The older ones
   run fine on schema 0004 (they ignore its two nullable columns; see
   `DEPLOY.md` for what a rollback would mean for late records and
@@ -232,7 +267,21 @@ labels, every form control has an accessible name**, every worker-screen
 control ≥ 40 px tall except the 36 px header status. Remaining: no screen-reader
 walkthrough by a person; colour contrast not formally measured.
 
-## 11. Android (physical) — first session 25 Oct 2026 (see the matrix in §0)
+## 11. Android (physical)
+
+### Second session, 25 Oct 2026 evening
+
+Tecno Spark 10 Pro (`TECNO_KI7`,
+Android 13, Chrome 155.0.8059.84, over USB; staging, synthetic data): code
+screen with real taps and hardware keys (12 checks), keypad layout in
+en/fr/sw with and without errors (after the fix), the "new version ready" bar
+and Reload, a worker's day with no connection and a late record decided by a
+manager (14/14), the installed staging app (standalone, same device, language
+kept). Production on the phone: device `YB7-EN2` holds "Jijo" (archived) and
+"Jijo 2"; read-only. Not done on the phone: a temporary sign-in, a manager's
+day by a real manager, production use after the new version.
+
+### First session, 25 Oct 2026
 
 ADB 37 is installed. On 22 Oct the Tecno Spark 10 Pro was reachable on the
 same Wi-Fi (`192.168.100.13`, Wireless debugging port open), but this laptop is
@@ -248,11 +297,13 @@ a substitute.
 
 - [x] No unresolved Critical/High security, financial, auth or data finding
       (the High data finding of this pass is fixed and deployed).
-- [x] typecheck / tests / build green with regression tests — **249 tests** (24 Oct).
-- [ ] Owner's laptop keeps its identity (it needed recovery again on 22 Oct);
-      routine sign-in from the installed app confirmed by the owner.
-- [ ] Physical Android test passed on staging (install, French, offline day,
-      sync, restart).
+- [x] typecheck / tests / build green with regression tests — **310 tests** (25 Oct).
+- [ ] Owner's laptop keeps its identity (lost again 25 Oct 16:10); routine
+      sign-in from the installed app — or a temporary sign-in — confirmed by
+      the owner on production.
+- [x] Physical Android test passed on staging (install, offline day, sync,
+      late record, update, restart; keypad in en/fr/sw) — 25 Oct.
+- [ ] Temporary owner sign-in used once on production and reviewed by the owner.
 - [ ] French and Swahili reviewed by a family member (`LANGUAGE_REVIEW.md`).
 - [x] Backup + restore rehearsed; rollback rehearsed on staging and documented.
 - [x] Owner decided §5 items 1–2 (22 Oct brief); built and tested.

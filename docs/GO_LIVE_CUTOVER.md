@@ -32,7 +32,9 @@ history.
 
 1. **Every phone and computer in use: open Mabubu online** once and wait for
    "Synced". This sends anything waiting and lets the app report "nothing
-   waiting". Ask Jijo, Said and Nancy to do it (and the owner laptop).
+   waiting". Ask whoever uses Jijo's phone (now "Jijo 2"), Said and Nancy to do
+   it, and open it on the owner laptop. Do this from the owner's own laptop or
+   phone: a temporary sign-in cannot run go live.
 2. Helper (optional but recommended): take a database export and note the
    Time Travel bookmark (§6) — a second, independent backup.
 3. Owner, on the laptop: **Settings → Go live → Open go live**. Read sections
@@ -60,31 +62,67 @@ history.
   data; it cannot send test records in). Updates now take over within seconds
   of opening the app online.
 
-## 5. Production preview (computed 25 Oct 2026, read-only)
+## 5. Production preview (computed 25 Oct 2026, 18:32 UTC, read-only)
 
-Computed by the real server code on a local copy of the verified export
-`mabubu-backup-2026-10-25-pre-0005-golive.sql` — production was not touched.
+Computed by the real server code (`goLiveStatus`) on a local copy of the
+verified export `mabubu-backup-2026-10-25-pre-0006-temporary-signin.sql`
+(restored into a fresh database: every table count equal to production,
+integrity ok). **Production was not touched; the cutover was not run.** The
+numbers change with every new record — the screen (Settings → Go live) shows
+the live ones.
 
-- Records now: 79 (highest seq 87). Kept 43 + rates 5 (your choice); removed 31.
-- Kept: places Comoros, Dar es Salaam, Mombasa · sizes Newborn & baby, Small
-  child, Child, Between child & adult, Small adult · vendors Hafsaa, Jumaa,
-  Mama M-somalia, Mama Yasmin, Mzee wa Wanyama & Shine-Shine · garments
-  HAF-BB60, HAF-EN80, JUM-AA50, MZW-SH100, SOMLI-100 (Mnyama), SOMLI-80
-  (Elastic Neck Dera), YAS-EX150, YAS-PL80 · 8 selling prices · no settings
-  record (banknote values and the ÷5 word are still the defaults).
-- Removed: 4 purchases, 4 vendor payments, 3 shipment records (dispatch,
-  receive, cost of AIR-1021), 5 takes, 1 return, 6 closings, 8 reviews.
-- Rates recorded during testing: KES→KMF, KES→TZS, KES→USD, KES→EUR (5 records).
-- People: all 6 kept (George Muraguri, Said Abdou, Nancy Muthoni, Jijo, Azadi
-  Mdogo, Naomi). Archive Azadi and Naomi first if they are no longer used
-  (People & devices → person → Archive this person); their history stays.
-- Checks: backup — not made yet (stops it, as designed); kept set-up replays
-  cleanly; no device requests waiting; 4 devices "not connected recently"
-  only because none had synced with the new version yet.
-- Ambiguous for the owner to look at: whether SOMLI-80 "Elastic Neck Dera" and
-  HAF-EN80 "Elastic-neck Child Dera" are both real garments (both are kept;
-  mark one "not in use" later if it is a duplicate). Names in the system are
-  "Said Abdou" and "Nancy Muthoni" — check the spelling before go-live.
+1. **Preserved (43 records):** places Comoros, Dar es Salaam, Mombasa · sizes
+   Newborn & baby, Small child, Child, Between child & adult, Small adult ·
+   vendors Hafsaa, Jumaa, Mama M-somalia, Mama Yasmin, Mzee wa Wanyama &
+   Shine-Shine · 8 garments with their 20 edits (HAF-BB60, HAF-EN80,
+   JUM-AA50, MZW-SH100, SOMLI-100 Mnyama, SOMLI-80 Elastic Neck Dera,
+   YAS-EX150, YAS-PL80) · 8 selling prices (10 price records) · no settings
+   record (banknote values and the ÷5 word are still the defaults). People,
+   devices, approvals, sessions and the sign-in log are not touched.
+2. **Moved to the trial archive (`ops_trial`, 31 records):** 4 purchases,
+   4 vendor payments, 3 shipment records (dispatch, receive, cost), 5 takes,
+   1 return, 6 closings, 8 reviews. No record is cancelled today (0 voids).
+3. **Absent from the business records afterwards:** all of the above, so the
+   activity log, purchases, payments, shipments, sales days and profit start
+   empty. The security sign-in log and the cutover record stay, on purpose.
+4. **Stock:** today's balances are test stock — 498 pieces available at
+   Mombasa, 1,615 (net) at Comoros, 185 recorded as sold. After the cutover
+   stock is rebuilt from the kept set-up only: **zero everywhere**. Count the
+   real stock and record it (Stock → adjust, "count correction").
+5. **People to confirm:** 7 people. Active: George Muraguri (owner), Said
+   Abdou and Nancy Muthoni (managers), **Jijo 2** (worker). Archived on 25 Oct:
+   **Jijo**, Azadi Mdogo, Naomi — they stay archived with their history.
+   *Owner decision:* is "Jijo 2" the same person as "Jijo"? If so, either
+   reactivate "Jijo" (and archive "Jijo 2", which has no records yet), or
+   rename the archived one (e.g. "Jijo (old)") and then "Jijo 2" to "Jijo" —
+   names must be unique. Check the spelling of "Said Abdou" and "Nancy Muthoni".
+6. **Exchange rates — owner decision:** 5 records (KES→KMF ×2, KES→TZS,
+   KES→USD, KES→EUR, 22–23 Oct). **All five are saved market references**
+   (ExchangeRate-API, `basis: market`), not rates the family received. Unless
+   you want them as reference history, choose **remove**; record the real
+   rate the first time money is changed.
+7. **Unsent records on devices:** none reported (owner laptop `5YK-3GS`,
+   Jijo 2's phone `YB7-EN2`: 0 waiting).
+8. **Devices on the current ledger:** the two above synced on 25 Oct on the
+   current ledger. **Said's phone (`E3C-59E`) and Nancy's phone (`ZWU-XJ7`)
+   have not connected since 21 and 22 Oct** — the check shows them as "not
+   connected recently" (a warning you may accept). Better: ask Said and Nancy
+   to open Mabubu online once before the day; their apps then update and
+   report "nothing waiting".
+9. **Backup:** none made yet (this blocks, as designed). On the day, section 5
+   of the screen makes it: a full copy without codes or secrets, checked by
+   SHA-256 and read back, saved to Downloads; it must be under 6 hours old and
+   match the records at that moment. Also take a database export (§6).
+10. **If it is interrupted:** the cutover is one database transaction — it
+    either completes or changes nothing (tested by forcing a failure). A
+    record arriving between the preview and the button aborts it ("Records
+    changed since the preview"). To undo a completed one, §6.
+
+Kept set-up replays cleanly through the rules; no device requests are waiting.
+A **temporary sign-in** (ADR-006) cannot run the cutover: go live needs the
+owner's own device. Ambiguous for the owner to look at: whether SOMLI-80
+"Elastic Neck Dera" and HAF-EN80 "Elastic-neck Child Dera" are both real
+garments (both are kept; mark one "not in use" later if it is a duplicate).
 
 ## 6. If it must be undone
 

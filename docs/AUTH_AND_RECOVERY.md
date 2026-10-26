@@ -3,7 +3,8 @@
 How the family signs in, what a "device" is, and how the owner gets back in if a
 laptop or phone forgets it. Written for the owner and for the next person
 (or AI agent) working on this code. No secret values live in this file.
-Last reviewed 25 Oct 2026 (laptop identity investigation, §3; lifecycle audit 20 Oct, §8).
+Last reviewed 26 Oct 2026 (temporary owner sign-in, ADR-006 and §2a; laptop
+identity evidence of 25 Oct evening, §3; lifecycle audit 20 Oct, §8).
 
 ## 1. A returning account is not a returning device
 
@@ -14,6 +15,7 @@ Three separate things, kept in three separate places:
 | **Person (account)** | Name, role, code (as an HMAC), places, permissions | Server (`users`) | **Yes** — always |
 | **Device** | A random id + secret this browser made, plus which people the owner approved on it | Browser IndexedDB `mabubu-device` + server (`devices`, `device_access`) | **No** — the browser half is deleted |
 | **Session** | A sign-in token for one person on one device (30 days, extended while used) | Browser profile + server (`sessions`, hashed) | **No** |
+| **Temporary sign-in** (owner only, ADR-006) | A session with no device approval behind it: 8 hours at most, ends after 30 minutes unused, no owner-only rights | This browser tab only + server (`sessions.temporary = 1`) | Nothing to clear: closing the tab forgets it |
 
 Business records (purchases, stock, sales days, payments) live on the server
 (`ops`) once synced, and are downloaded again after any sign-in. Clearing a
@@ -35,7 +37,8 @@ tests named at the end.
 | 5 | **Worker created** | Same as 4 with role worker, place, 4–8 digit code | Same; place must exist | Same | Same |
 | 6 | **Worker/manager, recognised device** | As 3 | As 3 | As 3 | Straight in |
 | 7 | **Anyone, new device** | Name + code → `POST /auth/login` | Name + code first (wrong → `401`, lockout steps); then device: new id → `pending` + role | `devices` (once), `device_access pending` (once), `auth_events device_requested` (once, however long they poll) | Worker/manager: "Waiting for the owner" + device code. Polls every 8 s for 5 min, then every 30 s, stops after 30 min ("Check again") |
-| 8 | **Owner, new or forgotten device** | As 7 | As 7; `pending` with `role: owner` | As 7 | "This computer needs to be recognised again" → **Allow this device with my recovery key** (name and code carried over) — or approve from another signed-in device |
+| 8 | **Owner, new or forgotten device** | As 7 | As 7; `pending` with `role: owner`. A request the owner once refused for themselves on this device is opened again (never "not allowed") | As 7 | "This computer is not one of yours yet" with two choices: **Sign in temporarily** (8a) or **Make it one of my devices** — approve the code from another signed-in owner device, or **Allow this device with my recovery key** (name and code carried over) |
+| 8a | **Owner, temporary sign-in** (ADR-006) | `POST /auth/temporary`; records kept in memory, token in the tab's session storage, no saved profile | Same code check and lockout as 7; owner only (others: `owner_only`); device not blocked | `sessions` (temporary), the owner's open request for this device closed, `auth_events login_temporary` | In at once with a ribbon "Temporary sign-in · ends HH:MM" and **Sign out**; no People & devices, Settings changes, backup or go live. Ends: Sign out, 20 min idle in the app / 30 min unused on the server, 8 h, owner's Sign out in People & devices, a new code, block |
 | 9 | **Session expired / revoked** | Next sync gets `401` → profile marked "sign in online" | Session expiry, revocation, person switched off, device blocked/retired, access revoked | — | Sign-in screen with the reason; records not yet sent stay on the device |
 | 10 | **Browser site data cleared** | No device identity → makes a new one; no profiles | Server unchanged | Next sign-in creates a new `devices` row | Sign-in (never first setup); then flow 7 or 8 |
 | 11 | **IndexedDB missing or refused** | Boot fails to open storage | — | — | "This browser will not let Mabubu save anything" with what to do (private/Guest window, storage off) — no endless "Opening…" |
@@ -43,6 +46,8 @@ tests named at the end.
 | 13 | **Device approval / revocation** | Owner: People & devices → Approve / Deny / Remove; Block; Retire / Reactivate | `users.manage`; cannot block/retire the device you are using | `device_access`, `devices.revoked_at` / `retired_at`, sessions ended, audit events | The waiting device signs in by itself; a blocked/retired device is refused |
 | 14 | **Sign-out / switching person** | Lock (keeps profile) or "Remove *name* from this device" (logs out on the server, deletes that person's local data) | Session revoked | `sessions.revoked_at`, `auth_events logout` | Profile list; the device stays approved for that person |
 | 15 | **Lost phone or laptop** | — | Owner blocks or retires the device from another device | Device blocked; its sessions end at once | On the replacement device: flow 7 (or 8 + recovery for the owner) |
+| 16 | **Person archived, or removed from a device** | Each download now says who on this device may no longer sign in (`deviceUsers`); the app takes them off its sign-in list with their local copy — or keeps them marked "No longer allowed on this device" if records they saved there were never sent. The same happens when such a person tries to sign in (`disabled`, `device_denied`) | Archived: sign-in refused (`disabled`) and **no new sales day** can be recorded for them by anyone (the rules refuse it; a started day can still be finished) | — | The person disappears from that phone's "Who is working?" list; history stays on the server |
+| 17 | **Owner gives someone a new code** | The phone still remembers the old code. A code the phone does not recognise is now checked online when there is a connection, so the new code works at once (and is remembered); offline, the phone's own check and its 5-try limit apply as before | Code check with lockout | `sessions` | Signed in with the new code |
 
 **Dead ends removed in this audit:** the owner no longer sees "Waiting for the
 owner" (themselves); workers no longer see an owner-recovery button that could
@@ -89,6 +94,34 @@ storage, not history, and the C: drive had only 11.7 GB (4.9 %) free (Chrome
 starts evicting below about 2 GB). Two installed extensions are able to wipe
 site data (Surfshark VPN, Easy Auto Refresh — both currently **disabled**; keep
 them that way or exclude Mabubu). No PC-cleaning program is installed.
+
+**Again on 25 Oct at 16:10 UTC — this time only Mabubu's storage** (checked
+on the laptop the same evening, read-only):
+
+| Identity | What happened |
+|---|---|
+| UNG-RUF | Last sync 16:11:09, in Profile 2 (the installed app); retired by the owner at 16:21 |
+| 5YK-3GS | Born in Profile 2: its Mabubu storage folder was created at 16:10:28; a wrong code at 16:11:48, then recovery with the key at 16:14 |
+| A33-8RR | Born in **Profile 13** at 16:31:54 — the owner trying "another computer"; both requests refused at 16:33 |
+
+Only the Mabubu folder in Profile 2 was new: seven other sites' storage there
+was older and survived. So it was **not** a profile-wide wipe (unlike 13:12
+that day), **not** a time-range "Delete browsing data" (Google Drive and Docs
+storage from 16:06 survived), **not** low-disk eviction (7.2 GB free, the app
+in use), **not** an uninstall of the app (its shortcut still dates from
+13:35:51), and not the app (it never deletes its device identity). What is
+left is a site-specific deletion of Mabubu's data at about 16:10 — the
+site-settings "Delete data" button, the page-info "Cookies and site data"
+panel, or developer tools' "Clear site data". Who or what did it cannot be
+told from the files.
+
+**What changed because of it (ADR-006):** a forgotten computer no longer
+forces the recovery key for ordinary use. The owner signs in with name and
+code and chooses **Sign in temporarily** (nothing kept, 8 hours at most) — or
+makes the computer one of their devices again with the key, or by approving
+its code from another signed-in owner device. Approving the owner's phone as a
+second owner device (People & devices) means the key is needed only if both
+are lost.
 
 **What helps:** keep Mabubu storage "protected" (Me → Sync → *Storage
 protected from clean-up: Yes*; installed apps and frequently used sites get
@@ -175,7 +208,17 @@ rule). Wrong codes: after 5 → 15 min, 10 → 1 h, 15 → 6 h, 20 → locked un
 owner unlocks; plus 30 failures per network per hour. Codes are stored only as
 HMAC-SHA256 with a server secret. On a recognised device the code is checked
 locally (PBKDF2, 310,000 rounds) so sign-in works offline; 5 wrong local tries
-force an online sign-in.
+force an online sign-in. Since 25 Oct, when there is a connection, a code the
+device does not recognise is checked by the server instead (it may be a new
+code), so those attempts count towards the server lockout. A temporary sign-in
+(ADR-006) uses exactly the same code check and lockout.
+
+**Keyboard:** the code can be typed on any keyboard — the number row (by key
+position, so a French AZERTY keyboard works without Shift), the numeric keypad
+(NumLock on or off), Backspace (one digit), Delete (the whole code), Enter
+(sends once), Escape (clear, then back). Typing in a name or note field never
+feeds the code. Verified with real Windows key events in Chrome and in an app
+window, and with hardware key events on the Tecno (QA §0).
 
 ## 8. Changes in the 20 Oct 2026 audit
 
@@ -192,9 +235,14 @@ force an online sign-in.
 
 Tests: `tests/worker.test.ts` ("account lifecycle", "first setup is
 server-authoritative", "owner recovery…", "sign-in protection", "device
-retirement"), `tests/auth-e2e.test.ts` (real store + real Worker: first setup,
-reload, cleared site data, recovery, sign-out, worker on a new device),
-`tests/storage-blocked.test.ts`.
+retirement", "temporary owner sign-in…", "archived people…"),
+`tests/auth-e2e.test.ts` (real store + real Worker: first setup, reload,
+cleared site data, recovery, sign-out, worker on a new device),
+`tests/temporary-e2e.test.ts` (temporary sign-in in memory only, reload of the
+tab, sign-out with unsent records, records carried to the next temporary
+sign-in, idle sign-out, archived person off the phone, new code on a phone that
+remembers the old one), `tests/device-identity.test.ts`,
+`tests/pin-keys.test.ts`, `tests/storage-blocked.test.ts`.
 
 ## 9. Verifying a deployment without risking live data
 

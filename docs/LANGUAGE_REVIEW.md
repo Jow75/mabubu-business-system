@@ -623,6 +623,30 @@ reviewer can find each sentence in `src/shared/i18n/fr.ts` and `sw.ts`:
 
 The confirmation words **GO LIVE** are typed exactly in every language.
 
+## 7. New on 25–26 Oct 2026 — temporary sign-in, people leaving a device, keyboard
+
+Drafted by the developer, **not reviewed by a native speaker**. The word for
+the new sign-in is "temporary": French *connexion temporaire*, Swahili
+*kuingia kwa muda* — please check that these read naturally.
+
+- Owner on a computer that is not theirs: `auth.ownerChoiceTitle`,
+  `auth.ownerChoiceBody`, `auth.tempTitle`, `auth.tempBody`, `auth.tempButton`,
+  `auth.ownTitle`, `auth.ownBody` (they replace `auth.ownerNewDeviceTitle` and
+  `auth.ownerNewDeviceBody`, which were removed)
+- After a temporary sign-in: `auth.tempCarry`, `auth.tempSignedOut`;
+  ribbon and Me: `temp.ribbon`, `temp.signOut`, `temp.unsentTitle`,
+  `temp.unsentBody`, `temp.wait`, `temp.signOutAnyway`, `temp.meNote`
+- People taken off a phone's list: `auth.profileRemoved`, `auth.notAllowedHere`
+- People & devices: `pp.tempLive`, `pp.tempLiveHint`, `pp.tempLine`,
+  `pp.tempEnd`, `pp.tempEndedToast`, `pp.tempRecent`, `pp.tempEndedAt`,
+  `pp.otherDevices`, `pp.otherHint`
+- Sign-in log: `ev.login_temporary`, `ev.temporary_ended`,
+  `ev.temporary_replaced`, `ev.temporary_refused`
+- Messages: `err.tempOwnerOnly`, `err.tempEnded`, `err.archivedWorker`
+- Code screen (changed): `pin.keyboardHint` now names Backspace, Delete and
+  Enter (French: *Retour arrière*, *Suppr*, *Entrée* — the names printed on
+  French keyboards)
+
 ## Not in this list
 
 The other 750 interface phrases (purchases, shipments, stock, catalogue,

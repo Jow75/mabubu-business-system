@@ -46,10 +46,26 @@ server.)
 
 ## Updates
 
-A new version arrives by itself: the app checks when it is opened online and
-reloads with the new version. Records saved on the laptop but not yet sent are
-kept through updates. **Me → Use Mabubu like an app** shows the version
-(`0.1.0 · testing (pre-release)`) and its build date.
+A new version arrives by itself: the app checks when it is opened online, when
+it comes back on screen (at most every 10 minutes) and every hour while it
+stays open. If it is in the background it switches at once; if you are using
+it, a bar says **A new version of Mabubu is ready** with **Reload**, and it
+also switches by itself the next time you leave the app with nothing half
+typed (a code, a form or an open sheet). Records saved on the laptop but not
+yet sent are kept through updates. **Me → Use Mabubu like an app** shows the
+version (`0.1.0 · testing (pre-release)`) and its build date.
+
+## On a computer that is not yours (owner only)
+
+In a cybercafe, on a family member's computer, or on your own laptop after it
+forgot you: open the address in the browser — **do not install** — type your
+name and code, and choose **Sign in temporarily**. Nothing is kept on that
+computer (no saved name, no records), a ribbon shows when it ends, and you are
+signed out when you press **Sign out**, after 20 minutes without use, or after
+8 hours at most. People & devices, Settings and go live are only on your own
+devices. If you forgot to sign out, open People & devices on your laptop or
+phone: **Temporary sign-ins on other computers → Sign out**. If you do not
+recognise one there, sign it out and change your code.
 
 ## Remove it
 
@@ -88,8 +104,10 @@ specific receipt printer without dialogs).
   *Cookies and other site data* ticked, or Chrome's clean-up when the disk is
   almost full. Keep free space on C:. Me → Sync shows *Storage protected from
   clean-up*.
-- If the laptop is not recognised: sign in, then **Allow this device with my
-  recovery key**. Retire the old identity in People & devices afterwards.
+- If the laptop is not recognised: sign in with your name and code. For the
+  day, **Sign in temporarily** is enough (no key). To make it your device
+  again, approve its code from your phone (People & devices) or use **Allow
+  this device with my recovery key**; then retire the old identity.
 
 ## Phones (Android)
 

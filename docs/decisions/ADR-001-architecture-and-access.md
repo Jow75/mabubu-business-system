@@ -93,7 +93,7 @@ Phone / laptop (IndexedDB)                        Cloudflare Worker + D1
 
 **Why a 4-digit PIN alone is not enough:** there are only 10,000 combinations. Anyone who found the web address could script guesses. Slow hashing does not help either, because 10,000 guesses is trivial offline. The protection must come from elsewhere:
 
-1. **Device approval (the main protection).** A new phone or laptop must be approved by the owner once, for that person, from the owner's People screen. A stranger who guessed a PIN still cannot get in.
+1. **Device approval (the main protection).** A new phone or laptop must be approved by the owner once, for that person, from the owner's People screen. A stranger who guessed a PIN still cannot get in. *Changed for the owner only on 25 Oct 2026, at the owner's request (ADR-006):* the owner may sign in **temporarily** on an unapproved computer with name and code — no device is approved by it, it ends within 8 hours, and it carries no owner-only rights. Workers and managers are unchanged.
 2. **Lockout.** 5 wrong PINs lock the account for 15 minutes, with longer locks after that. 20 failures lock it until the owner unlocks it. Failed attempts are also rate-limited per network address.
 3. **PINs are never stored as plain text.** The server keeps only an HMAC-SHA256 of the PIN, keyed with a server-only secret (`PIN_PEPPER`), so a stolen database alone does not reveal PINs.
 4. **Sessions** are random tokens. Only their hash is stored on the server, and the owner can revoke them (lost phone → revoke device). Permissions are re-checked on every request, so disabling a user takes effect immediately.

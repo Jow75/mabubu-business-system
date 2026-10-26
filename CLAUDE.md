@@ -6,6 +6,7 @@ Read first:
 - `docs/decisions/ADR-002-currency-balances-and-reports.md` — exchange rates, vendor balances and credit (§5), downloads.
 - `docs/decisions/ADR-004-late-records.md` — worker records that arrive after their day was closed.
 - `docs/decisions/ADR-005-go-live-cutover.md` + `docs/GO_LIVE_CUTOVER.md` — the owner's one-time move from test records to real ones.
+- `docs/decisions/ADR-006-temporary-owner-sign-in.md` — the owner's sign-in on a computer that is not one of their devices.
 - `docs/STATUS.md` — what is done, what is open, and which decisions belong to the owner.
 
 ## Ground rules from the owner
@@ -34,6 +35,8 @@ Read first:
 - Interface text goes through `useT()` with keys in `src/shared/i18n/en.ts`, `fr.ts` and `sw.ts` (all three; see ADR-003). Never translate stored data (garment, vendor or place names, notes), and never store translated text in a record.
 - The live app and its database: see `docs/HANDOVER_NEXT_SESSION.md` and `docs/DEPLOY.md`. Do not deploy, migrate or touch production data without the owner's go-ahead.
 - Sign-in, devices and owner recovery are explained in `docs/AUTH_AND_RECOVERY.md`. The device identity lives only in `mabubu-device` IndexedDB; clearing site data loses it and the device becomes unrecognised — this is expected, and owner recovery via `SETUP_TOKEN` is the way back. Owner recovery must never create a second owner or re-seed starter data, and the device-approval model (ADR-001 §6) must not be weakened by a guessable device "fingerprint". Never weaken authentication to fix a login symptom, and never hide a login problem behind a reset. Device identities are retired by blocking (history kept), never hard-deleted. Never put PINs, session tokens, device secrets or the setup key in code, logs or docs.
+- Temporary owner sign-in (ADR-006, `POST /api/auth/temporary`, `sessions.temporary`): owner only, same code check and lockout as sign-in, never writes a device approval, never carries owner-only capabilities (`OWNER_ONLY`), keeps records in memory only (`MemoryRecordsDb`, no saved profile), limits in `TEMP_SIGNIN`. Never extend it, widen it to other roles, or let it approve devices without the owner's decision.
+- Archived people get no new sales day (rule in `workerDay`, not only the screens); `pull` returns `deviceUsers` so apps take people who may no longer sign in off a device's list (never deleting records that were not sent).
 
 ## Before saying a change is done
 

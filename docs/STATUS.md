@@ -1,6 +1,8 @@
-# Build status — 25 Oct 2026 (live on Cloudflare)
+# Build status — 26 Oct 2026 (live on Cloudflare)
 
-Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker version `cdc994c6` (main `232ea73`), database migrations 0001–0005. One owner (George Muraguri), two managers (Said Abdou, Nancy Muthoni), three workers (Jijo, Azadi Mdogo, Naomi — the owner says Azadi and Naomi are no longer used: archive them). A staging copy with synthetic data runs at https://mabubu-staging.mabubu-family.workers.dev for device and sync tests.
+Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker version `a32b930c` (main `c1cb55b`), database migrations 0001–0006, phase pre-release (go-live **not** run). One owner (George Muraguri), two managers (Said Abdou, Nancy Muthoni), one active worker (**Jijo 2**, created 25 Oct); archived 25 Oct with their history kept: Jijo, Azadi Mdogo, Naomi. A staging copy with synthetic data runs at https://mabubu-staging.mabubu-family.workers.dev (`7ec143df`) for device and sync tests.
+
+**25–26 Oct pass (owner's master brief):** (1) **Temporary owner sign-in** (ADR-006) — on a computer that is not one of the owner's devices, name and code give a temporary sign-in: owner only, same lockout, nothing kept on that computer, 8 hours at most, ends after 20–30 minutes unused or on Sign out, no People & devices / Settings / go live; the owner sees and can end them in People & devices. No device is approved by it; the recovery key stays for making a computer one of the owner's devices. (2) **Keyboard code** verified with real Windows key events in Chrome and an app window; AZERTY number row fixed. (3) **Phone keypad** — found on the Tecno that Delete/0/Enter fell below the screen when the "sign in online" reason and an error were both shown; fixed and re-measured in en/fr/sw. (4) **Archived people** leave a phone's sign-in list and get no new work (server-enforced); a new code set by the owner works at once. (5) **Updates** reach an app left open and never reload under someone's fingers; the "new version ready → Reload" bar seen and used on the Tecno. (6) Physical Android run on staging: worker day, offline, late record, installed app (14/14). (7) Laptop identity lost again 25 Oct 16:10 — Mabubu's site data deleted outside the app (AUTH_AND_RECOVERY §3). (8) Go-live preview recomputed (GO_LIVE_CUTOVER §5). 310 tests. Migration 0006 applied after a verified export; deployed `a32b930c`; data unchanged.
 
 **25 Oct pass:** (1) **Laptop identity** — investigated on the laptop itself: all six owner-laptop identities were made in the same Chrome profile after that profile's *whole* website storage was wiped (not the app, not a profile switch, not "clear on exit"); likely a manual "delete cookies and site data" or Chrome's low-disk clean-up (4.9 % free). A real race that could create two identities at once is fixed. See [AUTH_AND_RECOVERY.md](AUTH_AND_RECOVERY.md) §3. (2) **PIN** — type the code on the keyboard (number row, numeric keypad with NumLock on or off, Backspace, Delete, Enter once, Escape, paste); on phones the whole keypad now fits (measured on the real Tecno: keypad ends at 570 px of a 688 px screen, 608 px with an error). (3) **Install offer** for every signed-in device incl. workers, real browser prompt or steps, remembered "Later", honest facts under Me. (4) **Archive people** separately from retiring devices. (5) **Go live** — the owner's one-time, checked cutover from test records to real ones ([GO_LIVE_CUTOVER.md](GO_LIVE_CUTOVER.md), ADR-005); built and run twice on staging; **not run on production**. (6) **Updates** — a new version now takes over within seconds instead of waiting until every tab closes (found on the phone). First physical Android session over USB. 282 tests. Migration 0005 applied to production after a verified export; deployed `cdc994c6`; data unchanged.
 
@@ -32,13 +34,14 @@ Live address: **https://mabubu.mabubu-family.workers.dev** — production Worker
 
 ## Not done yet (in priority order)
 
-1. **Owner: go-live day** when testing is finished — [GO_LIVE_CUTOVER.md](GO_LIVE_CUTOVER.md) §3. Before it: archive Azadi and Naomi, check the spelling of "Said Abdou" / "Nancy Muthoni", decide the recorded exchange rates, look at SOMLI-80 vs HAF-EN80.
-2. **Owner: protect the laptop's storage** — free disk space on C:, do not tick *Cookies and other site data* when clearing browsing data, keep the Surfshark / Easy Auto Refresh extensions disabled, always use the installed app (Profile 2).
-3. Physical Android: done on staging for sign-in, keypad layout (en/fr/sw), install offer, offline take and go-live refresh; still to do: the install tap itself, a full worker day, production use on each family phone.
-4. **A French speaker and a Swahili speaker from the family read the screens**, using [LANGUAGE_REVIEW.md](LANGUAGE_REVIEW.md) (nothing has been reviewed by a native speaker yet; the 22 Oct strings are new too).
-5. Downloads (PDF / Excel / CSV) are still in English.
-6. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
-7. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places, refunds from a vendor.
+1. **Owner: try the temporary sign-in once on production** and type the code on the laptop keyboard in the installed app ([QA](QA_AND_RELEASE_READINESS.md) §6); approve the Tecno as a second owner device.
+2. **Owner: go-live day** when testing is finished — [GO_LIVE_CUTOVER.md](GO_LIVE_CUTOVER.md) §3 and the preview in §5. Before it: decide Jijo / Jijo 2, the exchange rates (all five are market references), check the spelling of "Said Abdou" / "Nancy Muthoni", look at SOMLI-80 vs HAF-EN80, and have Said and Nancy open the app once (not seen since 21–22 Oct).
+3. **Owner: protect the laptop's storage** — do not use "Delete data" for the Mabubu site, do not tick *Cookies and other site data* when clearing browsing data, keep free disk space on C:, always use the installed app (Profile 2). When it forgets anyway: temporary sign-in, no key needed.
+4. Physical Android: done on staging (sign-in, keypad en/fr/sw with errors, install, worker day, offline, late record, update bar, reopen). Still to do: production use on each family phone with the new version; the archived "Jijo" leaving the Tecno's list on production (happens at the next sign-in there).
+5. **A French speaker and a Swahili speaker from the family read the screens**, using [LANGUAGE_REVIEW.md](LANGUAGE_REVIEW.md) (nothing has been reviewed by a native speaker yet; the 22 Oct strings are new too).
+6. Downloads (PDF / Excel / CSV) are still in English.
+7. A short "how to" card for workers in French (Shikomori wording to be confirmed by the family).
+8. Next phase: spread shipment costs per piece (landed cost per garment), photos of garments, printable day sheet, Play Store packaging, cash handovers / money sent home between places, refunds from a vendor.
 
 ## Decisions waiting for the owner
 
@@ -47,7 +50,9 @@ On 18 Oct 2026 the owner provisionally confirmed the current defaults below. See
 
 | Question | Current default | Change needs |
 |---|---|---|
-| Owner and manager codes are 6 digits (workers 4) | 6 digits, recommended for accounts that see money | One line in `src/shared/permissions.ts` |
+| Owner and manager codes are 6 digits (workers 4) | 6 digits, recommended for accounts that see money. With the temporary sign-in, a 7–8 digit owner code is recommended | One line in `src/shared/permissions.ts` |
+| Temporary owner sign-in limits (ADR-006) | 8 hours at most; app signs out after 20 min unused, server after 30; at most 3 at once; owner only | Numbers in `TEMP_SIGNIN` (`src/shared/api.ts`) |
+| Is "Jijo 2" the same person as "Jijo"? | Both kept; Jijo archived, Jijo 2 active with no records | Reactivate/rename in People & devices |
 | KMF banknote values in the counter | 10,000 / 5,000 / 2,000 / 1,000 / 500 | Editable in Settings; please confirm |
 | Word shown for the ÷5 local count | "local count" | Editable in Settings |
 | Can a worker take more garments after closing the day? | No. A manager reopens the day. A take saved offline that arrives after the day was closed is kept for a manager (ADR-004, decided 22 Oct) | Small change |
@@ -59,6 +64,8 @@ On 18 Oct 2026 the owner provisionally confirmed the current defaults below. See
 
 ## Known limitations (honest list)
 
+- A temporary owner sign-in needs only the name and code: anyone who has seen the owner's code can read and record business data for up to 8 hours (not manage people, devices, settings or go live). The owner sees each one in People & devices and can end it; a new code ends them all (ADR-006).
+- Records saved during a temporary sign-in live only in that browser tab until they reach the server; the app and the browser ask before they could be lost.
 - A device time can be changed by the person holding the phone. The log treats it as evidence, flags clock skew, and also stores the server's own time.
 - Data saved on a phone is not encrypted at rest. If a phone is lost, block it in People & devices.
 - Records not yet synced are lost if a phone is destroyed before it reaches internet. The app shows the waiting count prominently.
