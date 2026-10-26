@@ -526,7 +526,7 @@ export const en = {
   'dl.none': 'No records match these filters. The file will say so.',
   'dl.format': 'Choose a format',
   'dl.preparing': 'Preparing…',
-  'dl.note': 'Files are made on this device from the records shown on screen; totals match the screen. Word documents are not offered yet. File contents are in English.',
+  'dl.note': 'Files are made on this device from the records shown on screen; totals match the screen. File contents are in English.',
   'range.7': 'Last 7 days',
   'range.30': 'Last 30 days',
   'range.90': 'Last 90 days',

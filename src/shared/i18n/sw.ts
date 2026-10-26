@@ -510,7 +510,7 @@ export const sw: Record<Key, string> = {
   'dl.none': 'Hakuna kumbukumbu zinazolingana na vichujio hivi. Faili itaeleza hivyo.',
   'dl.format': 'Chagua muundo',
   'dl.preparing': 'Inaandaa…',
-  'dl.note': 'Faili zinatengenezwa kwenye kifaa hiki kutoka kumbukumbu zinazoonekana; jumla zinalingana na skrini. Nyaraka za Word bado hazitolewi. Maudhui ya faili ni kwa Kiingereza.',
+  'dl.note': 'Faili zinatengenezwa kwenye kifaa hiki kutoka kumbukumbu zinazoonekana; jumla zinalingana na skrini. Maudhui ya faili ni kwa Kiingereza.',
   'range.7': 'Siku 7 zilizopita',
   'range.30': 'Siku 30 zilizopita',
   'range.90': 'Siku 90 zilizopita',

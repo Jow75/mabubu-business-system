@@ -510,7 +510,7 @@ export const fr: Record<Key, string> = {
   'dl.none': 'Aucun enregistrement ne correspond à ces filtres. Le fichier l’indiquera.',
   'dl.format': 'Choisissez un format',
   'dl.preparing': 'Préparation…',
-  'dl.note': 'Les fichiers sont créés sur cet appareil à partir des enregistrements affichés ; les totaux correspondent à l’écran. Les documents Word ne sont pas encore proposés. Le contenu des fichiers est en anglais.',
+  'dl.note': 'Les fichiers sont créés sur cet appareil à partir des enregistrements affichés ; les totaux correspondent à l’écran. Le contenu des fichiers est en anglais.',
   'range.7': '7 derniers jours',
   'range.30': '30 derniers jours',
   'range.90': '90 derniers jours',

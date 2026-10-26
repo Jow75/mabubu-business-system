@@ -3,7 +3,7 @@
 // Only non-secret columns are read: no codes, PIN hashes, device secrets or
 // session tokens. Nothing is written to the database.
 //
-//   node scripts/data-snapshot.mjs take   <production|staging> <out.json>
+//   node scripts/data-snapshot.mjs take   production <out.json>
 //   node scripts/data-snapshot.mjs compare <before.json> <after.json>
 //
 // Keep snapshots outside the repository (they name people and vendors).
@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const DB = { production: ['mabubu', []], staging: ['mabubu-staging', ['--env', 'staging']] };
+const DB = { production: ['mabubu', []] };
 const WRANGLER = new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 
 function query(target, sql) {
@@ -84,6 +84,6 @@ if (cmd === 'take' && DB[x] && y) {
   for (const d of diffs) console.log(`${d.path}\n  before: ${JSON.stringify(d.before)}\n  after:  ${JSON.stringify(d.after)}`);
   process.exitCode = diffs.length ? 1 : 0;
 } else {
-  console.log('usage: node scripts/data-snapshot.mjs take <production|staging> <out.json> | compare <before.json> <after.json>');
+  console.log('usage: node scripts/data-snapshot.mjs take production <out.json> | compare <before.json> <after.json>');
   process.exitCode = 2;
 }

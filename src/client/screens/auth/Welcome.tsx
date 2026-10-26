@@ -362,12 +362,20 @@ function PendingStep({ name, pin, code, role, onBack }: { name: string; pin: str
   const [busy, setBusy] = useState(false);
   const started = useRef(Date.now());
   const owner = role === 'owner';
+  // One check at a time: the timer and "Check again" at the same moment made
+  // two sign-ins (production log, 26 Oct 21:01:41); the server keeps only the
+  // later session, and the device could have kept the earlier, ended one.
+  const checking = useRef(false);
   const check = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
     try {
       const r = await store.signIn(name, pin);
       if (r.status === 'pending') setMsg(t('auth.stillWaiting'));
     } catch (e) {
       setMsg(errorText(e, t));
+    } finally {
+      checking.current = false;
     }
   }, [name, pin, t]);
   // The owner's temporary sign-in (ADR-006): in at once, nothing kept, this computer not approved.

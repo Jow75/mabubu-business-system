@@ -122,7 +122,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
                     <span className="row" style={{ gap: 6 }}>
                       <span className="pill">{t(`grp.${OP_GROUP[o.op.type]}` as Key)}</span>
                       {rec?.status === 'pending' && <span className="pill saffron">{t('act.notOnServer')}</span>}
-                      {o.review ? <LatePill rec={o} /> : o.status === 'rejected' && <span className="pill red">{t('act.refused', { error: errText(rec?.error) })}</span>}
+                      {o.review ? <LatePill rec={o} /> : o.status === 'rejected' && <span className="pill red wrap">{t('act.refused', { error: errText(rec?.error) })}</span>}
                       {o.voidedBy && <span className="pill">{t('c.cancelled')}</span>}
                       {!o.op.createdOnline && <span className="pill lagoon">{t('act.offline')}</span>}
                       {delay !== null && delay > 10 * 60_000 && (
@@ -131,7 +131,7 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
                         </span>
                       )}
                       {flags.map((f, i) => (
-                        <span key={i} className={`pill ${f.code === 'CASH_VARIANCE' ? '' : 'saffron'}`} title={f.message}>
+                        <span key={i} className={`pill wrap ${f.code === 'CASH_VARIANCE' ? '' : 'saffron'}`} title={f.message}>
                           <Icon name="flag" size={13} /> {t(`lbl.flag.${f.code}` as Key)}: {f.message}
                         </span>
                       ))}

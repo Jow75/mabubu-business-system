@@ -29,6 +29,9 @@ function uaSummary(ua: string, t: T) {
   return t('pp.device');
 }
 
+/** How often People & devices asks the server again while it is on screen. */
+const REFRESH_MS = 10_000;
+
 export function PeoplePage() {
   const { demo, online, device, user } = useApp();
   const t = useT();
@@ -48,6 +51,20 @@ export function PeoplePage() {
   useEffect(() => {
     if (!demo) void load();
   }, [demo, online, load]);
+  // A device asking for approval while this page is open shows up by itself
+  // (found on 27 Oct: the request stayed hidden until the page was reopened).
+  useEffect(() => {
+    if (demo) return;
+    const again = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    const timer = setInterval(again, REFRESH_MS);
+    document.addEventListener('visibilitychange', again);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', again);
+    };
+  }, [demo, load]);
 
   if (demo)
     return (
