@@ -647,6 +647,22 @@ the new sign-in is "temporary": French *connexion temporaire*, Swahili
   Enter (French: *Retour arrière*, *Suppr*, *Entrée* — the names printed on
   French keyboards)
 
+## 8. New on 26 Oct 2026 — code field, temporary sign-in, People & devices, branding, reports, go live
+
+Not yet read by a native speaker. Keys (see `src/shared/i18n/fr.ts` and
+`sw.ts`): `pin.field`; `guard.title`, `guard.body`, `guard.tempTitle`,
+`guard.tempBody`, `guard.home`; `pp.tempViewOnly`, `pp.summaryLabel`,
+`pp.sumPeople`, `pp.sumArchived`, `pp.sumInUse`, `pp.sumBlocked`,
+`pp.sumRetired`, `pp.sumWaiting`, `pp.sumTemp`, `pp.blockedDevices`,
+`pp.blockedHint`, `pp.removedAtGoLive`; changed `temp.meNote`,
+`auth.tempBody`; `st.contact`, `st.contactHint`, `st.phoneKenya`,
+`st.phoneComoros`, `st.email`, `st.optional`, `st.phoneBad`, `st.emailBad`;
+`fmt.docx`; `gl.fxBody2`, `gl.fxRemoveN`, `gl.accessTitle`, `gl.accessBody`,
+`gl.a.*`, `gl.accessHint`, `gl.confirmAccess`, `gl.doneAccess`,
+`gl.doneAccessLine`, changed `gl.keptHint`, `gl.c.approvalsWarn`;
+`err.accessChanged`. Every sentence that named the app now says "NAS Mabubu
+System" (19 per language).
+
 ## Not in this list
 
 The other 750 interface phrases (purchases, shipments, stock, catalogue,

@@ -102,3 +102,34 @@ good. B is still a good optional addition for the owner's own devices
 - Tests: `tests/worker.test.ts` ("temporary owner sign-in…", 10 tests),
   `tests/temporary-e2e.test.ts` (real app store + real Worker), plus the
   desktop and app-window runs recorded in QA_AND_RELEASE_READINESS §0.
+
+## Amendment, 26 Oct 2026 — after the owner's first real use on production
+
+What the production sign-in log showed (26 Oct, 17:33–17:41 UTC, computer
+7CY-7ET): the temporary sign-in **worked**, but four times in eight minutes.
+A temporary sign-in lived in one browser tab only, so a link pasted into a
+new tab (the owner pasted the People page address) asked for the code again —
+and that second sign-in ended the first tab's, because there is one per
+computer. The People page itself was refused in a temporary sign-in and
+showed a server error.
+
+The owner's brief asked for "their established permissions" in such a
+session and, in the same brief, that a valid code never make a computer
+permanently trusted. Both cannot hold for device approval, adding people or
+changing codes: any of them lets someone who saw the code make their own
+computer permanent. So the line is drawn here (owner may revisit):
+
+- **Other tabs of the same browser continue the live temporary sign-in**
+  (BroadcastChannel, nothing written to disk); Sign out in one tab ends it in
+  all; activity in one tab keeps the others from idling out.
+- **People & devices opens view-only** in a temporary sign-in, and its
+  temporary sign-ins can be signed out from there (`requireOwnerView`,
+  `src/worker/admin.ts`). Approving, refusing, blocking, retiring, adding
+  people, codes, settings, the backup download and go live still need
+  `users.manage`/`settings.manage`, which a temporary sign-in never carries —
+  enforced by the server.
+- A page the sign-in may not use (e.g. a typed go-live address) shows a plain
+  explanation instead of a server error.
+- Tests: `tests/worker.test.ts` ("may look at People & devices…"),
+  `tests/temporary-e2e.test.ts` ("a link opened in another tab…"); real Chrome
+  and app window on staging with real Windows key events (28/28, 29/29).

@@ -166,6 +166,18 @@ the fix removed** (10 fixes checked that way, then restored exactly).
 | Low | "Remove" (a person's access on a device) could be pressed twice (two log entries 3 s apart on 25 Oct) | **Fixed**: the line disappears at once and waits for the answer |
 | Info | The laptop's identity was lost again at 16:10 UTC 25 Oct — Mabubu's site data only, deleted outside the app (AUTH_AND_RECOVERY §3) | Explained; temporary sign-in removes the key from ordinary use |
 
+## 4b. Findings and fixes, 26 Oct 2026 (owner's master directive)
+
+| Finding | Evidence | Fix | Verified |
+|---|---|---|---|
+| A held digit key repeated on the code screen | Real key events on staging: 1, 2 held, 3 → 6 digits; production log wrong codes 12:41, 17:37 | Repeat ignored; real focused code field | Staging tab 28/28, app window 29/29; Tecno 18/18, 17/17 |
+| No focused field: typing depended on page-wide key handling | DevTools: focus on BODY | `.pin-field` over the dots, focus ring, keypad clicks keep focus | as above |
+| Temporary sign-in lost on every new tab, and ended the other tab | Production log: 4 temporary sign-ins in 8 min on 7CY-7ET | Tabs share it (BroadcastChannel) | `temporary-e2e` test; staging new-tab check |
+| A pasted People link showed a server error in a temporary sign-in | Code: route not guarded; server 403 | View-only People; plain "not available" page elsewhere | worker tests; staging |
+| PDF notes started with "?" | Rendered PDF (pypdfium2) | "•" mapped to "·" | reports test |
+| Sign-in art: "Moroni" under the headline at 360 px | Tecno screenshot | Route drawing ends at 44 % on phones | Tecno staging, measured |
+| Six, not five, recorded exchange rates | Production read-only query | Listed one by one in the go-live preview | GO_LIVE_CUTOVER §5 |
+
 ## 5. Open business questions found by testing (owner decides)
 
 1. ~~A take arriving after its day was closed is refused.~~ **Decided and

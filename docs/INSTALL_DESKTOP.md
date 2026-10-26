@@ -116,3 +116,25 @@ offers its own install, the button opens it; otherwise **How to install**
 shows the steps (Chrome ⋮ → Install app / Add to Home screen). **Later** hides
 the offer on that phone; the same help stays under Me. On the owner's Tecno
 (Chrome 155) Chrome offered the real install prompt (25 Oct, staging).
+
+## New name and icon (26 Oct 2026)
+
+The app is now **NAS Mabubu System** with the owner's logo. The installed
+app keeps its identity (same address and id), so it is not installed twice.
+How the installed name and icon change:
+
+- **Windows (Chrome / Edge):** the browser reads the new manifest the next
+  time the app is opened online and then updates the Start-menu and taskbar
+  icon and name — sometimes silently, sometimes with an "App update" box to
+  accept. If an old icon stays after a few days, unpin it, open the app once,
+  and pin it again; uninstalling and reinstalling also works (records are on
+  the server; this computer must still be one of the owner's devices).
+- **Android (Chrome):** Chrome rebuilds the home-screen app from the new
+  manifest some time after it is opened online (usually within a day or two).
+  Inside the app the new name and logo show at once; only the home-screen
+  icon and its label wait for Chrome. Reinstalling ("Add to Home screen")
+  gives the new icon immediately.
+
+Verified 26 Oct: the production app on the Tecno shows the new name and logo
+inside the app after its update; the home-screen icon change was not yet
+observed (Chrome decides when).

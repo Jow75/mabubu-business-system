@@ -2,6 +2,48 @@
 
 Last updated 26 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
 
+## 26 Oct session (3) — keyboard repeat, temporary sign-in across tabs, NAS Mabubu System branding, Word reports, go-live access clean-up (deployed: `b6bd2d36`, then `125c74af`)
+
+Owner's master directive (26 Oct). Commits `2f8b1de` (keyboard + temporary
+sign-in + People & devices), `0ea12cd` (branding, reports/Word, contacts,
+go-live access, migration 0007, snapshot script), `e0409ad` (sign-in art on
+narrow phones), then docs. 325 tests.
+
+- **Production log 26 Oct:** wrong code on 5YK-3GS at 12:41 UTC; temporary
+  sign-in on a new browser identity 7CY-7ET worked four times 17:33–17:41
+  (two wrong codes in between) — each pasted link asked again. Explains the
+  owner's reports; both fixed (AUTH_AND_RECOVERY §10, ADR-006 amendment).
+- **Production (26 Oct, after export
+  `Documents\mabubu-backups\mabubu-backup-2026-10-26-pre-0007-golive-access.sql`,
+  restore-checked: integrity ok, every table count equal; Time Travel bookmark
+  `00000071-00000000-00005110-e1b0d56f15cc1f71172cdb9ba5343e16`):** migration
+  0007 applied, deploy `b6bd2d36`, then `125c74af` (CSS only). Snapshots in
+  `Documents\mabubu-backups\snapshots\` — compare showed only the added
+  migration. Smoke: health, setup status, protected endpoints 401, manifest
+  "NAS Mabubu System", icons 200. The test-suite run before the CSS deploy
+  failed to start (25 files, 0 tests — a runner start-up failure); three
+  reruns passed 325/325. The deploy went ahead in the same command chain:
+  next time stop the chain on a failed check.
+- **Production go-live preview** recomputed (GO_LIVE_CUTOVER §5): 4 people
+  and 4 devices kept, Jijo/Azadi/Naomi and 9 devices removed, **6** rate
+  entries (one new, 26 Oct 17:56 UTC). Cutover not run.
+- **Tecno:** production app (YB7-EN2) updated to the new version via its
+  Reload bar (tapped); it still lists "Jijo" (0 unsent) — goes at Jijo 2's
+  next sign-in and sync. Staging app updated too. Home-screen icon change not
+  yet observed.
+- **Staging:** migration 0007; phase reset to pre-release once (staging only)
+  and the extended go-live run through the screens; test person "Test
+  Leaver" created and removed there. The staging test identity `5SM-GF9`,
+  whose session token and device secret appeared in this session's tool
+  output, was revoked and retired.
+- **Scratchpad tools** (not in the repo): `kbd.mjs` + `tools/oskeys.ps1` (real
+  key events incl. held-key auto-repeat `H<d>`), `desk-verify.mjs`,
+  `phone-verify.mjs`, `staging-golive.mjs`, `prod-preview.ts` (preview on a
+  local copy of an export), `verify-backup.mjs`.
+- **Not verified:** the owner's own laptop/installed app with the new code;
+  Word files opened in Microsoft Word; installed icons on the home screen /
+  taskbar; native-speaker review of the new strings (LANGUAGE_REVIEW §8).
+
 ## 25–26 Oct session (2) — temporary owner sign-in, real-device keyboard and keypad, archived people, updates (deployed: `a32b930c`)
 
 Owner's master brief ("reliable sign-in…"). Commits `e3a40de` (keyboard
@@ -302,14 +344,14 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 | Item | State (26 Oct 2026) |
 |---|---|
 | Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
-| Live app | https://mabubu.mabubu-family.workers.dev — Worker `mabubu`, version `a32b930c` (main `c1cb55b`) |
-| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0006 (phase: pre-release); real people (1 owner, 2 managers, 1 active worker, 3 archived), test activity |
-| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging` (`7ec143df`), D1 `mabubu-staging` (0001–0006, phase live), synthetic data |
+| Live app | https://mabubu.mabubu-family.workers.dev — **NAS Mabubu System**, Worker `mabubu`, version `125c74af` (main `e0409ad`) |
+| Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0007 (phase: pre-release); real people (1 owner, 2 managers, 1 active worker, 3 archived), test activity |
+| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging` (`b96210b0`), D1 `mabubu-staging` (0001–0007, phase live), synthetic data |
 | Phone | Tecno `0978354327102255`: production app (`org.chromium.webapk.a7dd751d874a1ac0b_v2`, device `YB7-EN2`) and staging app (`…a56590860e5e85bd5_v2`, device `VA9-X54`) |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
 | Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
 | Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 310 tests |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 325 tests |
 
 ## Done in the 18 Oct session
 

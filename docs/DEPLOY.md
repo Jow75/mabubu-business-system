@@ -9,7 +9,7 @@ Everything here runs on Cloudflare's **free** plan. No card is needed and nothin
 | Cloudflare account | the owner's account (shown by `npx wrangler whoami`) | Logged in on the laptop with `npx wrangler login` |
 | Worker (app + API) | `mabubu` | One Worker serves the screens and `/api/*` |
 | D1 database | `mabubu`, id `99eb0bfa-4c87-4afc-be5f-3cb0faf397ef`, region WEUR | Set in `wrangler.jsonc`. The id is not a secret |
-| Migrations applied | `0001_init.sql` … `0006_temporary_sessions.sql` (0005 and 0006 on 25 Oct 2026) | Check with `npx wrangler d1 migrations list mabubu --remote` |
+| Migrations applied | `0001_init.sql` … `0007_go_live_access.sql` (0005 and 0006 on 25 Oct 2026, 0007 on 26 Oct 2026) | Check with `npx wrangler d1 migrations list mabubu --remote` |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` | Stored only in Cloudflare (`npx wrangler secret list` shows the names, never the values) |
 | Code | GitHub `Jow75/mabubu-business-system` (private), branch `main` | No automatic deploy from GitHub |
 
@@ -55,6 +55,22 @@ npm run deploy
 ```
 
 `npm run deploy` builds the app and uploads it. It prints the address (`https://mabubu.<account-subdomain>.workers.dev`). If a change adds a file in `migrations/`, first run `npm run db:migrate:remote` and read what it is going to apply.
+
+**Check the data did not change (every production deploy).** A read-only
+snapshot of people, devices, every set-up record (with a fingerprint of its
+content), record counts by type, stock balances, migrations and the ledger
+id, before and after; keep the files outside the repository:
+
+```bash
+node scripts/data-snapshot.mjs take production %USERPROFILE%/Documents/mabubu-backups/snapshots/before.json
+# … migrate / deploy …
+node scripts/data-snapshot.mjs take production %USERPROFILE%/Documents/mabubu-backups/snapshots/after.json
+node scripts/data-snapshot.mjs compare …/before.json …/after.json
+```
+
+A difference that is not the intended one: stop, keep the database as it is,
+find the cause; never restore an old backup over newer records as a quick fix.
+An HTTP 200 is not evidence that the data is unchanged.
 
 Phones pick up a new version by themselves the next time the app is opened online (the service worker checks for updates and replaces the old files). Records waiting to sync are kept on the phone through updates.
 
@@ -116,6 +132,10 @@ Migration 0006 (25 Oct 2026, before version `a32b930c`) only adds
 refuses any temporary sign-in (it finds no device approval behind it), so a
 rollback simply ends temporary sign-ins; ordinary sessions keep working. The
 rollback target before `a32b930c` is `cdc994c6` (main `232ea73`).
+Migration 0007 (26 Oct 2026, before version `b6bd2d36`) only adds
+`devices.removed_at` and `users.removed_at`. Before go-live both are empty; an
+older Worker ignores them (after go-live it would list removed people and
+devices again, still blocked). Rollback target before `b6bd2d36`: `a32b930c`.
 Do not roll back past a deploy that the records depend on without asking. A data problem is corrected in the app (cancel with a
 reason), or in a disaster restored from Time Travel / an export **into a new
 database** after exporting the current one — never over newer records.

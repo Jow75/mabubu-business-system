@@ -1,6 +1,7 @@
-# Mabubu business system
+# NAS Mabubu System
 
-Records for the family Mabubu (dera) business: purchases in Mombasa, inspection of vendor deliveries, shipments via Dar es Salaam to the Comoros, each worker's sales day with cash reconciliation, expenses, profit and a complete activity log. It works offline on laptops and Android phones and syncs when there is internet.
+The application's name since 26 Oct 2026 (the repository and code keep the
+name `mabubu`). Records for the family Mabubu (dera) business: purchases in Mombasa, inspection of vendor deliveries, shipments via Dar es Salaam to the Comoros, each worker's sales day with cash reconciliation, expenses, profit and a complete activity log. It works offline on laptops and Android phones and syncs when there is internet.
 
 - **Why it is built this way:** [docs/decisions/ADR-001-architecture-and-access.md](docs/decisions/ADR-001-architecture-and-access.md)
 - **The agreed business requirements:** [docs/requirements/](docs/requirements/)

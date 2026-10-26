@@ -256,3 +256,30 @@ remembers the old one), `tests/device-identity.test.ts`,
 6. Read-only checks with `npx wrangler d1 execute mabubu --remote --command
    "SELECT ..."` selecting only non-secret columns (never `pin_hmac`,
    `secret_hash`, `token_hash`).
+
+## 10. 26 Oct 2026 — the code typed on a laptop, and the new-computer flow
+
+**Keyboard (reproduced, fixed).** On staging, with real Windows key events in
+a real Chrome window: pressing 1, holding 2 for about 0.6 s (longer than the
+keyboard's repeat delay), then 3 entered **six** digits. A careful, slow
+press produced a wrong code at the server — consistent with the owner's
+wrong-code entries in the production log (12:41 and 17:37 UTC on 26 Oct).
+Fixed: auto-repeat is ignored on the code screen (Backspace still repeats).
+The code now lives in a real field over the dots, focused on arrival on a
+computer (visible ring), so the number row and the numeric keypad type into
+it; clicking a keypad button keeps the focus there. On phones the field asks
+for no keyboard (`inputMode="none"`), so the big keypad is the only input and
+nothing arrives twice. A connection error keeps the digits; a wrong code
+clears them. Delete clears the whole code, Backspace one digit, Enter signs in
+once (never automatically at six digits).
+
+**Verified (26 Oct):** staging, Chrome tab 28/28 and app window (as the
+installed Windows app) 29/29, real key events; Tecno Spark 10 Pro, staging
+installed app 18/18 and Chrome tab 17/17 (real taps and hardware keys, no
+phone keyboard, keypad on screen with an error in en/fr/sw); production
+installed app on the Tecno updated to the new version, keypad checked
+without sending a code. **Not verified:** the owner's own laptop and
+installed app (only the owner can sign in there).
+
+**New computer:** see ADR-006, amendment of 26 Oct — the temporary sign-in
+now carries over to other tabs, and People & devices opens view-only.

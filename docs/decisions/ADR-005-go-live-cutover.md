@@ -55,3 +55,29 @@ check before the batch.
 - The security sign-in log is not emptied; the business activity log is.
 - Restoring Time Travel after go-live brings back the old ledger id; apps
   refresh again. Documented in `docs/GO_LIVE_CUTOVER.md`.
+
+## Amendment, 26 Oct 2026 — access left over from testing (owner's request)
+
+The owner asked that the real workspace start without the testing period's
+retired laptops, temporary sign-ins and test workers. Options weighed: (a)
+hard-delete those rows — refused: kept set-up records and the security log
+name four of the old laptops, and device identities are never hard-deleted
+(CLAUDE.md); (b) hide and block them in the same transaction — chosen.
+
+- Migration 0007 adds `devices.removed_at` and `users.removed_at` (nullable).
+- `planAccess` (`src/shared/golive.ts`, pure, tested): people kept = active;
+  an archived person is removed unless a kept record names them (then they
+  stay archived and listed); devices kept = not blocked or retired, with at
+  least one kept person approved; everything else removed. Every temporary
+  session and every session on a removed device or of someone not kept ends;
+  approvals there are withdrawn; waiting requests are closed.
+- The preview shows each person and device with its fate and each recorded
+  exchange rate. The owner's confirmation carries the exact keep/remove id
+  lists; the server refuses (`access_changed`) if they no longer match, and a
+  guard in the batch aborts if people, devices or approvals changed meanwhile.
+- Removed rows are excluded from People & devices (a count is shown) and
+  cannot be changed or reactivated there; owner recovery on such a computer
+  clears the mark like it clears "retired".
+- Tests: `tests/golive.test.ts` (production-like scenario, refusal on change,
+  pure planner); run through the screens on staging on 26 Oct (2 people and
+  14 devices removed, a second run refused).
