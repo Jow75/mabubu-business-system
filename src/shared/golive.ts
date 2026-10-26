@@ -11,8 +11,13 @@
 //   follows    a cancellation (op.void) or a late-record decision (op.resolve)
 //   its target goes with the record it is about
 //
-// People, devices, sessions and the sign-in log are not records in this
-// ledger and are never touched by the cutover.
+// People and devices are not records in this ledger. Since 26 Oct 2026 (the
+// owner's request) the cutover also clears access left over from testing —
+// see planAccess below: the business keeps its active people and the devices
+// approved for them; archived test people and every other device leave
+// People & devices (hidden and blocked, never deleted), every temporary
+// sign-in and every session on a removed device ends, and waiting device
+// requests are closed. The security sign-in log is never emptied.
 
 import type { OpType } from './ops';
 
@@ -119,6 +124,149 @@ export interface BackupInfo {
   maxSeq: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* Access left over from testing (amended 26 Oct 2026)                 */
+/* ------------------------------------------------------------------ */
+
+export interface AccessInput {
+  users: { id: string; name: string; role: string; active: boolean; removed: boolean }[];
+  devices: { id: string; code: string; label: string; revoked: boolean; retired: boolean; removed: boolean; lastSeenAt: string | null }[];
+  access: { deviceId: string; userId: string; status: string }[];
+  /** Sessions not ended yet. */
+  sessions: { userId: string; deviceId: string; temporary: boolean }[];
+  /** Records that stay in the ledger, by who made them and on which device. */
+  keptByActor: Map<string, number>;
+  keptByDevice: Map<string, number>;
+  /** Records moved to the trial archive, likewise. */
+  trialByActor: Map<string, number>;
+  trialByDevice: Map<string, number>;
+}
+
+/** keep: stays as it is. remove: out of People & devices (hidden, cannot sign in; the row is kept). archived: stays archived and listed, because kept records name them. */
+export type PersonFate = 'keep' | 'remove' | 'archived';
+export interface AccessPerson {
+  id: string;
+  name: string;
+  role: string;
+  active: boolean;
+  fate: PersonFate;
+  keptRecords: number;
+  trialRecords: number;
+}
+export interface AccessDevice {
+  id: string;
+  code: string;
+  label: string;
+  /** What it is today. */
+  state: 'in_use' | 'blocked' | 'retired' | 'not_in_use';
+  /** Kept people approved on it today. */
+  people: string[];
+  lastSeenAt: string | null;
+  fate: 'keep' | 'remove';
+  /** Kept records made on it: why its row stays (hidden), never deleted. */
+  keptRecords: number;
+  trialRecords: number;
+  openSessions: number;
+}
+export interface AccessPlan {
+  people: AccessPerson[];
+  devices: AccessDevice[];
+  /** Sessions that end: every temporary sign-in, everything on a removed device, everything of someone not kept active. */
+  sessionsEnded: number;
+  temporaryEnded: number;
+  /** Device requests still waiting: closed (refused). */
+  requestsClosed: number;
+  /** Approvals withdrawn: on removed devices, or for people not kept. */
+  approvalsWithdrawn: number;
+}
+
+/**
+ * Who and what the real business keeps. A person is kept when active. A
+ * device is kept when it is neither blocked nor retired and at least one kept
+ * person is approved on it: the business's current phones and computers.
+ * Everything else leaves People & devices. Nothing is deleted: a removed row
+ * stays (hidden) for the trial archive, the records that name it and the
+ * security log.
+ */
+export function planAccess(x: AccessInput): AccessPlan {
+  const present = x.users.filter((u) => !u.removed);
+  const kept = new Set(present.filter((u) => u.active).map((u) => u.id));
+  const nameOf = new Map(x.users.map((u) => [u.id, u.name]));
+  const people: AccessPerson[] = present.map((u) => {
+    const keptRecords = x.keptByActor.get(u.id) ?? 0;
+    return {
+      id: u.id,
+      name: u.name,
+      role: u.role,
+      active: u.active,
+      fate: u.active ? 'keep' : keptRecords > 0 ? 'archived' : 'remove',
+      keptRecords,
+      trialRecords: x.trialByActor.get(u.id) ?? 0,
+    };
+  });
+  const devices: AccessDevice[] = x.devices
+    .filter((d) => !d.removed)
+    .map((d) => {
+      const approved = x.access.filter((a) => a.deviceId === d.id && a.status === 'approved' && kept.has(a.userId)).map((a) => a.userId);
+      const anyone = x.access.some((a) => a.deviceId === d.id && (a.status === 'approved' || a.status === 'pending'));
+      const state: AccessDevice['state'] = d.retired ? 'retired' : d.revoked ? 'blocked' : anyone ? 'in_use' : 'not_in_use';
+      return {
+        id: d.id,
+        code: d.code,
+        label: d.label,
+        state,
+        people: approved.map((id) => nameOf.get(id) ?? id).sort(),
+        lastSeenAt: d.lastSeenAt,
+        fate: !d.revoked && !d.retired && approved.length > 0 ? 'keep' : 'remove',
+        keptRecords: x.keptByDevice.get(d.id) ?? 0,
+        trialRecords: x.trialByDevice.get(d.id) ?? 0,
+        openSessions: x.sessions.filter((s) => s.deviceId === d.id).length,
+      };
+    });
+  const removedDevices = new Set(devices.filter((d) => d.fate === 'remove').map((d) => d.id));
+  return {
+    people,
+    devices,
+    sessionsEnded: x.sessions.filter((s) => s.temporary || removedDevices.has(s.deviceId) || !kept.has(s.userId)).length,
+    temporaryEnded: x.sessions.filter((s) => s.temporary).length,
+    requestsClosed: x.access.filter((a) => a.status === 'pending').length,
+    approvalsWithdrawn: x.access.filter((a) => a.status === 'approved' && (removedDevices.has(a.deviceId) || !kept.has(a.userId))).length,
+  };
+}
+
+export interface AccessChoice {
+  keepPeople: string[];
+  keepDevices: string[];
+  removePeople: string[];
+  removeDevices: string[];
+}
+
+/** What the owner saw and confirmed; the server refuses the cutover if it no longer matches. */
+export function accessChoice(plan: AccessPlan): AccessChoice {
+  const ids = (xs: { id: string; fate: string }[], fate: string) =>
+    xs
+      .filter((x) => x.fate === fate)
+      .map((x) => x.id)
+      .sort();
+  return { keepPeople: ids(plan.people, 'keep'), keepDevices: ids(plan.devices, 'keep'), removePeople: ids(plan.people, 'remove'), removeDevices: ids(plan.devices, 'remove') };
+}
+
+export function sameChoice(a: AccessChoice, b: AccessChoice): boolean {
+  const k = (c: AccessChoice) => JSON.stringify([[...c.keepPeople].sort(), [...c.keepDevices].sort(), [...c.removePeople].sort(), [...c.removeDevices].sort()]);
+  return k(a) === k(b);
+}
+
+/** One recorded exchange rate, as the owner sees it before deciding. */
+export interface RateEntry {
+  id: string;
+  date: string;
+  from: string;
+  to: string;
+  rate: string;
+  basis: 'actual' | 'market' | 'manual';
+  source: string;
+}
+
 export interface CutoverRecord {
   id: string;
   at: string;
@@ -126,7 +274,14 @@ export interface CutoverRecord {
   ledger: string;
   backupSha256: string;
   backupAt: string;
-  scope: { fx: FxDecision; kept: number; removed: number; byType: TypeCount[] };
+  scope: {
+    fx: FxDecision;
+    kept: number;
+    removed: number;
+    byType: TypeCount[];
+    /** Since 26 Oct 2026; absent on a cutover made before. */
+    access?: { keptPeople: number; removedPeople: number; keptDevices: number; removedDevices: number; sessionsEnded: number; requestsClosed: number; approvalsWithdrawn: number };
+  };
   result: { opsAfter: number; entitiesAfter: number; balancesAfter: number; archived: number };
 }
 
@@ -136,7 +291,11 @@ export interface GoLivePreview {
   byType: TypeCount[];
   kept: { places: string[]; sizes: string[]; vendors: string[]; garments: string[]; prices: number; settings: boolean };
   rates: string[];
+  /** Every recorded exchange rate (fx.set), one row each. */
+  rateEntries: RateEntry[];
   people: { name: string; role: string; active: boolean }[];
+  /** People, devices, sessions and requests after go live. */
+  access: AccessPlan;
   devices: DeviceReadiness[];
   checks: ReadinessCheck[];
   backup: BackupInfo | null;
@@ -152,4 +311,6 @@ export interface GoLiveExecuteRequest {
   fingerprint: { ops: number; maxSeq: number };
   /** The owner has read that some devices have not reported recently and accepts it. */
   acceptUnknownDevices: boolean;
+  /** The people and devices kept and removed, exactly as shown in the preview. */
+  access: AccessChoice;
 }

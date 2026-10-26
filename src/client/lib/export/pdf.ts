@@ -1,11 +1,13 @@
-// PDF writer (loaded only when someone downloads a PDF). A4, with the report
-// title, filters, generation time and notes first; tables repeat their
-// header on every page, long text wraps instead of being cut, and every page
-// carries "page x of y".
+// PDF writer (loaded only when someone downloads a PDF). A4, opening with the
+// NAS Mabubu System letterhead (the owner's logo, the business name and its
+// contact details), then the report title, filters, generation time and
+// notes; tables repeat their header on every page, long text wraps instead of
+// being cut, and every page carries "page x of y". The figures come from the
+// report document unchanged: the letterhead never touches them.
 
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
-import { businessDateTime, cellText, type ReportDoc } from '../../../shared/report-doc';
+import { businessDateTime, cellText, contactLine, pngSize, type Branding, type ReportDoc } from '../../../shared/report-doc';
 
 // The built-in PDF fonts cover Latin-1 only; replace the few other symbols we use.
 export function pdfSafe(s: string): string {
@@ -15,6 +17,7 @@ export function pdfSafe(s: string): string {
     .replace(/[“”]/g, '"')
     .replace(/→/g, '->')
     .replace(/…/g, '...')
+    .replace(/•/g, '·') // the notes' bullet: "?" before 26 Oct
     .replace(/€ ?/g, 'EUR ')
     .replace(/[^\u0000-ÿ]/g, '?');
 }
@@ -23,11 +26,12 @@ const INDIGO: [number, number, number] = [46, 58, 135];
 const INK: [number, number, number] = [33, 30, 26];
 const SOFT: [number, number, number] = [104, 98, 90];
 const PAPER: [number, number, number] = [247, 243, 236];
+const SAFFRON: [number, number, number] = [224, 161, 58];
 
-export function toPdf(doc: ReportDoc): Uint8Array {
+export function toPdf(doc: ReportDoc, brand: Branding = {}): Uint8Array {
   const wide = doc.tables.some((t) => t.columns.length > 7);
   const pdf = new jsPDF({ orientation: wide ? 'landscape' : 'portrait', unit: 'pt', format: 'a4' });
-  pdf.setProperties({ title: pdfSafe(`${doc.business} - ${doc.title}`), author: pdfSafe(doc.generatedBy), creator: 'Mabubu' });
+  pdf.setProperties({ title: pdfSafe(`${doc.app} - ${doc.business} - ${doc.title}`), author: pdfSafe(doc.generatedBy), creator: pdfSafe(doc.app) });
   const W = pdf.internal.pageSize.getWidth();
   const H = pdf.internal.pageSize.getHeight();
   const M = 36;
@@ -50,7 +54,32 @@ export function toPdf(doc: ReportDoc): Uint8Array {
     y += opts.gap ?? 0;
   };
 
-  text(doc.business.toUpperCase(), 9, { bold: true, color: INDIGO, gap: 2 });
+  // Letterhead: the logo as supplied (square), the names and contacts beside it.
+  const LOGO = 50;
+  const size = brand.logoPng ? pngSize(brand.logoPng) : null;
+  let left = M;
+  if (brand.logoPng && size) {
+    pdf.addImage(brand.logoPng, 'PNG', M, y, LOGO, (LOGO * size.h) / size.w, 'nas-logo', 'SLOW');
+    left = M + LOGO + 12;
+  }
+  const head = (s: string, size: number, top: number, opts: { bold?: boolean; color?: [number, number, number] }) => {
+    pdf.setFont('helvetica', opts.bold ? 'bold' : 'normal');
+    pdf.setFontSize(size);
+    pdf.setTextColor(...(opts.color ?? INK));
+    pdf.text(pdfSafe(s), left, y + top, { maxWidth: W - M - left });
+  };
+  head(doc.app.toUpperCase(), 12, 15, { bold: true, color: INDIGO });
+  head(doc.business, 10, 30, {});
+  const contacts = contactLine(doc);
+  if (contacts) head(contacts, 8.5, 43, { color: SOFT });
+  y += Math.max(brand.logoPng && size ? LOGO : 0, contacts ? 47 : 34) + 9;
+  // The dashed "stitch" rule of the app's design, in saffron.
+  pdf.setDrawColor(...SAFFRON);
+  pdf.setLineWidth(1.1);
+  pdf.setLineDashPattern([3.5, 2.5], 0);
+  pdf.line(M, y, W - M, y);
+  pdf.setLineDashPattern([], 0);
+  y += 12;
   text(doc.title, 18, { bold: true, gap: 6 });
   for (const f of doc.filters) text(`${f.label}: ${f.value}`, 9.5, { color: SOFT });
   text(`Generated ${generated}`, 9.5, { color: SOFT, gap: 6 });
@@ -95,7 +124,7 @@ export function toPdf(doc: ReportDoc): Uint8Array {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(8);
     pdf.setTextColor(...SOFT);
-    if (i > 1) pdf.text(pdfSafe(`${doc.business} - ${doc.title}`), M, M);
+    if (i > 1) pdf.text(pdfSafe(`${doc.app} · ${doc.business} - ${doc.title}`), M, M);
     pdf.text(pdfSafe(`Generated ${generated}`), M, H - M / 2);
     pdf.text(`Page ${i} of ${pages}`, W - M, H - M / 2, { align: 'right' });
   }

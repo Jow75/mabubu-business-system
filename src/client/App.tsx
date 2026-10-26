@@ -6,7 +6,8 @@ import type { SessionUser } from '../shared/api';
 import { applyLang, useT } from './lib/i18n';
 import type { Key } from '../shared/i18n';
 import { LanguageChoice } from './screens/auth/Language';
-import { DeraMark, Icon, type IconName } from './ui/Icon';
+import { Icon, type IconName } from './ui/Icon';
+import { Brand } from './ui/Brand';
 import { Empty, LocalCountToggle, Monogram, Sheet, SyncBadge, Toasts } from './ui/kit';
 import { TemporaryRibbon } from './ui/Temporary';
 import { TEMP_SIGNIN } from '../shared/api';
@@ -234,10 +235,7 @@ function ManageShell() {
       <TemporaryRibbon />
       <div className="shell">
         <aside className="sidebar">
-          <a className="brand" href={href('/')}>
-            <DeraMark />
-            <span className="brand-word">mabubu</span>
-          </a>
+          <Brand href={href('/')} size={38} />
           {NAV.map((g) => {
             const visible = g.items.filter((i) => canOpen(user!, i));
             if (!visible.length) return null;
@@ -269,10 +267,7 @@ function ManageShell() {
         </aside>
         <div style={{ minWidth: 0 }}>
           <header className="topbar">
-            <a className="brand" href={href('/')}>
-              <DeraMark size={28} />
-              <span className="brand-word">mabubu</span>
-            </a>
+            <Brand href={href('/')} size={32} />
             <span className="spacer" />
             <SyncBadge onClick={() => navigate('/me')} />
           </header>
@@ -410,12 +405,7 @@ function WorkerShell() {
     <div>
       <DemoRibbon />
       <header className="topbar" style={{ display: 'flex' }}>
-        <a className="brand" href={href('/')}>
-          <DeraMark size={28} />
-          <span className="brand-word" style={{ fontSize: 22 }}>
-            mabubu
-          </span>
-        </a>
+        <Brand href={href('/')} size={32} />
         <span className="spacer" style={{ flex: 1 }} />
         <SyncBadge onClick={() => navigate('/me')} />
       </header>

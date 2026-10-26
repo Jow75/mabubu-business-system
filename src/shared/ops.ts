@@ -14,6 +14,17 @@ const idRe = /^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
 export const zId = z.string().regex(idRe, 'Invalid id');
 export const zDate = z.string().refine(isIsoDate, 'Invalid date (YYYY-MM-DD)');
 const zText = (max: number) => z.string().trim().max(max);
+/** A telephone number as people write it: digits, spaces, + ( ) - . — or empty. */
+export function validPhone(v: string): boolean {
+  const s = v.trim();
+  return s === '' || (s.length <= 30 && /^\+?[0-9 ()\-.]+$/.test(s) && (s.match(/\d/g)?.length ?? 0) >= 6);
+}
+/** An email address — or empty. */
+export function validEmail(v: string): boolean {
+  const s = v.trim();
+  return s === '' || (s.length <= 120 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s));
+}
+const zPhone = z.string().trim().max(30).refine(validPhone, 'Enter a telephone number with its digits (for example +254 …), or leave it empty.');
 const zName = z.string().trim().min(1, 'Required').max(80);
 const zQty = z.number().int().min(0).max(1_000_000);
 const zPosQty = z.number().int().min(1, 'Quantity must be at least 1').max(1_000_000);
@@ -120,6 +131,11 @@ export const payloadSchemas = {
     localCountLabel: zText(40).min(1).optional(),
     denominations: z.array(z.number().int().min(1).max(1_000_000)).max(20).optional(),
     businessName: zText(60).min(1).optional(),
+    // Business contact details for reports. Empty clears one. Added 26 Oct
+    // 2026 as optional fields: an older app reads such a record without them.
+    phoneKenya: zPhone.optional(),
+    phoneComoros: zPhone.optional(),
+    email: zText(120).refine(validEmail, 'Enter an email address like name@example.com, or leave it empty.').optional(),
   }),
 
   'purchase.record': z.object({

@@ -149,7 +149,8 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^You cannot block or retire the device you are using\.$/, 'err.ownDevice', []],
   [/^You cannot archive your own account\.$/, 'err.ownAccount', []],
   [/^This record is from the testing period and was not added\.$/, 'err.trialRecord', []],
-  [/^Mabubu has started its real business records\. This device’s copy is being refreshed\.$/, 'err.ledgerReset', []],
+  // The app's name changed on 26 Oct 2026; an older server still says "Mabubu".
+  [/^(?:NAS Mabubu System|Mabubu) has started its real business records\. This device’s copy is being refreshed\.$/, 'err.ledgerReset', []],
   [/^Only the owner can use a temporary sign-in on a computer that is not approved\.$/, 'err.tempOwnerOnly', []],
   [/^Your temporary sign-in has ended\. Sign in again\.$/, 'err.tempEnded', []],
   [/^(.+) is archived\. Reactivate them in People & devices before giving them new work\.$/, 'err.archivedWorker', ['name']],
@@ -157,6 +158,7 @@ const ERRORS: [RegExp, Key, string[]][] = [
   [/^The go-live cutover has already been done\. It cannot be run again\.$/, 'err.goliveDone', []],
   [/^Type GO LIVE exactly to confirm\.$/, 'err.golivePhrase', []],
   [/^Records changed since the preview\. Look at the preview again and make a new backup\.$/, 'err.goliveChanged', []],
+  [/^People or devices changed since the preview\. Look at the preview again\.$/, 'err.accessChanged', []],
   [/^This is not the latest verified backup\. Make the backup again\.$/, 'err.goliveBackup', []],
   [/^The readiness checks are not all clear\.$/, 'err.goliveNotReady', []],
   [/^Some devices have not connected recently\. Confirm that you accept this\.$/, 'err.goliveDevices', []],

@@ -14,7 +14,7 @@ import { ENGINE_VERSION, parseOp, type AnyOp, type OpType, type PayloadOf } from
 import { randomToken, uuidv7 } from '../src/shared/ids';
 import type { LoginResponse, PushResponse } from '../src/shared/api';
 import { workerHolding, stockByLocation } from '../src/shared/queries';
-import { GOLIVE_PHRASE, type GoLivePreview, type GoLiveStatus } from '../src/shared/golive';
+import { GOLIVE_PHRASE, accessChoice, type GoLivePreview, type GoLiveStatus } from '../src/shared/golive';
 import { businessDate } from '../src/shared/time';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -115,6 +115,7 @@ describe('go-live seen from a worker phone that was offline', () => {
       backupSha256: p.backup!.sha256,
       fingerprint: p.fingerprint,
       acceptUnknownDevices: true,
+      access: accessChoice(p.access),
     });
     expect(done.phase).toBe('live');
     ledger = done.phase === 'live' ? done.cutover!.ledger : undefined;

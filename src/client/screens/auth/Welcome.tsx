@@ -5,7 +5,8 @@ import type { Profile } from '../../lib/db';
 import { DEMO_USERS } from '../../../shared/demo-data';
 import { TEMP_SIGNIN } from '../../../shared/api';
 import { MIN_PIN_LENGTH, type Role } from '../../../shared/permissions';
-import { DeraMark, Icon } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
+import { Brand } from '../../ui/Brand';
 import { Monogram } from '../../ui/kit';
 import { PinPad } from './PinPad';
 import { errText, useT } from '../../lib/i18n';
@@ -17,10 +18,7 @@ export function AuthLayout({ children, lang }: { children: ReactNode; lang?: Lan
   return (
     <div className="auth">
       <aside className="auth-art">
-        <div className="brand" style={{ padding: 0 }}>
-          <DeraMark size={38} />
-          <span className="brand-word">mabubu</span>
-        </div>
+        <Brand size={52} />
         <RouteArt />
         <div className="stack" style={{ position: 'relative', gap: 14 }}>
           <h1>{t('auth.tagline')}</h1>

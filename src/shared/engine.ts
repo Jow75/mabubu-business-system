@@ -360,10 +360,14 @@ const handlers: Handlers = {
     upsertGuard(tx);
     const cur = tx.get<Settings>(K.settings()) ?? DEFAULT_SETTINGS;
     const p = op.payload;
+    // A field left out keeps its value: an app from before a field existed never clears it.
     tx.put(K.settings(), {
       localCountLabel: p.localCountLabel ?? cur.localCountLabel,
       denominations: p.denominations ?? cur.denominations,
       businessName: p.businessName ?? cur.businessName,
+      phoneKenya: p.phoneKenya ?? cur.phoneKenya ?? '',
+      phoneComoros: p.phoneComoros ?? cur.phoneComoros ?? '',
+      email: p.email ?? cur.email ?? '',
     } satisfies Settings);
   },
 

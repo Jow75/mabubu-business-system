@@ -70,19 +70,30 @@ async function locationExists(env: Env, id: string | null | undefined): Promise<
   return Boolean(await env.DB.prepare('SELECT 1 AS x FROM entities WHERE key = ?').bind(`loc:${id}`).first());
 }
 
+/** A person still in People & devices: one removed at go live (testing period) cannot be changed from here. */
 async function getUser(env: Env, id: string): Promise<UserRow> {
-  const u = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(id).first<UserRow>();
+  const u = await env.DB.prepare('SELECT * FROM users WHERE id = ? AND removed_at IS NULL').bind(id).first<UserRow>();
   if (!u) throw new HttpError(404, 'not_found', 'Person not found.');
   return u;
 }
 
+async function deviceExists(env: Env, id: string): Promise<boolean> {
+  return Boolean(await env.DB.prepare('SELECT 1 AS x FROM devices WHERE id = ? AND removed_at IS NULL').bind(id).first());
+}
+
 export async function listPeople(env: Env, session: Session): Promise<Response> {
   requireOwnerView(session);
-  const [users, devices, access, temps] = await env.DB.batch([
-    env.DB.prepare('SELECT * FROM users ORDER BY active DESC, name'),
-    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices ORDER BY created_at DESC'),
-    env.DB.prepare('SELECT device_id, user_id, status, requested_at, decided_at FROM device_access ORDER BY requested_at DESC'),
-    env.DB.prepare('SELECT user_id, device_id, created_at, last_used_at, expires_at, revoked_at FROM sessions WHERE temporary = 1 ORDER BY created_at DESC LIMIT 30'),
+  // People and devices removed at go live (testing period) are not listed, only counted.
+  const [users, devices, access, temps, removed] = await env.DB.batch([
+    env.DB.prepare('SELECT * FROM users WHERE removed_at IS NULL ORDER BY active DESC, name'),
+    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices WHERE removed_at IS NULL ORDER BY created_at DESC'),
+    env.DB.prepare(
+      'SELECT a.device_id, a.user_id, a.status, a.requested_at, a.decided_at FROM device_access a JOIN devices d ON d.id = a.device_id WHERE d.removed_at IS NULL ORDER BY a.requested_at DESC',
+    ),
+    env.DB.prepare(
+      'SELECT s.user_id, s.device_id, s.created_at, s.last_used_at, s.expires_at, s.revoked_at FROM sessions s JOIN devices d ON d.id = s.device_id WHERE s.temporary = 1 AND d.removed_at IS NULL ORDER BY s.created_at DESC LIMIT 30',
+    ),
+    env.DB.prepare('SELECT (SELECT COUNT(*) FROM users WHERE removed_at IS NOT NULL) AS people, (SELECT COUNT(*) FROM devices WHERE removed_at IS NOT NULL) AS devices'),
   ]);
   const now = Date.now();
   const byDevice = new Map<string, DeviceRow['access']>();
@@ -113,6 +124,7 @@ export async function listPeople(env: Env, session: Session): Promise<Response> 
       endedAt: s.revoked_at,
       live: temporaryLive(s, now),
     })),
+    removed: removed!.results[0] as { people: number; devices: number },
   };
   return json(res);
 }
@@ -145,6 +157,7 @@ export async function createPerson(env: Env, session: Session, request: Request)
   const policy = pinPolicyError(b.role, b.pin);
   if (policy) throw new HttpError(400, 'weak_pin', policy);
   const nameKey = normalizeName(b.name);
+  // Names stay unique, including people removed at go live (their rows are kept).
   if (await env.DB.prepare('SELECT 1 AS x FROM users WHERE name_key = ?').bind(nameKey).first()) {
     throw new HttpError(409, 'name_taken', 'That name is already used. Add a surname or an initial.');
   }
@@ -271,7 +284,7 @@ export async function decideAccess(env: Env, session: Session, request: Request)
   if (!parsed.success) throw new HttpError(400, 'invalid_request', 'Invalid request.');
   const { deviceId, userId, decision } = parsed.data;
   await getUser(env, userId);
-  if (!(await env.DB.prepare('SELECT 1 AS x FROM devices WHERE id = ?').bind(deviceId).first())) throw new HttpError(404, 'not_found', 'Device not found.');
+  if (!(await deviceExists(env, deviceId))) throw new HttpError(404, 'not_found', 'Device not found.');
   const status = decision === 'approve' ? 'approved' : decision === 'deny' ? 'denied' : 'revoked';
   const now = nowIso();
   const stmts: D1PreparedStatement[] = [
@@ -296,7 +309,7 @@ export async function updateDevice(env: Env, session: Session, id: string, reque
   if (!parsed.success) throw new HttpError(400, 'invalid_request', 'Invalid request.');
   const b = parsed.data;
   if ((b.blocked || b.retired) && id === session.deviceId) throw new HttpError(400, 'own_device', 'You cannot block or retire the device you are using.');
-  if (!(await env.DB.prepare('SELECT 1 AS x FROM devices WHERE id = ?').bind(id).first())) throw new HttpError(404, 'not_found', 'Device not found.');
+  if (!(await deviceExists(env, id))) throw new HttpError(404, 'not_found', 'Device not found.');
   const now = nowIso();
   const stmts: D1PreparedStatement[] = [];
   if (b.label !== undefined) stmts.push(env.DB.prepare('UPDATE devices SET label = ? WHERE id = ?').bind(b.label, id));

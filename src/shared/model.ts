@@ -72,12 +72,22 @@ export interface Settings {
   localCountLabel: string;
   denominations: number[];
   businessName: string;
+  /**
+   * The business's own contact details, printed on reports. Empty until the
+   * owner types them in Settings — never a made-up number.
+   */
+  phoneKenya: string;
+  phoneComoros: string;
+  email: string;
 }
 export const DEFAULT_SETTINGS: Settings = {
   localCountLabel: 'local count',
   // Comorian franc banknotes; the owner should confirm in Settings.
   denominations: [10000, 5000, 2000, 1000, 500],
   businessName: 'Mabubu',
+  phoneKenya: '',
+  phoneComoros: '',
+  email: '',
 };
 
 export interface PurchaseLine {

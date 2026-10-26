@@ -230,18 +230,31 @@ h3 {
   padding: 2px 8px 6px;
   color: var(--ink);
 }
-.brand-word {
-  font-family: var(--font-display);
-  font-style: italic;
-  font-variation-settings: 'SOFT' 100, 'opsz' 72;
-  font-size: 25px;
-  font-weight: 480;
-  letter-spacing: -0.02em;
-}
-.brand-mark {
-  width: 32px;
-  height: 32px;
+/* NAS Mabubu System: the owner's logo as supplied (only its plain blue corners
+   softened), "NAS Mabubu" in the display face, "System" in small capitals. */
+.brand-logo {
   flex: none;
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+.brand-word {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 60, 'opsz' 72;
+  font-size: 20px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.02;
+}
+.brand-sys {
+  font-family: var(--font-ui);
+  font-size: 10.5px;
+  font-weight: 680;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--saffron-ink);
+  margin-top: 3px;
 }
 .nav-group {
   display: flex;
@@ -364,7 +377,7 @@ h3 {
     padding: 0;
   }
   .topbar .brand-word {
-    font-size: 22px;
+    font-size: 18px;
   }
   .topbar .spacer {
     flex: 1;
@@ -1275,9 +1288,34 @@ button.list-item {
   background: #232c6b;
   color: #fbf8f2;
 }
+.auth-art .brand {
+  padding: 0;
+  gap: 14px;
+}
 .auth-art .brand-word {
-  font-size: 34px;
+  font-size: 27px;
   color: #fbf8f2;
+}
+.auth-art .brand-sys {
+  color: var(--saffron);
+  font-size: 11.5px;
+}
+.auth-art .brand-logo {
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgba(251, 248, 242, 0.18);
+}
+/* Phones: a smaller mark, clear of the route drawing's labels. */
+@media (max-width: 860px) {
+  .auth-art .brand-logo {
+    width: 42px;
+    height: 42px;
+  }
+  .auth-art .brand-word {
+    font-size: 21px;
+  }
+  .auth-art .brand-sys {
+    font-size: 10px;
+  }
 }
 .auth-art h1 {
   font-family: var(--font-display);

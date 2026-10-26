@@ -178,6 +178,8 @@ export interface PeopleResponse {
   devices: DeviceRow[];
   /** Recent temporary sign-ins, newest first. Absent from older servers. */
   temporary?: TemporarySignInRow[];
+  /** People and devices from the testing period removed at go live: counted, not listed. */
+  removed?: { people: number; devices: number };
 }
 
 export interface CreatePersonRequest {

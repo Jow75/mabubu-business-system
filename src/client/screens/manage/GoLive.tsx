@@ -8,8 +8,8 @@ import { api, ApiError } from '../../lib/api';
 import { downloadBlob } from '../../lib/csv';
 import { errText, useT, type T } from '../../lib/i18n';
 import type { Key } from '../../../shared/i18n';
-import { GOLIVE_PHRASE, type CutoverRecord, type FxDecision, type GoLivePreview, type GoLiveStatus, type ReadinessCheck, type TypeCount } from '../../../shared/golive';
-import { fmtDateTime } from '../../../shared/time';
+import { GOLIVE_PHRASE, accessChoice, type AccessDevice, type AccessPlan, type CutoverRecord, type FxDecision, type GoLivePreview, type GoLiveStatus, type ReadinessCheck, type TypeCount } from '../../../shared/golive';
+import { fmtDate, fmtDateTime } from '../../../shared/time';
 import { Icon } from '../../ui/Icon';
 import { Empty, Field, PageHead, toast } from '../../ui/kit';
 
@@ -114,6 +114,12 @@ function Done({ record }: { record: CutoverRecord | null }) {
           <dd>{record.scope.removed}</dd>
           <dt>{t('gl.doneRates')}</dt>
           <dd>{record.scope.fx === 'keep' ? t('gl.fxKeep') : t('gl.fxRemove')}</dd>
+          {record.scope.access && (
+            <>
+              <dt>{t('gl.doneAccess')}</dt>
+              <dd>{t('gl.doneAccessLine', { people: record.scope.access.removedPeople, devices: record.scope.access.removedDevices, sessions: record.scope.access.sessionsEnded })}</dd>
+            </>
+          )}
           <dt>{t('gl.doneBackup')}</dt>
           <dd className="mono">
             {fmtDateTime(record.backupAt)} · {record.backupSha256.slice(0, 16)}…
@@ -169,7 +175,7 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
       const done = await api<GoLiveStatus>(
         'POST',
         '/admin/golive/execute',
-        { pin, phrase, fx, backupSha256: p.backup.sha256, fingerprint: p.fingerprint, acceptUnknownDevices: acceptDevices },
+        { pin, phrase, fx, backupSha256: p.backup.sha256, fingerprint: p.fingerprint, acceptUnknownDevices: acceptDevices, access: accessChoice(p.access) },
         store.token,
       );
       setPin('');
@@ -233,21 +239,49 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
         <section className="card card-pad stack">
           <span className="section-title">3 · {t('gl.fxTitle')}</span>
           <p className="soft" style={{ margin: 0 }}>
-            {t('gl.fxBody', { rates: p.rates.join(', ') })}
+            {t('gl.fxBody2', { n: p.rateEntries.length })}
           </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{t('st.since')}</th>
+                  <th>{t('st.from')}</th>
+                  <th className="num">{t('st.rate')}</th>
+                  <th>{t('st.kind')}</th>
+                  <th>{t('st.source')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.rateEntries.map((r) => (
+                  <tr key={r.id}>
+                    <td className="nowrap">{fmtDate(r.date)}</td>
+                    <td className="nowrap">
+                      1 {r.from} → {r.to}
+                    </td>
+                    <td className="num mono">{r.rate}</td>
+                    <td>{t(`basis.${r.basis}`)}</td>
+                    <td>{r.source || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <div className="stack-sm" role="radiogroup" aria-label={t('gl.fxTitle')}>
             {(['keep', 'remove'] as const).map((v) => (
               <label key={v} className="check">
-                <input type="radio" name="fx" checked={fx === v} onChange={() => setFx(v)} /> {v === 'keep' ? t('gl.fxKeep') : t('gl.fxRemove')}
+                <input type="radio" name="fx" checked={fx === v} onChange={() => setFx(v)} /> {v === 'keep' ? t('gl.fxKeep') : t('gl.fxRemoveN', { n: p.rateEntries.length })}
               </label>
             ))}
           </div>
         </section>
       )}
 
+      <AccessSection a={p.access} />
+
       <section className="card">
         <div className="card-head">
-          <span className="section-title">4 · {t('gl.devicesTitle')}</span>
+          <span className="section-title">5 · {t('gl.devicesTitle')}</span>
           <span className="hint">{t('gl.devicesHint')}</span>
         </div>
         <div className="table-wrap" style={{ marginTop: 8 }}>
@@ -281,7 +315,7 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
       </section>
 
       <section className="card card-pad stack">
-        <span className="section-title">5 · {t('gl.backupTitle')}</span>
+        <span className="section-title">6 · {t('gl.backupTitle')}</span>
         <p className="soft" style={{ margin: 0 }}>
           {t('gl.backupBody')}
         </p>
@@ -296,7 +330,7 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
       </section>
 
       <section className="card card-pad stack">
-        <span className="section-title">6 · {t('gl.checksTitle')}</span>
+        <span className="section-title">7 · {t('gl.checksTitle')}</span>
         <ul className="stack-sm" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {p.checks.map((c) => (
             <li key={c.key} className="row" style={{ alignItems: 'flex-start', gap: 10 }}>
@@ -308,9 +342,16 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
       </section>
 
       <section className="card card-pad stack selvedge">
-        <span className="section-title">7 · {t('gl.confirmTitle')}</span>
+        <span className="section-title">8 · {t('gl.confirmTitle')}</span>
         <p className="soft" style={{ margin: 0 }}>
           {t('gl.confirmBody', { n: removedTotal })}
+        </p>
+        <p className="soft" style={{ margin: 0 }}>
+          {t('gl.confirmAccess', {
+            people: p.access.people.filter((x) => x.fate === 'remove').length,
+            devices: p.access.devices.filter((x) => x.fate === 'remove').length,
+            sessions: p.access.sessionsEnded,
+          })}
         </p>
         {unknown > 0 && (
           <label className="check">
@@ -344,6 +385,80 @@ function Preview({ p, reload, onDone }: { p: GoLivePreview; reload: () => Promis
         {!ready && <p className="hint" style={{ margin: 0 }}>{t('gl.notReadyHint')}</p>}
       </section>
     </>
+  );
+}
+
+const STATE_KEY: Record<AccessDevice['state'], Key> = {
+  in_use: 'gl.a.inUse',
+  blocked: 'gl.a.blocked',
+  retired: 'gl.a.retired',
+  not_in_use: 'gl.a.notInUse',
+};
+
+/**
+ * Who and what the real business keeps, and what leaves People & devices.
+ * Nothing is deleted: a removed person or device is hidden and cannot sign
+ * in; the trial archive and the security log keep them.
+ */
+function AccessSection({ a }: { a: AccessPlan }) {
+  const t = useT();
+  const keptPeople = a.people.filter((x) => x.fate === 'keep');
+  const leaving = a.people.filter((x) => x.fate !== 'keep');
+  const keptDevices = a.devices.filter((x) => x.fate === 'keep');
+  const removedDevices = a.devices.filter((x) => x.fate === 'remove');
+  return (
+    <section className="card card-pad stack">
+      <span className="section-title">4 · {t('gl.accessTitle')}</span>
+      <p className="soft" style={{ margin: 0 }}>
+        {t('gl.accessBody')}
+      </p>
+      <dl className="kv">
+        <dt>{t('gl.a.keptPeople')}</dt>
+        <dd>{keptPeople.map((x) => `${x.name} (${t(`role.${x.role}` as Key)})`).join(', ') || '—'}</dd>
+        <dt>{t('gl.a.leavingPeople')}</dt>
+        <dd>
+          {leaving.length
+            ? leaving.map((x) => `${x.name} — ${x.fate === 'remove' ? t('gl.a.personRemoved', { n: x.trialRecords }) : t('gl.a.personArchived', { n: x.keptRecords })}`).join(' · ')
+            : '—'}
+        </dd>
+        <dt>{t('gl.a.keptDevices')}</dt>
+        <dd>{keptDevices.map((d) => `${d.label} ${d.code} (${d.people.join(', ')})`).join(' · ') || '—'}</dd>
+        <dt>{t('gl.a.sessions')}</dt>
+        <dd>{t('gl.a.sessionsLine', { n: a.sessionsEnded, temp: a.temporaryEnded, requests: a.requestsClosed, approvals: a.approvalsWithdrawn })}</dd>
+      </dl>
+      {removedDevices.length > 0 && (
+        <>
+          <span className="field-label">{t('gl.a.removedDevices', { n: removedDevices.length })}</span>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{t('pp.device')}</th>
+                  <th>{t('pp.code')}</th>
+                  <th>{t('gl.a.today')}</th>
+                  <th>{t('pp.lastSeen')}</th>
+                  <th>{t('gl.a.records')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {removedDevices.map((d) => (
+                  <tr key={d.id}>
+                    <td>{d.label}</td>
+                    <td className="mono">{d.code}</td>
+                    <td>{t(STATE_KEY[d.state])}</td>
+                    <td className="nowrap">{d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : '—'}</td>
+                    <td>{t('gl.a.recordsLine', { kept: d.keptRecords, trial: d.trialRecords })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <p className="hint" style={{ margin: 0 }}>
+        {t('gl.accessHint')}
+      </p>
+    </section>
   );
 }
 

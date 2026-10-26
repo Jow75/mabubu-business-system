@@ -21,7 +21,7 @@ export const REPORT_IDS = [
 ] as const;
 export type ReportId = (typeof REPORT_IDS)[number];
 
-export const EXPORT_FORMATS = ['pdf', 'xlsx', 'csv'] as const;
+export const EXPORT_FORMATS = ['pdf', 'docx', 'xlsx', 'csv'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export const REPORT_INFO: Record<ReportId, { title: string; caps: readonly Capability[] }> = {

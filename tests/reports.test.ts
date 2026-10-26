@@ -29,6 +29,10 @@ import { toCsv } from '../src/shared/export/csv';
 import { toXlsx } from '../src/shared/export/xlsx';
 import { unzipStored } from '../src/shared/export/zip';
 import { toPdf } from '../src/client/lib/export/pdf';
+import { toDocx } from '../src/shared/export/docx';
+import { readFileSync } from 'node:fs';
+import { APP_NAME } from '../src/shared/brand';
+import { ENGINE_VERSION, parseOp } from '../src/shared/ops';
 import { addDays, businessDate } from '../src/shared/time';
 import { canSee } from '../src/shared/visibility';
 
@@ -206,5 +210,109 @@ describe('file formats', () => {
     expect(all).toContain('Mama Yasmin');
     expect(all).toContain('Page 1 of');
     expect(all).toContain(`KSh${String.fromCharCode(0xa0)}17,000`); // currency and amount kept on one line
+  });
+});
+
+describe('NAS Mabubu System branding on reports (26 Oct)', () => {
+  const LOGO = new Uint8Array(readFileSync(new URL('../public/brand/nas-logo-report.png', import.meta.url)));
+  const dec = new TextDecoder();
+  const L = demoLedger();
+  const doc = purchasesReport(ctxFor(L), { status: 'all', vendorId: 'ven-yasmin', payment: 'any', from: null, to: null });
+
+  /** The demo business with contact details typed in Settings (the owner's real numbers go in on production, not here). */
+  function withContacts() {
+    const L2 = demoLedger();
+    const r = parseOp({
+      id: 'op-contacts',
+      type: 'settings.set',
+      payload: { phoneKenya: '+254 700 000 001', phoneComoros: '+269 300 00 01', email: '' },
+      actorId: owner.id,
+      deviceId: 'dev-test',
+      deviceTime: '2026-10-18T08:00:00.000Z',
+      tzOffsetMin: 180,
+      createdOnline: true,
+      v: ENGINE_VERSION,
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(L2.apply(r.op!, null).ok).toBe(true);
+    return purchasesReport(ctxFor(L2), { status: 'all', vendorId: 'ven-yasmin', payment: 'any', from: null, to: null });
+  }
+
+  it('every report carries the application name; contact lines stay empty until the owner fills them in', () => {
+    expect(doc.app).toBe(APP_NAME);
+    expect(APP_NAME).toBe('NAS Mabubu System');
+    expect(doc.business).toBe('Mabubu');
+    expect(doc.contacts).toEqual([]);
+    const pdf = new TextDecoder('latin1').decode(toPdf(doc, { logoPng: LOGO }));
+    expect(pdf).toContain('NAS MABUBU SYSTEM');
+    // Notes start with a bullet the PDF font can show, never a "?".
+    expect(pdf).not.toMatch(/\? Owed = /);
+    expect(pdf).toContain(`${String.fromCharCode(0xb7)} Owed = `);
+    // No made-up or empty contact line: no "Kenya", no "Comoros", no zeros standing in for a number.
+    expect(pdf).not.toContain('Kenya');
+    expect(pdf).not.toContain('Comoros +');
+    const xml = dec.decode(unzipStored(toDocx(doc, { logoPng: LOGO })).get('word/document.xml'));
+    expect(xml).not.toContain('Kenya');
+  });
+
+  it('contact details typed in Settings appear on PDF, Word and Excel — not in the CSV data', () => {
+    const d = withContacts();
+    expect(d.contacts).toEqual([
+      { label: 'Kenya', value: '+254 700 000 001' },
+      { label: 'Comoros', value: '+269 300 00 01' },
+    ]);
+    expect(new TextDecoder('latin1').decode(toPdf(d, { logoPng: LOGO }))).toContain('Kenya +254 700 000 001');
+    expect(dec.decode(unzipStored(toDocx(d, { logoPng: LOGO })).get('word/document.xml'))).toContain('Comoros +269 300 00 01');
+    expect(dec.decode(unzipStored(toXlsx(d, { logoPng: LOGO })).get('xl/worksheets/sheet1.xml'))).toContain('Kenya +254 700 000 001');
+    expect(toCsv(d)).not.toContain('+254');
+  });
+
+  it('the logo is embedded in PDF, Word and Excel, byte for byte as supplied', () => {
+    const pdf = new TextDecoder('latin1').decode(toPdf(doc, { logoPng: LOGO }));
+    expect(pdf).toMatch(/\/Subtype \/Image/);
+    const docx = unzipStored(toDocx(doc, { logoPng: LOGO }));
+    expect(docx.get('word/media/logo.png')).toEqual(LOGO);
+    expect(dec.decode(docx.get('word/_rels/document.xml.rels'))).toContain('media/logo.png');
+    expect(dec.decode(docx.get('[Content_Types].xml'))).toContain('Extension="png"');
+    const xlsx = unzipStored(toXlsx(doc, { logoPng: LOGO }));
+    expect(xlsx.get('xl/media/image1.png')).toEqual(LOGO);
+    expect(dec.decode(xlsx.get('xl/worksheets/sheet1.xml'))).toContain('<drawing r:id="rId1"/>');
+    // The data sheets stay plain tables: no picture on them.
+    expect(dec.decode(xlsx.get('xl/worksheets/sheet2.xml'))).not.toContain('<drawing');
+  });
+
+  it('branding changes no figure: the data sheets and the CSV are identical with and without the logo', () => {
+    const plain = unzipStored(toXlsx(doc));
+    const branded = unzipStored(toXlsx(doc, { logoPng: LOGO }));
+    for (let i = 2; i <= doc.tables.length + 1; i++) {
+      expect(dec.decode(branded.get(`xl/worksheets/sheet${i}.xml`))).toBe(dec.decode(plain.get(`xl/worksheets/sheet${i}.xml`)));
+    }
+    expect(toCsv(withContacts())).toBe(toCsv(doc));
+  });
+
+  it('Word: every row and every total of every table, formatted as in the PDF', () => {
+    const xml = dec.decode(unzipStored(toDocx(doc, { logoPng: LOGO })).get('word/document.xml'));
+    const text = xml.replace(/<[^>]+>/g, '|');
+    for (const t of doc.tables) {
+      expect(text).toContain(t.title);
+      for (const c of t.columns) expect(text).toContain(c.label.replace(/&/g, '&amp;'));
+    }
+    // KSh 47,000 purchase, KSh 30,000 paid, KSh 17,000 balance, as in the PDF.
+    const nb = String.fromCharCode(0xa0);
+    for (const amount of ['47,000', '30,000', '17,000']) expect(text).toContain(`KSh${nb}${amount}`);
+    // One table row per record plus the header row (and totals).
+    const rows = (xml.match(/<w:tr>/g) ?? []).length;
+    const expected = doc.tables.reduce((n, t) => n + (t.rows.length ? 1 + t.rows.length + (t.totals?.length ?? 0) : 0), 0) + 1; // + the letterhead row
+    expect(rows).toBe(expected);
+    expect(xml).toContain('<w:tblHeader/>');
+  });
+
+  it('CSV stays a clean, parseable table: same column header, values, one record per line', () => {
+    const csv = toCsv(doc);
+    const lines = csv.split(String.fromCharCode(13, 10));
+    expect(lines[0]).toBe(`${String.fromCharCode(0xfeff)}NAS Mabubu System — Mabubu — Purchases`);
+    expect(csv).toContain('Date,Vendor,Goods to,How,Pieces,Currency,Value,Owed,Paid,Balance');
+    // Every line parses as CSV, quotes balanced.
+    for (const line of lines) expect((line.match(/"/g) ?? []).length % 2).toBe(0);
   });
 });

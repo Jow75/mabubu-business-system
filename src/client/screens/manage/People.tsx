@@ -160,6 +160,7 @@ export function PeoplePage() {
         </section>
       )}
       {groups && <Devices groups={groups} nameOf={nameOf} onChange={load} myDevice={device?.deviceId ?? ''} viewOnly={viewOnly} />}
+      {data?.removed && data.removed.people + data.removed.devices > 0 && <p className="hint">{t('pp.removedAtGoLive', data.removed)}</p>}
       {edit && data && <PersonSheet person={edit === 'new' ? null : edit} devices={data.devices} onClose={() => setEdit(null)} onSaved={load} />}
     </div>
   );

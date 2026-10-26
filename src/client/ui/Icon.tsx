@@ -69,12 +69,3 @@ export function Icon({ name, size = 20, className, title }: { name: IconName; si
   );
 }
 
-export function DeraMark({ size = 32 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" className="brand-mark" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="var(--indigo)" />
-      <path d="M24 13c2 4 5 6 8 6s6-2 8-6l9 5-4 9-4-2 5 26H18l5-26-4 2-4-9 9-5z" fill="var(--on-indigo)" />
-      <path d="M21 44h22" stroke="var(--saffron)" strokeWidth="2.5" strokeDasharray="3 2.5" />
-    </svg>
-  );
-}

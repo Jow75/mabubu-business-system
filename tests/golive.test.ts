@@ -7,8 +7,8 @@ import type { Env } from '../src/worker/env';
 import { createD1 } from './d1-shim';
 import { randomToken, uuidv7 } from '../src/shared/ids';
 import { ENGINE_VERSION, parseOp, type AnyOp, type OpType, type PayloadOf } from '../src/shared/ops';
-import { GOLIVE_PHRASE, INITIAL_LEDGER, planCutover, type GoLivePreview, type GoLiveStatus } from '../src/shared/golive';
-import type { LoginResponse, PersonRow, PullResponse, PushResponse } from '../src/shared/api';
+import { GOLIVE_PHRASE, INITIAL_LEDGER, accessChoice, planAccess, planCutover, type GoLivePreview, type GoLiveStatus } from '../src/shared/golive';
+import type { LoginResponse, PeopleResponse, PersonRow, PullResponse, PushResponse } from '../src/shared/api';
 import { sha256Hex } from '../src/worker/crypto';
 
 const PEPPER = 'test-pepper-0123456789-abcdefghijklmnop';
@@ -45,7 +45,7 @@ const tableCounts = () =>
 const ownerDev = device('Owner laptop');
 let owner: { token: string; id: string };
 let worker: { token: string; id: string; dev: ReturnType<typeof device> };
-let manager: { token: string; id: string };
+let manager: { token: string; id: string; dev: ReturnType<typeof device> };
 
 async function signInApproved(name: string, role: 'worker' | 'manager', pin: string) {
   const p = await call<PersonRow>('POST', '/api/admin/people', { name, role, pin, locationId: role === 'worker' ? 'loc-com' : null, grants: [], revokes: [], allowOnDeviceId: null }, owner.token);
@@ -103,13 +103,14 @@ async function backup() {
   return { sha: r.headers.get('x-backup-sha256')!, text: r.text };
 }
 
+const NO_ACCESS = { keepPeople: [], keepDevices: [], removePeople: [], removeDevices: [] };
 async function execute(over: Record<string, unknown> = {}) {
   const p = await preview();
   const b = p.backup;
   return call<GoLiveStatus & { error?: string; checks?: unknown }>(
     'POST',
     '/api/admin/golive/execute',
-    { pin: OWNER_PIN, phrase: GOLIVE_PHRASE, fx: 'keep', backupSha256: b?.sha256 ?? '0'.repeat(64), fingerprint: p.fingerprint, acceptUnknownDevices: false, ...over },
+    { pin: OWNER_PIN, phrase: GOLIVE_PHRASE, fx: 'keep', backupSha256: b?.sha256 ?? '0'.repeat(64), fingerprint: p.fingerprint, acceptUnknownDevices: false, access: p.access ? accessChoice(p.access) : NO_ACCESS, ...over },
     owner.token,
   );
 }
@@ -331,5 +332,174 @@ describe('go-live cutover over the network', () => {
     // Real records after go-live work normally.
     const real = mk('stock.adjust', { locationId: 'loc-com', date: today(), reason: 'count_correction', lines: [{ garmentTypeId: 'gt-haf', delta: 12 }], note: 'opening count' }, owner.id, ownerDev.deviceId);
     expect((await push(owner.token, [real], ledger)).body.results[0]!.status).toBe('applied');
+  });
+});
+
+describe('go-live also clears access left over from testing (amended 26 Oct)', () => {
+  /**
+   * Like production on 26 Oct: an archived test worker with test records
+   * (Naomi), a retired old owner laptop that made kept set-up records, a
+   * computer used only for a temporary sign-in (still signed in), a device
+   * request still waiting, and several recorded rates.
+   */
+  async function productionLike() {
+    const s = await seed();
+    // Naomi: a test worker with a take, then archived.
+    const naomi = await signInApproved('Naomi', 'worker', '5937');
+    const take = mk('worker.issue', { workerId: naomi.id, locationId: 'loc-com', workDate: today(), lines: [{ garmentTypeId: 'gt-haf', qty: 2 }] }, naomi.id, naomi.dev.deviceId);
+    expect((await push(naomi.token, [take])).body.results[0]!.status).toBe('applied');
+    expect((await call('PATCH', `/api/admin/people/${naomi.id}`, { active: false }, owner.token)).status).toBe(200);
+    // An old owner laptop that made a kept set-up record, later retired.
+    const oldLaptop = device('Old laptop');
+    await call('POST', '/api/auth/login', { name: 'George', pin: OWNER_PIN, ...oldLaptop });
+    await call('POST', '/api/admin/access', { deviceId: oldLaptop.deviceId, userId: owner.id, decision: 'approve' }, owner.token);
+    const old = await call<LoginResponse>('POST', '/api/auth/login', { name: 'George', pin: OWNER_PIN, ...oldLaptop });
+    if (old.body.status !== 'ok') throw new Error('old laptop');
+    const vendor = mk('vendor.upsert', { id: 'ven-jumaa', name: 'Jumaa', phone: '', notes: '', active: true }, owner.id, oldLaptop.deviceId);
+    expect((await push(old.body.token, [vendor])).body.results[0]!.status).toBe('applied');
+    expect((await call('PATCH', `/api/admin/devices/${oldLaptop.deviceId}`, { retired: true }, owner.token)).status).toBe(200);
+    // A cybercafe computer, still signed in temporarily.
+    const cafe = device('Cybercafe computer');
+    expect((await call('POST', '/api/auth/temporary', { name: 'George', pin: OWNER_PIN, ...cafe })).status).toBe(200);
+    // Said asks for a new phone; nobody has decided yet.
+    const saidNew = device('Said new phone');
+    expect((await call('POST', '/api/auth/login', { name: 'Said', pin: '472913', ...saidNew })).status).toBe(202);
+    // Two more saved market rates.
+    const rates = [
+      mk('fx.set', { id: 'fx-2', from: 'KES', to: 'TZS', rate: '19.2', date: today(), source: 'ExchangeRate-API', basis: 'market' }, owner.id, ownerDev.deviceId),
+      mk('fx.set', { id: 'fx-3', from: 'KES', to: 'USD', rate: '0.0077', date: today(), source: 'ExchangeRate-API', basis: 'market' }, owner.id, ownerDev.deviceId),
+    ];
+    expect((await push(owner.token, rates)).body.results.map((r) => r.status)).toEqual(['applied', 'applied']);
+    for (const t of [owner.token, worker.token, manager.token]) await pull(t, '&pending=0');
+    return { ...s, naomi, oldLaptop, cafe, saidNew, vendor };
+  }
+
+  it('the preview lists every rate entry, and exactly who and what is kept or removed — and changes nothing', async () => {
+    const x = await productionLike();
+    const before = tableCounts();
+    const p = await preview();
+    expect(tableCounts()).toEqual(before);
+    expect(p.rateEntries.map((r) => [r.from, r.to, r.rate, r.basis])).toEqual([
+      ['KES', 'KMF', '3.4', 'manual'],
+      ['KES', 'TZS', '19.2', 'market'],
+      ['KES', 'USD', '0.0077', 'market'],
+    ]);
+    const fate = Object.fromEntries(p.access.people.map((q) => [q.name, q.fate]));
+    expect(fate).toEqual({ George: 'keep', Jijo: 'keep', Said: 'keep', Naomi: 'remove' });
+    const naomi = p.access.people.find((q) => q.name === 'Naomi')!;
+    expect(naomi).toMatchObject({ keptRecords: 0, trialRecords: 1 });
+    const dev = (id: string) => p.access.devices.find((d) => d.id === id)!;
+    expect(dev(ownerDev.deviceId)).toMatchObject({ fate: 'keep', state: 'in_use', people: ['George'] });
+    expect(dev(worker.dev.deviceId)).toMatchObject({ fate: 'keep', people: ['Jijo'] });
+    expect(dev(x.naomi.dev.deviceId)).toMatchObject({ fate: 'remove', state: 'in_use', people: [], trialRecords: 1 });
+    expect(dev(x.oldLaptop.deviceId)).toMatchObject({ fate: 'remove', state: 'retired', keptRecords: 1 });
+    expect(dev(x.cafe.deviceId)).toMatchObject({ fate: 'remove', state: 'not_in_use', openSessions: 1 });
+    expect(dev(x.saidNew.deviceId)).toMatchObject({ fate: 'remove', state: 'in_use' });
+    expect(p.access).toMatchObject({ temporaryEnded: 1, requestsClosed: 1 });
+  });
+
+  it('runs: test people and devices leave People & devices (rows kept), temporary sign-ins end, requests close; the kept people work on', async () => {
+    const x = await productionLike();
+    await backup();
+    const devicesBefore = count('SELECT COUNT(*) AS n FROM devices');
+    const usersBefore = count('SELECT COUNT(*) AS n FROM users');
+    const r = await execute({ fx: 'remove' });
+    expect(r.status).toBe(200);
+    const rec = (r.body as { cutover: { scope: { access: Record<string, number> } } }).cutover.scope.access;
+    expect(rec).toMatchObject({ keptPeople: 3, removedPeople: 1, keptDevices: 3, removedDevices: 4, requestsClosed: 1 });
+    // Nothing deleted: every row is still there, for the records that name it and the security log.
+    expect(count('SELECT COUNT(*) AS n FROM devices')).toBe(devicesBefore);
+    expect(count('SELECT COUNT(*) AS n FROM users')).toBe(usersBefore);
+    expect(count('SELECT COUNT(*) AS n FROM ops WHERE id = ?', x.vendor.id)).toBe(1); // the vendor made on the old laptop stays
+    // All three recorded rates removed, as the owner chose.
+    expect(count("SELECT COUNT(*) AS n FROM ops WHERE type = 'fx.set'")).toBe(0);
+    expect(count("SELECT COUNT(*) AS n FROM ops_trial WHERE type = 'fx.set'")).toBe(3);
+    // People & devices now shows only the business: three people, three devices, and a count of what left.
+    const people = await call<PeopleResponse>('GET', '/api/admin/people', undefined, owner.token);
+    expect(people.body.people.map((q) => q.name).sort()).toEqual(['George', 'Jijo', 'Said']);
+    expect(people.body.devices.map((d) => d.id).sort()).toEqual([ownerDev.deviceId, worker.dev.deviceId, manager.dev.deviceId].sort());
+    expect(people.body.removed).toEqual({ people: 1, devices: 4 });
+    expect(people.body.temporary).toEqual([]);
+    // Every removed device is blocked and cannot sign in; the temporary sign-in has ended.
+    expect(count('SELECT COUNT(*) AS n FROM devices WHERE removed_at IS NOT NULL AND (revoked_at IS NULL OR retired_at IS NULL)')).toBe(0);
+    expect(count('SELECT COUNT(*) AS n FROM sessions WHERE temporary = 1 AND revoked_at IS NULL')).toBe(0);
+    expect((await call('POST', '/api/auth/temporary', { name: 'George', pin: OWNER_PIN, ...x.cafe })).body).toMatchObject({ error: 'device_blocked' });
+    expect((await call('POST', '/api/auth/login', { name: 'Said', pin: '472913', ...x.saidNew })).body).toMatchObject({ error: 'device_blocked' });
+    expect(count("SELECT COUNT(*) AS n FROM device_access WHERE status = 'pending'")).toBe(0);
+    // Naomi stays out: cannot sign in, cannot be brought back from People & devices.
+    expect((await call('POST', '/api/auth/login', { name: 'Naomi', pin: '5937', ...x.naomi.dev })).status).toBe(403);
+    expect((await call('PATCH', `/api/admin/people/${x.naomi.id}`, { active: true }, owner.token)).status).toBe(404);
+    expect((await call('PATCH', `/api/admin/devices/${x.oldLaptop.deviceId}`, { retired: false }, owner.token)).status).toBe(404);
+    // The kept people keep their own sessions and devices, and go on working on the new ledger.
+    const ledger = (r.body as { cutover: { ledger: string } }).cutover.ledger;
+    for (const t of [owner.token, worker.token, manager.token]) expect((await pull(t, `&ledger=${ledger}`)).status).toBe(200);
+    // Jijo's phone is told who may still sign in there: not Naomi (she was never on it), Jijo yes.
+    const onPhone = (await pull(worker.token, `&ledger=${ledger}`)).body.deviceUsers;
+    expect(onPhone).toContainEqual({ id: worker.id, canSignIn: true });
+    // The security log keeps one record of it, naming what was removed (no codes, no secrets).
+    const ev = env.DB.raw.prepare("SELECT detail FROM auth_events WHERE kind = 'cutover_completed'").get() as { detail: string };
+    const detail = JSON.parse(ev.detail) as { removedPeople: string[]; removedDevices: string[] };
+    expect(detail.removedPeople).toEqual(['Naomi']);
+    expect(detail.removedDevices).toHaveLength(4);
+    expect(ev.detail).not.toMatch(/pin|secret|token_hash/i);
+  });
+
+  it('a person or device added or approved after the preview stops it; nothing changes', async () => {
+    const x = await productionLike();
+    await backup();
+    const p = await preview();
+    // After the owner looked: Said's new phone gets approved.
+    await call('POST', '/api/admin/access', { deviceId: x.saidNew.deviceId, userId: manager.id, decision: 'approve' }, owner.token);
+    await backup();
+    const before = tableCounts();
+    // (The new phone has not connected yet, which the owner accepts knowingly.)
+    const r = await execute({ access: accessChoice(p.access), acceptUnknownDevices: true });
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('access_changed');
+    expect({ ...tableCounts(), auth_events: 0 }).toEqual({ ...before, auth_events: 0 });
+    // With the new preview it goes through, and keeps the newly approved phone.
+    const ok = await execute({ acceptUnknownDevices: true });
+    expect(ok.status).toBe(200);
+    expect(count('SELECT COUNT(*) AS n FROM devices WHERE id = ? AND removed_at IS NULL', x.saidNew.deviceId)).toBe(1);
+  });
+
+  it('an archived person still named by a kept record stays archived and listed instead of being removed (pure)', () => {
+    const plan = planAccess({
+      users: [
+        { id: 'o', name: 'George', role: 'owner', active: true, removed: false },
+        { id: 'm', name: 'Old manager', role: 'manager', active: false, removed: false },
+        { id: 'w', name: 'Test worker', role: 'worker', active: false, removed: false },
+        { id: 'gone', name: 'Already removed', role: 'worker', active: false, removed: true },
+      ],
+      devices: [
+        { id: 'd1', code: 'AAA-111', label: 'Laptop', revoked: false, retired: false, removed: false, lastSeenAt: null },
+        { id: 'd2', code: 'BBB-222', label: 'Old phone', revoked: true, retired: false, removed: false, lastSeenAt: null },
+      ],
+      access: [
+        { deviceId: 'd1', userId: 'o', status: 'approved' },
+        { deviceId: 'd2', userId: 'o', status: 'approved' },
+        { deviceId: 'd1', userId: 'm', status: 'approved' },
+      ],
+      sessions: [
+        { userId: 'o', deviceId: 'd1', temporary: false },
+        { userId: 'm', deviceId: 'd1', temporary: false },
+      ],
+      keptByActor: new Map([['m', 2]]),
+      keptByDevice: new Map(),
+      trialByActor: new Map([['w', 5]]),
+      trialByDevice: new Map(),
+    });
+    expect(plan.people.map((p) => [p.name, p.fate])).toEqual([
+      ['George', 'keep'],
+      ['Old manager', 'archived'],
+      ['Test worker', 'remove'],
+    ]);
+    // A blocked device is not kept even with an approval; the archived manager's session ends; the owner's does not.
+    expect(plan.devices.map((d) => [d.code, d.fate])).toEqual([
+      ['AAA-111', 'keep'],
+      ['BBB-222', 'remove'],
+    ]);
+    expect(plan.sessionsEnded).toBe(1);
+    expect(plan.approvalsWithdrawn).toBe(2);
   });
 });

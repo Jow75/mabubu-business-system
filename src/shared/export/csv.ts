@@ -8,7 +8,7 @@ const esc = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : 
 
 export function toCsv(doc: ReportDoc): string {
   const lines: string[][] = [
-    [`${doc.business} — ${doc.title}`],
+    [`${doc.app} — ${doc.business} — ${doc.title}`],
     ['Filters', filterSummary(doc)],
     ['Generated', `${businessDateTime(doc.generatedAt)} (East Africa Time) by ${doc.generatedBy}`],
     ...doc.notes.map((n) => ['Note', n]),

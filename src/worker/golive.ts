@@ -17,8 +17,15 @@
 //   5. starts a new ledger id, so an app still holding test records (or with
 //      records waiting to send from before go-live) is refused and refreshes
 //      instead of sending them in;
-//   6. logs `cutover_completed`.
-// People, devices, sessions and the sign-in log are not touched.
+//   6. clears access left over from testing (planAccess, amended 26 Oct 2026):
+//      people who are not active and devices that are not the kept people's
+//      current approved devices are hidden from People & devices and blocked
+//      (rows kept, never deleted); every temporary sign-in and every session
+//      on a removed device or of someone not kept ends; approvals there are
+//      withdrawn and waiting device requests are closed;
+//   7. logs `cutover_completed`, naming what was removed.
+// The kept people's own devices, approvals and sessions are not touched, and
+// the security sign-in log is never emptied.
 
 import { z } from 'zod';
 import { Ledger } from '../shared/ledger';
@@ -29,8 +36,13 @@ import {
   DEVICE_STALE_MS,
   GOLIVE_PHRASE,
   INITIAL_LEDGER,
+  accessChoice,
+  planAccess,
   planCutover,
+  sameChoice,
+  type AccessPlan,
   type BackupInfo,
+  type RateEntry,
   type CutoverRecord,
   type DeviceReadiness,
   type GoLivePreview,
@@ -61,7 +73,7 @@ export async function currentLedger(env: Env): Promise<string> {
 
 /** Thrown to an app whose copy belongs to an earlier ledger: it keeps its unsent records aside and downloads again. */
 export function ledgerMismatch(current: string): HttpError {
-  return new HttpError(409, 'ledger_reset', 'Mabubu has started its real business records. This device’s copy is being refreshed.', { ledger: current });
+  return new HttpError(409, 'ledger_reset', 'NAS Mabubu System has started its real business records. This device’s copy is being refreshed.', { ledger: current });
 }
 
 /* ------------------------------------------------------------------ */
@@ -86,22 +98,25 @@ interface OpRow {
 interface Loaded {
   meta: Map<string, string>;
   ops: OpRow[];
-  users: Pick<UserRow, 'id' | 'name' | 'role' | 'active' | 'location_id'>[];
+  users: (Pick<UserRow, 'id' | 'name' | 'role' | 'active' | 'location_id'> & { removed_at: string | null })[];
   entities: { key: string; kind: string; data: string; ver: number }[];
-  devices: { id: string; code: string; label: string; revoked_at: string | null; retired_at: string | null }[];
+  devices: { id: string; code: string; label: string; revoked_at: string | null; retired_at: string | null; removed_at: string | null; last_seen_at: string | null }[];
   access: { device_id: string; user_id: string; status: string }[];
   syncs: { device_id: string; user_id: string; synced_at: string; pending: number; ledger: string }[];
+  /** Sessions not ended (signed out, or past their end) yet. */
+  sessions: { user_id: string; device_id: string; temporary: number }[];
 }
 
 async function load(env: Env): Promise<Loaded> {
-  const [meta, ops, users, entities, devices, access, syncs] = await env.DB.batch([
+  const [meta, ops, users, entities, devices, access, syncs, sessions] = await env.DB.batch([
     env.DB.prepare('SELECT k, v FROM meta'),
     env.DB.prepare('SELECT seq, id, type, payload, actor_id, device_id, device_time, tz_offset_min, created_online, v, status, review FROM ops ORDER BY seq'),
-    env.DB.prepare('SELECT id, name, role, active, location_id FROM users ORDER BY created_at'),
+    env.DB.prepare('SELECT id, name, role, active, location_id, removed_at FROM users ORDER BY created_at'),
     env.DB.prepare('SELECT key, kind, data, ver FROM entities'),
-    env.DB.prepare('SELECT id, code, label, revoked_at, retired_at FROM devices'),
+    env.DB.prepare('SELECT id, code, label, revoked_at, retired_at, removed_at, last_seen_at FROM devices ORDER BY created_at'),
     env.DB.prepare('SELECT device_id, user_id, status FROM device_access'),
     env.DB.prepare('SELECT device_id, user_id, synced_at, pending, ledger FROM device_sync'),
+    env.DB.prepare('SELECT user_id, device_id, temporary FROM sessions WHERE revoked_at IS NULL AND expires_at > ?').bind(nowIso()),
   ]);
   return {
     meta: new Map((meta!.results as { k: string; v: string }[]).map((r) => [r.k, r.v])),
@@ -111,6 +126,7 @@ async function load(env: Env): Promise<Loaded> {
     devices: devices!.results as unknown as Loaded['devices'],
     access: access!.results as unknown as Loaded['access'],
     syncs: syncs!.results as unknown as Loaded['syncs'],
+    sessions: sessions!.results as unknown as Loaded['sessions'],
   };
 }
 
@@ -161,6 +177,36 @@ function replay(d: Loaded, keepIds: Set<string>): { ok: true; ledger: Ledger } |
   return { ok: true, ledger: L };
 }
 
+/** People, devices, sessions and requests after go live, given which records stay. */
+function accessPlan(d: Loaded, keepIds: Set<string>): AccessPlan {
+  const tally = (pick: (o: OpRow) => string, kept: boolean) => {
+    const m = new Map<string, number>();
+    for (const o of d.ops) if (keepIds.has(o.id) === kept) m.set(pick(o), (m.get(pick(o)) ?? 0) + 1);
+    return m;
+  };
+  return planAccess({
+    users: d.users.map((u) => ({ id: u.id, name: u.name, role: u.role, active: Boolean(u.active), removed: Boolean(u.removed_at) })),
+    devices: d.devices.map((x) => ({ id: x.id, code: x.code, label: x.label, revoked: Boolean(x.revoked_at), retired: Boolean(x.retired_at), removed: Boolean(x.removed_at), lastSeenAt: x.last_seen_at })),
+    access: d.access.map((a) => ({ deviceId: a.device_id, userId: a.user_id, status: a.status })),
+    sessions: d.sessions.map((x) => ({ userId: x.user_id, deviceId: x.device_id, temporary: Boolean(x.temporary) })),
+    keptByActor: tally((o) => o.actor_id, true),
+    keptByDevice: tally((o) => o.device_id, true),
+    trialByActor: tally((o) => o.actor_id, false),
+    trialByDevice: tally((o) => o.device_id, false),
+  });
+}
+
+/** Every recorded exchange rate, oldest first, as the owner decides on them. */
+function rateEntries(d: Loaded): RateEntry[] {
+  return d.ops
+    .filter((o) => o.type === 'fx.set' && o.status === 'applied')
+    .map((o) => {
+      const x = JSON.parse(o.payload) as { from: string; to: string; rate: string; date: string; source?: string; basis?: RateEntry['basis'] };
+      return { id: o.id, date: x.date, from: x.from, to: x.to, rate: x.rate, basis: x.basis ?? 'manual', source: x.source ?? '' };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.from.localeCompare(b.from));
+}
+
 function backupInfo(d: Loaded): BackupInfo | null {
   const raw = d.meta.get('golive_backup');
   if (!raw) return null;
@@ -173,7 +219,7 @@ function readiness(d: Loaded, now: number): { devices: DeviceReadiness[]; checks
   const activeUsers = new Map(d.users.filter((u) => u.active).map((u) => [u.id, u.name]));
   const devices: DeviceReadiness[] = [];
   for (const dev of d.devices) {
-    if (dev.revoked_at || dev.retired_at) continue;
+    if (dev.revoked_at || dev.retired_at || dev.removed_at) continue;
     const people = d.access.filter((a) => a.device_id === dev.id && a.status === 'approved' && activeUsers.has(a.user_id)).map((a) => activeUsers.get(a.user_id)!);
     if (!people.length) continue;
     const reports = d.syncs.filter((s) => s.device_id === dev.id && s.ledger === ledger);
@@ -207,7 +253,7 @@ function readiness(d: Loaded, now: number): { devices: DeviceReadiness[]; checks
   const waiting = d.access.filter((a) => a.status === 'pending').length;
   checks.push(
     waiting
-      ? { key: 'approvals', status: 'warn', detail: `${waiting} device request(s) are waiting for approval; they are not changed.`, n: waiting }
+      ? { key: 'approvals', status: 'warn', detail: `${waiting} device request(s) are waiting. Approve the real ones first: at go live the rest are refused and their devices removed.`, n: waiting }
       : { key: 'approvals', status: 'ok', detail: 'No device requests waiting.', n: 0 },
   );
   return { devices, checks, replayError: r.ok ? null : r.error };
@@ -235,7 +281,10 @@ function preview(d: Loaded, now: number): GoLivePreview {
       settings: d.entities.some((e) => e.kind === 'settings'),
     },
     rates: names(d, 'fx', (x) => `${String(x.from)} → ${String(x.to)}`),
-    people: d.users.map((u) => ({ name: u.name, role: u.role, active: Boolean(u.active) })),
+    rateEntries: rateEntries(d),
+    people: d.users.filter((u) => !u.removed_at).map((u) => ({ name: u.name, role: u.role, active: Boolean(u.active) })),
+    // Decided as if the rates stay (see goLiveExecute), so the rate decision never changes who is kept.
+    access: accessPlan(d, new Set(planCutover(planRows(d), 'keep').keep)),
     devices: r.devices,
     checks: r.checks,
     backup: backupInfo(d),
@@ -295,10 +344,10 @@ export async function goLiveBackup(env: Env, session: Session): Promise<Response
   const [meta, ops, users, entities, balances, devices, access, opsTrial] = await env.DB.batch([
     env.DB.prepare('SELECT k, v FROM meta'),
     env.DB.prepare('SELECT * FROM ops ORDER BY seq'),
-    env.DB.prepare('SELECT id, name, role, grants, revokes, location_id, active, created_at, updated_at FROM users ORDER BY created_at'),
+    env.DB.prepare('SELECT id, name, role, grants, revokes, location_id, active, created_at, updated_at, removed_at FROM users ORDER BY created_at'),
     env.DB.prepare('SELECT * FROM entities ORDER BY key'),
     env.DB.prepare('SELECT * FROM balances ORDER BY acct, gt'),
-    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at FROM devices ORDER BY created_at'),
+    env.DB.prepare('SELECT id, code, label, user_agent, created_at, last_seen_at, revoked_at, retired_at, removed_at FROM devices ORDER BY created_at'),
     env.DB.prepare('SELECT device_id, user_id, status, requested_at, decided_at, decided_by FROM device_access'),
     env.DB.prepare('SELECT COUNT(*) AS n FROM ops_trial'),
   ]);
@@ -310,7 +359,7 @@ export async function goLiveBackup(env: Env, session: Session): Promise<Response
     version: 1,
     exportedAt: at,
     fingerprint: fp,
-    note: 'Pre-cutover copy of the Mabubu database. No access codes, device secrets or session tokens.',
+    note: 'Pre-cutover copy of the NAS Mabubu System database. No access codes, device secrets or session tokens.',
     ops: ops!.results,
     users: users!.results,
     entities: entities!.results,
@@ -345,6 +394,12 @@ const executeSchema = z.object({
   backupSha256: z.string().regex(/^[0-9a-f]{64}$/),
   fingerprint: z.object({ ops: z.number().int().min(0), maxSeq: z.number().int().min(0) }),
   acceptUnknownDevices: z.boolean(),
+  access: z.object({
+    keepPeople: z.array(z.string().max(64)).max(1000),
+    keepDevices: z.array(z.string().max(64)).max(1000),
+    removePeople: z.array(z.string().max(64)).max(1000),
+    removeDevices: z.array(z.string().max(64)).max(1000),
+  }),
 });
 
 /** POST /api/admin/golive/execute — the cutover itself. */
@@ -385,6 +440,11 @@ export async function goLiveExecute(env: Env, session: Session, request: Request
   const result = replay(d, new Set(plan.keep));
   if (!result.ok) throw new HttpError(409, 'rebuild_failed', `The kept set-up does not replay: ${result.error}`);
   const L = result.ledger;
+  // Exactly the people and devices the owner saw in the preview: decided as if
+  // the rates stay, so the rate decision never changes who is kept.
+  const access = accessPlan(d, new Set(planCutover(planRows(d), 'keep').keep));
+  const choice = accessChoice(access);
+  if (!sameChoice(choice, b.access)) throw new HttpError(409, 'access_changed', 'People or devices changed since the preview. Look at the preview again.');
 
   const oldVer = new Map(d.entities.map((e) => [e.key, e.ver]));
   const entityRows = [...L.entities]
@@ -395,15 +455,31 @@ export async function goLiveExecute(env: Env, session: Session, request: Request
   const id = uuidv7();
   const ledger = uuidv7();
   const at = new Date(now).toISOString();
-  const scope: CutoverRecord['scope'] = { fx: b.fx, kept: plan.keep.length, removed: plan.remove.length, byType: plan.byType };
+  const accessScope = {
+    keptPeople: choice.keepPeople.length,
+    removedPeople: choice.removePeople.length,
+    keptDevices: choice.keepDevices.length,
+    removedDevices: choice.removeDevices.length,
+    sessionsEnded: access.sessionsEnded,
+    requestsClosed: access.requestsClosed,
+    approvalsWithdrawn: access.approvalsWithdrawn,
+  };
+  const scope: CutoverRecord['scope'] = { fx: b.fx, kept: plan.keep.length, removed: plan.remove.length, byType: plan.byType, access: accessScope };
   const outcome: CutoverRecord['result'] = { opsAfter: plan.keep.length, entitiesAfter: entityRows.length, balancesAfter: balanceRows.length, archived: plan.remove.length };
   const removeJson = JSON.stringify(plan.remove);
   const COLS = 'seq, id, type, payload, actor_id, actor_name, device_id, device_time, tz_offset_min, created_online, v, server_time, clock_skew_ms, status, error, flags, vis, subject_id, voided_by, review, resolved_by';
 
+  const removeDevicesJson = JSON.stringify(choice.removeDevices);
+  const keepPeopleJson = JSON.stringify(choice.keepPeople);
+  const openAccess = d.access.filter((a) => a.status === 'approved' || a.status === 'pending').length;
   const stmts = [
     // Nothing arrived since the checks above, and no other cutover finished meanwhile.
     env.DB.prepare('INSERT INTO guard (v) SELECT 1 WHERE (SELECT COUNT(*) FROM ops) <> ?1 OR (SELECT COALESCE(MAX(seq), 0) FROM ops) <> ?2').bind(fp.ops, fp.maxSeq),
     env.DB.prepare("INSERT INTO guard (v) SELECT 1 WHERE EXISTS (SELECT 1 FROM meta WHERE k = 'phase' AND v = 'live')"),
+    // No person, device or approval appeared or changed since the access plan was made.
+    env.DB.prepare(
+      "INSERT INTO guard (v) SELECT 1 WHERE (SELECT COUNT(*) FROM users) <> ?1 OR (SELECT COUNT(*) FROM users WHERE active = 1) <> ?2 OR (SELECT COUNT(*) FROM devices) <> ?3 OR (SELECT COUNT(*) FROM device_access WHERE status IN ('approved', 'pending')) <> ?4",
+    ).bind(d.users.length, d.users.filter((u) => u.active).length, d.devices.length, openAccess),
     env.DB.prepare('INSERT INTO cutovers (id, at, actor_id, device_id, ledger, backup_sha256, backup_at, scope, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(
       id,
       at,
@@ -436,8 +512,32 @@ export async function goLiveExecute(env: Env, session: Session, request: Request
     );
   }
   stmts.push(
+    // Access left over from testing. Rows are hidden and blocked, never deleted.
+    env.DB.prepare('UPDATE devices SET revoked_at = COALESCE(revoked_at, ?1), retired_at = COALESCE(retired_at, ?1), removed_at = ?1 WHERE id IN (SELECT value FROM json_each(?2))').bind(at, removeDevicesJson),
+    env.DB.prepare('UPDATE users SET removed_at = ?1, updated_at = ?1 WHERE active = 0 AND id IN (SELECT value FROM json_each(?2))').bind(at, JSON.stringify(choice.removePeople)),
+    env.DB.prepare(
+      'UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL AND (temporary = 1 OR device_id IN (SELECT value FROM json_each(?2)) OR user_id NOT IN (SELECT value FROM json_each(?3)))',
+    ).bind(at, removeDevicesJson, keepPeopleJson),
+    env.DB.prepare(
+      "UPDATE device_access SET status = 'revoked', decided_at = ?1, decided_by = ?2 WHERE status = 'approved' AND (device_id IN (SELECT value FROM json_each(?3)) OR user_id NOT IN (SELECT value FROM json_each(?4)))",
+    ).bind(at, session.user.id, removeDevicesJson, keepPeopleJson),
+    env.DB.prepare("UPDATE device_access SET status = 'denied', decided_at = ?1, decided_by = ?2 WHERE status = 'pending'").bind(at, session.user.id),
     env.DB.prepare("INSERT INTO meta (k, v) VALUES ('ledger', ?1), ('phase', 'live') ON CONFLICT (k) DO UPDATE SET v = excluded.v").bind(ledger),
-    eventStmt(env, 'cutover_completed', { actorId: session.user.id, deviceId: session.deviceId, ip, detail: { cutoverId: id, backupSha256: backup.sha256, fx: b.fx, kept: plan.keep.length, removed: plan.remove.length } }),
+    eventStmt(env, 'cutover_completed', {
+      actorId: session.user.id,
+      deviceId: session.deviceId,
+      ip,
+      detail: {
+        cutoverId: id,
+        backupSha256: backup.sha256,
+        fx: b.fx,
+        kept: plan.keep.length,
+        removed: plan.remove.length,
+        access: accessScope,
+        removedDevices: access.devices.filter((x) => x.fate === 'remove').map((x) => x.code),
+        removedPeople: access.people.filter((x) => x.fate === 'remove').map((x) => x.name),
+      },
+    }),
   );
 
   try {

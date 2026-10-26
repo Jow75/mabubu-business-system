@@ -16,15 +16,19 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: false,
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['brand/favicon-32.png'],
+      // Install icons are read by the browser itself; the app never needs them offline.
+      includeManifestIcons: false,
       manifest: {
         // `id` and `scope` are what browsers already derived from start_url
         // '/', written out so the installed app keeps one identity (no second
         // install on phones that already have it).
         id: '/',
-        name: 'Mabubu — business records',
-        short_name: 'Mabubu',
-        description: 'Stock, shipments, sales and cash for the Mabubu family business.',
+        // NAS Mabubu System (the owner's name for the app, 26 Oct 2026). The id
+        // stays '/', so an installed app updates its name and icon in place.
+        name: 'NAS Mabubu System',
+        short_name: 'NAS Mabubu',
+        description: 'NAS Mabubu System: stock, shipments, sales and cash for the Mabubu family business.',
         lang: 'en',
         categories: ['business', 'productivity'],
         theme_color: '#2e3a87',
@@ -35,10 +39,13 @@ export default defineConfig({
         scope: '/',
         // Opening Mabubu again brings the open window forward instead of a second copy.
         launch_handler: { client_mode: ['focus-existing', 'auto'] },
+        // The owner's logo (scripts/make-brand-icons.py). New paths, so browsers
+        // see the change and refresh the installed icon; the old files stay
+        // in public/ for a release, for anything that still asks for them.
         icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'brand/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'brand/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'brand/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
@@ -52,7 +59,16 @@ export default defineConfig({
         // Font subsets for scripts the app's languages (en/fr/sw) never use: ~110 kB
         // phones would precache for nothing. The CSS still declares them, so a
         // browser fetches one online in the rare case a name needs it.
-        globIgnores: ['**/pdf-optional-*.js', '**/*-{vietnamese,cyrillic,greek}-*.woff2'],
+        globIgnores: [
+          '**/pdf-optional-*.js',
+          '**/*-{vietnamese,cyrillic,greek}-*.woff2',
+          // Install icons are fetched by the browser itself, not by the app:
+          // phones need not keep a second copy (about 0.5 MB) for offline use.
+          'brand/icon-*.png',
+          'brand/apple-touch-icon.png',
+          'icon-*.png',
+          'favicon.svg',
+        ],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],

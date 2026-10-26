@@ -8,6 +8,7 @@ import { downloadBlob } from '../../lib/csv';
 import { uuidv7 } from '../../../shared/ids';
 import { K, type FxSeries } from '../../../shared/model';
 import { CURRENCY_CODES, isValidRate, type Currency } from '../../../shared/money';
+import { validEmail, validPhone } from '../../../shared/ops';
 import { businessDate, fmtDate } from '../../../shared/time';
 import { errText, useT } from '../../lib/i18n';
 import { LanguageSwitch } from '../auth/Language';
@@ -22,6 +23,10 @@ export function SettingsPage() {
   const [name, setName] = useState(lk.settings.businessName);
   const [label, setLabel] = useState(lk.settings.localCountLabel);
   const [denoms, setDenoms] = useState(lk.settings.denominations.join(', '));
+  const [phoneKenya, setPhoneKenya] = useState(lk.settings.phoneKenya);
+  const [phoneComoros, setPhoneComoros] = useState(lk.settings.phoneComoros);
+  const [email, setEmail] = useState(lk.settings.email);
+  const contactOk = validPhone(phoneKenya) && validPhone(phoneComoros) && validEmail(email);
   const [fx, setFx] = useState(false);
   const parsedDenoms = denoms
     .split(/[,\s]+/)
@@ -68,6 +73,35 @@ export function SettingsPage() {
               className="btn btn-primary"
               disabled={!name.trim() || !label.trim() || !denomsOk}
               onClick={() => void save(() => store.submit('settings.set', { businessName: name.trim(), localCountLabel: label.trim(), denominations: [...new Set(parsedDenoms)].sort((a, b) => b - a) }), t('st.saved'))}
+            >
+              {t('c.save')}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {caps.includes('settings.manage') && (
+        <section className="card card-pad stack">
+          <div>
+            <span className="section-title">{t('st.contact')}</span>
+            <div className="hint">{t('st.contactHint')}</div>
+          </div>
+          <div className="form-grid">
+            <Field label={t('st.phoneKenya')} hint={validPhone(phoneKenya) ? undefined : t('st.phoneBad')}>
+              <input className="input mono" type="tel" inputMode="tel" autoComplete="off" value={phoneKenya} onChange={(e) => setPhoneKenya(e.target.value)} placeholder="+254" />
+            </Field>
+            <Field label={t('st.phoneComoros')} hint={validPhone(phoneComoros) ? undefined : t('st.phoneBad')}>
+              <input className="input mono" type="tel" inputMode="tel" autoComplete="off" value={phoneComoros} onChange={(e) => setPhoneComoros(e.target.value)} placeholder="+269" />
+            </Field>
+            <Field label={t('st.email')} hint={validEmail(email) ? t('st.optional') : t('st.emailBad')}>
+              <input className="input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </Field>
+          </div>
+          <div>
+            <button
+              className="btn btn-primary"
+              disabled={!contactOk}
+              onClick={() => void save(() => store.submit('settings.set', { phoneKenya: phoneKenya.trim(), phoneComoros: phoneComoros.trim(), email: email.trim() }), t('st.saved'))}
             >
               {t('c.save')}
             </button>

@@ -1,10 +1,12 @@
-// Excel (.xlsx) writer. One "About" sheet with the report, filters, time and
-// notes, then one sheet per table with a bold, frozen, filterable header row.
+// Excel (.xlsx) writer. One "About" sheet with the NAS Mabubu System logo and
+// letterhead, the report, filters, time and notes, then one sheet per table
+// with a bold, frozen, filterable header row (the logo stays on "About" so the
+// data sheets remain plain tables that sort and filter).
 // Amounts are real numbers (not text) with the currency in its own column;
 // dates are real Excel dates. Written by hand to keep the app small.
 
 import { CURRENCIES } from '../money';
-import { businessDateTime, cellCurrency, filterSummary, moneyMajor, type Cell, type Column, type ReportDoc, type Table } from '../report-doc';
+import { businessDateTime, cellCurrency, contactLine, filterSummary, moneyMajor, pngSize, type Branding, type Cell, type Column, type ReportDoc, type Table } from '../report-doc';
 import { zip } from './zip';
 
 // Style indexes into cellXfs below.
@@ -32,7 +34,7 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
 
-const xmlEsc = (s: string) =>
+export const xmlEsc = (s: string) =>
   s
     // Characters XML 1.0 does not allow.
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
@@ -86,7 +88,7 @@ function cellXml(ref: string, c: XCell): string {
   return `<c r="${ref}" s="${c.s}" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(c.v)}</t></is></c>`;
 }
 
-function sheetXml(rows: XCell[][], opts: { widths: number[]; header: boolean }): string {
+function sheetXml(rows: XCell[][], opts: { widths: number[]; header: boolean; drawing?: boolean }): string {
   const cols = opts.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
   const body = rows.map((r, i) => `<row r="${i + 1}">${r.map((c, j) => cellXml(`${colName(j)}${i + 1}`, c)).join('')}</row>`).join('');
   const lastCol = colName(Math.max(0, opts.widths.length - 1));
@@ -95,7 +97,7 @@ function sheetXml(rows: XCell[][], opts: { widths: number[]; header: boolean }):
     : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
   const filter = opts.header && rows.length > 1 ? `<autoFilter ref="A1:${lastCol}${rows.length}"/>` : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${view}<sheetFormatPr defaultRowHeight="15"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData>${filter}</worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${view}<sheetFormatPr defaultRowHeight="15"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData>${filter}${opts.drawing ? '<drawing r:id="rId1"/>' : ''}</worksheet>`;
 }
 
 function tableRows(t: Table): { rows: XCell[][]; widths: number[] } {
@@ -127,10 +129,25 @@ function sheetNames(titles: string[]): string[] {
   });
 }
 
-export function toXlsx(doc: ReportDoc): Uint8Array {
+/** The logo on the About sheet, its top-left corner at A1, 64 px square (EMU: 9525 per pixel). */
+function drawingXml(w: number, h: number): string {
+  const cx = 64 * 9525;
+  const cy = Math.round((cx * h) / w);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${cx}" cy="${cy}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="2" name="Logo" descr="NAS Mabubu System logo"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
+}
+
+export function toXlsx(doc: ReportDoc, brand: Branding = {}): Uint8Array {
   const enc = new TextEncoder();
+  const logo = brand.logoPng ? pngSize(brand.logoPng) : null;
+  const contacts = contactLine(doc);
   const about: XCell[][] = [
-    [{ kind: 'str', v: `${doc.business} — ${doc.title}`, s: S.title }],
+    // Letterhead: beside the logo (A1:A4) when there is one.
+    [null, { kind: 'str', v: doc.app, s: S.title }],
+    [null, { kind: 'str', v: doc.business, s: S.bold }],
+    [null, contacts ? { kind: 'str', v: contacts, s: S.text } : null],
+    [],
+    [{ kind: 'str', v: doc.title, s: S.title }],
     [],
     [{ kind: 'str', v: 'Filters', s: S.bold }, { kind: 'str', v: filterSummary(doc) || 'None', s: S.wrap }],
     ...doc.filters.map((f): XCell[] => [{ kind: 'str', v: `  ${f.label}`, s: S.text }, { kind: 'str', v: f.value, s: S.text }]),
@@ -143,7 +160,7 @@ export function toXlsx(doc: ReportDoc): Uint8Array {
     ...doc.notes.map((n): XCell[] => [{ kind: 'str', v: '', s: S.text }, { kind: 'str', v: n, s: S.wrap }]),
   ];
   const names = sheetNames(['About', ...doc.tables.map((t) => t.title)]);
-  const sheets = [sheetXml(about, { widths: [22, 110], header: false }), ...doc.tables.map((t) => {
+  const sheets = [sheetXml(about, { widths: [22, 110], header: false, drawing: Boolean(logo) }), ...doc.tables.map((t) => {
     const { rows, widths } = tableRows(t);
     return sheetXml(rows, { widths, header: true });
   })];
@@ -151,7 +168,7 @@ export function toXlsx(doc: ReportDoc): Uint8Array {
     {
       name: '[Content_Types].xml',
       xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${logo ? '<Default Extension="png" ContentType="image/png"/><Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>' : ''}<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
     },
     {
       name: '_rels/.rels',
@@ -161,7 +178,7 @@ export function toXlsx(doc: ReportDoc): Uint8Array {
     {
       name: 'docProps/core.xml',
       xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEsc(`${doc.business} — ${doc.title}`)}</dc:title><dc:creator>${xmlEsc(doc.generatedBy)}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${doc.generatedAt.slice(0, 19)}Z</dcterms:created></cp:coreProperties>`,
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${xmlEsc(`${doc.app} — ${doc.business} — ${doc.title}`)}</dc:title><dc:creator>${xmlEsc(doc.generatedBy)}</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${doc.generatedAt.slice(0, 19)}Z</dcterms:created></cp:coreProperties>`,
     },
     {
       name: 'xl/workbook.xml',
@@ -176,5 +193,22 @@ export function toXlsx(doc: ReportDoc): Uint8Array {
     { name: 'xl/styles.xml', xml: STYLES },
     ...sheets.map((xml, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, xml })),
   ];
-  return zip(files.map((f) => ({ name: f.name, data: enc.encode(f.xml) })), new Date(doc.generatedAt));
+  if (logo) {
+    files.push(
+      {
+        name: 'xl/worksheets/_rels/sheet1.xml.rels',
+        xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`,
+      },
+      { name: 'xl/drawings/drawing1.xml', xml: drawingXml(logo.w, logo.h) },
+      {
+        name: 'xl/drawings/_rels/drawing1.xml.rels',
+        xml: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>`,
+      },
+    );
+  }
+  const entries: { name: string; data: Uint8Array }[] = files.map((f) => ({ name: f.name, data: enc.encode(f.xml) }));
+  if (logo) entries.push({ name: 'xl/media/image1.png', data: brand.logoPng! });
+  return zip(entries, new Date(doc.generatedAt));
 }

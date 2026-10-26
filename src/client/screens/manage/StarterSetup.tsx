@@ -4,7 +4,8 @@ import { useLookups } from '../../lib/lookups';
 import { uuidv7 } from '../../../shared/ids';
 import { DEFAULT_PLACES, DEFAULT_SIZES, refKey, toSeed } from '../../lib/seed';
 import { errText, useT } from '../../lib/i18n';
-import { DeraMark, Icon } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
+import { LOGO } from '../../../shared/brand';
 import { toast } from '../../ui/kit';
 
 /** Shown once, after the owner account is first created (never on recovery). */
@@ -22,7 +23,7 @@ export function StarterSetup() {
     <main className="main">
       <div className="page" style={{ maxWidth: 680 }}>
         <div className="row">
-          <DeraMark size={40} />
+          <img className="brand-logo" src={LOGO.small} width={44} height={44} alt="" />
           <div>
             <div className="eyebrow">{t('ss.welcome')}</div>
             <h1 className="page-title">{t('ss.title')}</h1>

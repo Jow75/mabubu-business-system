@@ -35,7 +35,11 @@ export interface Table {
 export interface ReportDoc {
   id: ReportId;
   title: string;
+  /** The application's name (NAS Mabubu System), printed with its logo at the top. */
+  app: string;
   business: string;
+  /** The business's contact details from Settings; only those filled in. */
+  contacts: { label: string; value: string }[];
   /** Every filter applied, in words. Exports must contain exactly these records. */
   filters: { label: string; value: string }[];
   generatedAt: string;
@@ -43,6 +47,24 @@ export interface ReportDoc {
   /** Definitions, calculation rules and warnings. */
   notes: string[];
   tables: Table[];
+}
+
+/** Logo and other things a file needs that are not part of the records. */
+export interface Branding {
+  /** The owner's logo as PNG bytes (public/brand/nas-logo-report.png). */
+  logoPng?: Uint8Array;
+}
+
+/** "Kenya +254 … · Comoros +269 …", or '' when none was given. */
+export function contactLine(doc: Pick<ReportDoc, 'contacts'>): string {
+  return doc.contacts.map((c) => `${c.label} ${c.value}`).join(' · ');
+}
+
+/** PNG width and height from its header. */
+export function pngSize(png: Uint8Array): { w: number; h: number } | null {
+  if (png.length < 24 || png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) return null;
+  const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+  return { w: dv.getUint32(16), h: dv.getUint32(20) };
 }
 
 export function filterSummary(doc: Pick<ReportDoc, 'filters'>): string {

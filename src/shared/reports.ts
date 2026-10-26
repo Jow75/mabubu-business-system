@@ -18,6 +18,7 @@ import { canExport, REPORT_INFO, type ReportId } from './report-catalog';
 import { TIME_NOTE, type Cell, type Column, type ReportDoc, type Table } from './report-doc';
 import { dayLines, purchaseSummary, stockByLocation, vendorAccounts, type PaymentHow, type ProfitReport, type PurchaseBalance } from './queries';
 import { businessDate, fmtDate } from './time';
+import { APP_NAME } from './brand';
 
 /* ------------------------------------------------------------------ */
 /* Context                                                             */
@@ -49,7 +50,13 @@ function start(id: ReportId, ctx: ReportCtx, filters: ReportDoc['filters'], note
   return {
     id,
     title: REPORT_INFO[id].title,
+    app: APP_NAME,
     business: lk.settings.businessName,
+    contacts: [
+      { label: 'Kenya', value: lk.settings.phoneKenya },
+      { label: 'Comoros', value: lk.settings.phoneComoros },
+      { label: 'Email', value: lk.settings.email },
+    ].filter((c) => c.value.trim() !== ''),
     filters,
     generatedAt: (ctx.now ?? new Date()).toISOString(),
     generatedBy: ctx.user.name,
