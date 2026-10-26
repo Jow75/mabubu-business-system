@@ -69,6 +69,37 @@ describe('a new version takes over safely', () => {
     expect(reloads).toBe(1);
   });
 
+  it('on the sign-in screen it takes over at once, so a code is never typed into the old version; digits being typed hold it', async () => {
+    const u = await load();
+    let signInScreen = true;
+    u.setQuietScreen(() => signInScreen);
+    u.onNewVersion();
+    expect(reloads).toBe(1); // nothing typed yet: straight to the new version
+
+    vi.resetModules();
+    reloads = 0;
+    handlers.clear();
+    const w = await load();
+    w.setQuietScreen(() => signInScreen);
+    const typing = w.holdReload();
+    w.onNewVersion();
+    expect(reloads).toBe(0); // the code being typed is kept
+    typing();
+    setVisibility('hidden');
+    expect(reloads).toBe(1);
+
+    // Signed in and on screen: the Reload bar waits for the person, as before.
+    vi.resetModules();
+    reloads = 0;
+    const v = await load();
+    signInScreen = false;
+    v.setQuietScreen(() => signInScreen);
+    setVisibility('visible');
+    v.onNewVersion();
+    expect(reloads).toBe(0);
+    expect(v.BUILD_STAMP).toBe('2026-10-26 00:00 UTC');
+  });
+
   it('records of a temporary sign-in that exist only in the page hold it too', async () => {
     const u = await load();
     let unsent = true;

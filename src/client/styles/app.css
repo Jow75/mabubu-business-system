@@ -1339,6 +1339,21 @@ button.list-item {
   pointer-events: none;
   opacity: 0.9;
 }
+/* Phones: the route as its own strip between the brand and the headline. */
+.route-strip {
+  display: none;
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  margin: 18px 0 14px;
+  pointer-events: none;
+  overflow: visible;
+}
+.build-stamp {
+  margin: 0;
+  font-size: 11.5px;
+  opacity: 0.75;
+}
 .auth-panel {
   display: flex;
   flex-direction: column;
@@ -1362,6 +1377,12 @@ button.list-item {
   }
   .auth-art p {
     display: none;
+  }
+  .route-line {
+    display: none;
+  }
+  .route-strip {
+    display: block;
   }
 }
 .profiles {
@@ -1555,14 +1576,8 @@ button.list-item {
     padding-bottom: 14px;
   }
   .auth:has(.pinpad) .auth-art h1,
-  .auth:has(.pinpad) .route-line {
+  .auth:has(.pinpad) .route-strip {
     display: none;
-  }
-  /* The route drawing ends above the headline on narrow phones (its "Moroni"
-     label ran under it at 360 px on the Tecno). */
-  .route-line {
-    inset: 0 0 auto 0;
-    height: 44%;
   }
   .auth:has(.pinpad) .auth-panel {
     justify-content: flex-start;

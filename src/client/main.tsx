@@ -8,10 +8,11 @@ import './styles/app.css';
 import { App } from './App';
 import { store } from './lib/store';
 import { watchInstall } from './lib/install';
-import { onNewVersion, setReloadGuard, watchForUpdates } from './lib/update';
+import { onNewVersion, setQuietScreen, setReloadGuard, watchForUpdates } from './lib/update';
 
 watchInstall();
 setReloadGuard(() => store.reloadUnsafe());
+setQuietScreen(() => ['boot', 'welcome'].includes(store.getSnapshot().phase));
 
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   void import('virtual:pwa-register').then(({ registerSW }) =>

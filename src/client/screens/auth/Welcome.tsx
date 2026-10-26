@@ -11,6 +11,7 @@ import { Monogram } from '../../ui/kit';
 import { PinPad } from './PinPad';
 import { errText, useT } from '../../lib/i18n';
 import { makeT, type Lang, type T } from '../../../shared/i18n';
+import { BUILD_STAMP, useHoldReload } from '../../lib/update';
 
 export function AuthLayout({ children, lang }: { children: ReactNode; lang?: Lang }) {
   const own = useT();
@@ -30,8 +31,44 @@ export function AuthLayout({ children, lang }: { children: ReactNode; lang?: Lan
   );
 }
 
-/** The trade route drawn as a stitched line: Mombasa → Dar es Salaam → Moroni. */
+/**
+ * The trade route drawn as a stitched line: Mombasa → Dar es Salaam → Moroni.
+ * A computer draws it large behind the brand and headline; a phone gets its
+ * own strip across the full width between the two, so the place names are
+ * read at text size and never run under the name or the headline.
+ */
 function RouteArt() {
+  return (
+    <>
+      <RouteWide />
+      <RouteStrip />
+    </>
+  );
+}
+
+const ROUTE_STOPS: [number, number, string, 'start' | 'middle' | 'end'][] = [
+  [26, 24, 'Mombasa', 'start'],
+  [160, 50, 'Dar es Salaam', 'middle'],
+  [294, 24, 'Moroni', 'end'],
+];
+
+function RouteStrip() {
+  return (
+    <svg className="route-strip" viewBox="0 0 320 86" aria-hidden="true">
+      <path d="M26 24 C 82 24, 104 50, 160 50 S 238 24, 294 24" fill="none" stroke="#e0a13a" strokeWidth="2.2" strokeDasharray="7 6" strokeLinecap="round" />
+      {ROUTE_STOPS.map(([x, y, n, anchor]) => (
+        <g key={n}>
+          <circle cx={x} cy={y} r="6" fill="#232c6b" stroke="#fbf8f2" strokeWidth="2.2" />
+          <text x={anchor === 'start' ? x - 12 : anchor === 'end' ? x + 12 : x} y={y + 26} textAnchor={anchor} fill="#fbf8f2" fontSize="14.5" fontFamily="var(--font-ui)" fontWeight="650">
+            {n}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function RouteWide() {
   return (
     <svg className="route-line" viewBox="0 0 600 420" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <path d="M440 90 C 410 170, 370 200, 320 230 S 200 310, 150 360" fill="none" stroke="#e0a13a" strokeWidth="2.5" strokeDasharray="9 7" opacity="0.85" />
@@ -133,15 +170,21 @@ function SignInNotices() {
 function FooterLinks({ online, onDemo }: { online: boolean; onDemo: () => void }) {
   const t = useT();
   return (
-    <div className="row-between" style={{ marginTop: 8 }}>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={onDemo}>
-        <Icon name="eye" size={17} /> {t('auth.demo')}
-      </button>
-      <span className="pill">
-        <span className="dot" style={{ color: online ? 'var(--mangrove)' : 'var(--ink-3)' }} />
-        {online ? t('c.online') : t('c.offline')}
-      </span>
-    </div>
+    <>
+      <div className="row-between" style={{ marginTop: 8 }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onDemo}>
+          <Icon name="eye" size={17} /> {t('auth.demo')}
+        </button>
+        <span className="pill">
+          <span className="dot" style={{ color: online ? 'var(--mangrove)' : 'var(--ink-3)' }} />
+          {online ? t('c.online') : t('c.offline')}
+        </span>
+      </div>
+      {/* Which version this screen runs: the same stamp as under Me. */}
+      <p className="hint build-stamp">
+        {t('inst.version')} {t('inst.versionValue', { version: __APP_VERSION__, date: BUILD_STAMP })}
+      </p>
+    </>
   );
 }
 
@@ -241,6 +284,8 @@ function OtherStep({ onBack, onPending, onDemo }: { onBack: (() => void) | null;
   const [stage, setStage] = useState<'name' | 'pin'>('name');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PinError>(null);
+  // A name being typed is work in progress: a new version waits for it.
+  useHoldReload(stage === 'name' && name.length > 0);
   const submit = useCallback(
     async (pin: string) => {
       setBusy(true);

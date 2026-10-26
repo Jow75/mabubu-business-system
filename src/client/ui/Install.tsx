@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { promptInstall, useInstall } from '../lib/install';
 import { useApp } from '../lib/store';
 import { useT } from '../lib/i18n';
-import { fmtDate } from '../../shared/time';
+import { BUILD_STAMP } from '../lib/update';
 import { Icon } from './Icon';
 import { toast } from './kit';
 
@@ -23,7 +23,7 @@ export function InstallSection() {
         <dt>{t('inst.app')}</dt>
         <dd>{installed ? t('inst.installed') : t('inst.browser')}</dd>
         <dt>{t('inst.version')}</dt>
-        <dd>{t('inst.versionValue', { version: __APP_VERSION__, date: fmtDate(__BUILD_TIME__.slice(0, 10)) })}</dd>
+        <dd>{t('inst.versionValue', { version: __APP_VERSION__, date: BUILD_STAMP })}</dd>
       </dl>
       {!installed && (
         <>

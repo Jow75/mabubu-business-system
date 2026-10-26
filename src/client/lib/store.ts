@@ -7,7 +7,7 @@ import { Ledger } from '../../shared/ledger';
 import { ENGINE_VERSION, parseOp, type AnyOp, type Flag, type OpType, type PayloadOf } from '../../shared/ops';
 import type { Capability } from '../../shared/permissions';
 import { canSee } from '../../shared/visibility';
-import { SYNC_PROTO, type LoginResponse, type PullResponse, type PushResponse, type SessionUser } from '../../shared/api';
+import { SYNC_PROTO, TEMP_SIGNIN, type LoginResponse, type PullResponse, type PushResponse, type SessionUser } from '../../shared/api';
 import type { UserRef } from '../../shared/model';
 import { uuidv7 } from '../../shared/ids';
 import { isLang, type Lang } from '../../shared/i18n';
@@ -81,6 +81,15 @@ const TEMP_ENDED = 'Your temporary sign-in has ended. Sign in again.';
  * device database, never with a saved profile or an offline code check.
  */
 const TEMP_KEY = 'mabubu.temporary';
+
+/** This page's tab storage, taken once when the page loads (it belongs to the tab); none in some private modes. */
+const tabStorage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null = (() => {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+})();
 interface TempSignIn {
   token: string;
   expiresAt: string;
@@ -89,7 +98,7 @@ interface TempSignIn {
 
 function readTemporary(): TempSignIn | null {
   try {
-    const v = JSON.parse(sessionStorage.getItem(TEMP_KEY) ?? 'null') as TempSignIn | null;
+    const v = JSON.parse(tabStorage?.getItem(TEMP_KEY) ?? 'null') as TempSignIn | null;
     return v && typeof v.token === 'string' && Date.parse(v.expiresAt) > Date.now() ? v : null;
   } catch {
     return null;
@@ -98,8 +107,8 @@ function readTemporary(): TempSignIn | null {
 
 function keepTemporary(v: TempSignIn | null) {
   try {
-    if (v) sessionStorage.setItem(TEMP_KEY, JSON.stringify(v));
-    else sessionStorage.removeItem(TEMP_KEY);
+    if (v) tabStorage?.setItem(TEMP_KEY, JSON.stringify(v));
+    else tabStorage?.removeItem(TEMP_KEY);
   } catch {
     /* no tab storage: a reload simply signs out */
   }
@@ -116,10 +125,47 @@ function usableTemporary(v: unknown): TempSignIn | null {
  * again — which would also have ended the first tab's sign-in, as there is one
  * per computer. Nothing is written to the computer for this: the tabs answer
  * each other only while they are open, and Sign out in one ends it in all.
+ *
+ * A normal sign-in on one of the person's own devices is shared the same way
+ * (owner's request, 26 Oct 2026; AUTH_AND_RECOVERY §11): a new tab or window
+ * of this browser continues the person signed in in another open tab, and a
+ * reload of the tab continues it within the idle time. Lock in one tab locks
+ * them all; work in one keeps the others from locking. With no tab open and
+ * nothing done for the idle time, the code is asked as before.
  */
 const TEMP_CHANNEL = 'mabubu.temporary';
-type TempMessage = { kind: 'ask' } | { kind: 'share'; temp: TempSignIn } | { kind: 'ended'; token: string } | { kind: 'activity'; token: string };
+type TempMessage =
+  | { kind: 'ask' }
+  | { kind: 'share'; temp: TempSignIn }
+  | { kind: 'ended'; token: string }
+  | { kind: 'activity'; token: string }
+  | { kind: 'open'; userId: string }
+  | { kind: 'locked'; userId: string }
+  | { kind: 'seen'; userId: string };
 const TEMP_ASK_MS = 350;
+type TabAnswer = { temp: TempSignIn } | { userId: string } | null;
+
+/** Who is signed in in this tab, and when it was last used: a reload continues it within the idle time. */
+const OPEN_KEY = 'mabubu.open';
+const OPEN_FOR_MS = TEMP_SIGNIN.idleMinutes * 60_000;
+
+function readOpen(): string | null {
+  try {
+    const v = JSON.parse(tabStorage?.getItem(OPEN_KEY) ?? 'null') as { userId?: unknown; at?: unknown } | null;
+    return v && typeof v.userId === 'string' && typeof v.at === 'number' && Date.now() - v.at < OPEN_FOR_MS ? v.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+function keepOpen(userId: string | null) {
+  try {
+    if (userId) tabStorage?.setItem(OPEN_KEY, JSON.stringify({ userId, at: Date.now() }));
+    else tabStorage?.removeItem(OPEN_KEY);
+  } catch {
+    /* no tab storage: a reload asks for the code */
+  }
+}
 
 function tempChannel(): BroadcastChannel | null {
   try {
@@ -235,12 +281,16 @@ class Store {
     }
     // A temporary sign-in in this tab (ADR-006) survives a reload of the tab,
     // and continues in a new tab while another tab still has it; never more.
-    const temp = readTemporary() ?? (await shared);
+    const answer = readTemporary() ? null : await shared;
+    const temp = readTemporary() ?? (answer && 'temp' in answer ? answer.temp : null);
     if (temp) {
       this.set({ device, profiles });
       await this.openTemporary(temp);
       return;
     }
+    // The person signed in in this tab before a reload, or in another open tab.
+    const again = readOpen() ?? (answer && 'userId' in answer ? answer.userId : null);
+    if (again && (await this.continueOpen(again, device, profiles))) return;
     // Ask to keep this device's storage as early as possible, before anyone
     // signs in. The device identity and the signed-in profile live only in
     // IndexedDB; if the browser evicts it, the device becomes unrecognised and
@@ -264,12 +314,30 @@ class Store {
     return (await deviceDb.profiles.toArray()).sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
   }
 
-  /** Whether another open tab of this browser has a live temporary sign-in (answered within a moment, or not at all). */
-  private askOtherTabs(): Promise<TempSignIn | null> {
+  /**
+   * Continue a person's sign-in on this device without the code: only someone
+   * saved here, with a session the server has not ended (a refused session
+   * marks the profile "sign in online"), not blocked. The next sync checks the
+   * session with the server as always.
+   */
+  private async continueOpen(userId: string, device: DeviceRecord, profiles: Profile[]): Promise<boolean> {
+    const p = profiles.find((x) => x.userId === userId);
+    const live = p && !p.demo && !p.temporary && !p.blocked && !p.needsOnline && p.token && p.verifier && (!p.expiresAt || Date.parse(p.expiresAt) > Date.now());
+    if (!p || !live) {
+      keepOpen(null);
+      return false;
+    }
+    this.set({ device, profiles });
+    await this.open({ ...p, lastUsedAt: new Date().toISOString() });
+    return true;
+  }
+
+  /** Whether another open tab of this browser has someone signed in — a temporary sign-in, or a person saved here (answered within a moment, or not at all). */
+  private askOtherTabs(): Promise<TabAnswer> {
     const ch = this.channel;
     if (!ch) return Promise.resolve(null);
     return new Promise((resolve) => {
-      const done = (v: TempSignIn | null) => {
+      const done = (v: TabAnswer) => {
         clearTimeout(timer);
         ch.removeEventListener('message', onReply);
         resolve(v);
@@ -277,8 +345,8 @@ class Store {
       const onReply = (e: MessageEvent<TempMessage>) => {
         if (e.data?.kind === 'share') {
           const temp = usableTemporary(e.data.temp);
-          if (temp) done(temp);
-        }
+          if (temp) done({ temp });
+        } else if (e.data?.kind === 'open' && typeof e.data.userId === 'string') done({ userId: e.data.userId });
       };
       const timer = setTimeout(() => done(null), TEMP_ASK_MS);
       ch.addEventListener('message', onReply);
@@ -301,7 +369,17 @@ class Store {
 
   private onTempMessage(m: TempMessage) {
     const p = this.profile;
-    if (!p?.temporary || !p.token) return;
+    if (!p?.token || p.demo) return;
+    if (!p.temporary) {
+      if (m?.kind === 'ask') this.tell({ kind: 'open', userId: p.userId } satisfies TempMessage);
+      // Locked in another tab: this browser is locked for that person.
+      else if (m?.kind === 'locked' && m.userId === p.userId) this.lock(true);
+      else if (m?.kind === 'seen' && m.userId === p.userId) {
+        keepOpen(p.userId);
+        for (const fn of this.activityListeners) fn();
+      }
+      return;
+    }
     if (m?.kind === 'ask') this.tell({ kind: 'share', temp: { token: p.token, expiresAt: p.expiresAt!, user: p.user } } satisfies TempMessage);
     // Signed out in another tab: the server has ended it, so this tab ends too.
     else if (m?.kind === 'ended' && m.token === p.token) void this.sessionEnded(TEMP_ENDED);
@@ -309,12 +387,17 @@ class Store {
     else if (m?.kind === 'activity' && m.token === p.token) for (const fn of this.activityListeners) fn();
   }
 
-  /** A touch or key press here; tabs sharing a temporary sign-in hear of it (at most every 30 s), so an idle tab never signs out a busy one. */
+  /** A touch or key press here; tabs sharing the sign-in hear of it (at most every 30 s), so an idle tab never locks or signs out a busy one. */
   shareActivity() {
     const p = this.profile;
-    if (!p?.temporary || !p.token || Date.now() - this.activityShared < 30_000) return;
+    if (!p?.token || p.demo || Date.now() - this.activityShared < 30_000) return;
     this.activityShared = Date.now();
-    this.tell({ kind: 'activity', token: p.token } satisfies TempMessage);
+    if (p.temporary) {
+      this.tell({ kind: 'activity', token: p.token } satisfies TempMessage);
+      return;
+    }
+    keepOpen(p.userId);
+    this.tell({ kind: 'seen', userId: p.userId } satisfies TempMessage);
   }
 
   onActivity(fn: () => void) {
@@ -495,6 +578,7 @@ class Store {
     if (epoch !== this.epoch) return;
     this.profile = profile;
     this.db = db;
+    if (!profile.temporary) keepOpen(profile.userId);
     const [records, directory, profiles, held] = await Promise.all([
       this.db.ops.toArray(),
       kvGet<UserRef[]>(this.db, 'directory'),
@@ -524,9 +608,15 @@ class Store {
     this.requestSync(50);
   }
 
-  lock() {
+  /** `fromOtherTab`: another tab of this browser locked this person; nothing more to tell. */
+  lock(fromOtherTab = false) {
     const epoch = ++this.epoch;
     const temporary = this.profile?.temporary ? this.profile : null;
+    const saved = this.profile && !this.profile.temporary && !this.profile.demo ? this.profile : null;
+    if (saved) {
+      keepOpen(null);
+      if (!fromOtherTab) this.tell({ kind: 'locked', userId: saved.userId } satisfies TempMessage);
+    }
     this.stopTimer();
     if (this.tempTimer) clearTimeout(this.tempTimer);
     this.tempTimer = null;

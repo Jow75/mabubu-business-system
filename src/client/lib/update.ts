@@ -12,14 +12,30 @@
 
 import { useEffect, useSyncExternalStore } from 'react';
 
+//
+// On the sign-in screens nothing is lost by a reload (the code being typed
+// holds it), so a new version found there takes over at once: the code is
+// then typed into the new version, never into the old one. On 26 Oct the
+// owner's laptop typed its code into the old version for minutes after the
+// fixed one had arrived (sign-in log + the laptop's offline cache).
+
 let ready = false;
 let holds = 0;
 let unsafe: () => boolean = () => false;
+let quiet: () => boolean = () => false;
 const listeners = new Set<() => void>();
+
+/** The version this page runs, to the minute (UTC): the same on every screen that shows it. */
+export const BUILD_STAMP = `${__BUILD_TIME__.slice(0, 16).replace('T', ' ')} UTC`;
 
 /** What a reload would lose that the app has not saved (see store.reloadUnsafe). */
 export function setReloadGuard(fn: () => boolean) {
   unsafe = fn;
+}
+
+/** The screen shown is one where a reload changes nothing for the person (the sign-in screens). */
+export function setQuietScreen(fn: () => boolean) {
+  quiet = fn;
 }
 
 function safeNow(): boolean {
@@ -31,7 +47,7 @@ function reloadIfLeft() {
 }
 
 export function onNewVersion() {
-  if (document.visibilityState === 'hidden' && safeNow()) {
+  if ((document.visibilityState === 'hidden' || quiet()) && safeNow()) {
     location.reload();
     return;
   }
