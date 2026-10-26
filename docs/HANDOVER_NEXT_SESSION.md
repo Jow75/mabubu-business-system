@@ -1,6 +1,51 @@
 # Handover — next session
 
-Last updated 26 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 27 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+## 26–27 Oct session (4) — staging removed, phone icon, route strip, Enter, tabs, live end-to-end run (deployed: `0f0a73d3`, `174bc383`, `5bf7487f`)
+
+Owner's production-readiness directive. Commits `88b7cff` (tabs/reload,
+new version before the code, route strip), `3e847cc` (People refresh,
+waiting-screen guard, Activity wrap, stale Word text, staging config removed),
+`60bef1e` (stock download below zero, waiting version on sign-in screens,
+cancelled purchase label, fr/sw button wrap), then docs. 334 tests.
+
+- **No staging any more.** Worker `mabubu-staging` and D1 `mabubu-staging`
+  deleted (exported first, then the export and the staging key/test files were
+  deleted too — synthetic data only). `wrangler.jsonc` has no `env`, the
+  `deploy:staging`/`db:migrate:staging` scripts and the snapshot's staging
+  option are gone. Testing now: local copy (`npx wrangler dev --persist-to …`)
+  → deploy → check on the live app (DEPLOY.md "Testing a change"). Before
+  go-live, marked test records on production are fine; **never test set-up
+  records** (go-live keeps them).
+- **Enter finding:** the production log + the owner laptop's offline cache
+  (Chrome Profile 2, cache file names only) showed the laptop typed into the
+  old version after the fix arrived; see AUTH_AND_RECOVERY §11.
+- **Tabs/reload (owner decision):** `store.ts` `continueOpen`, `mabubu.open`
+  tab storage (person + last use, no token), BroadcastChannel `open`/`locked`/
+  `seen`; ADR-001 §6 amendment.
+- **Live run** (owner-approved test window `QQS-TJP`, test worker `3M2-7BM`,
+  the Tecno): everything in STATUS "26–27 Oct pass (3)". 29 test records
+  (110 records in total, 0 of them set-up), no set-up record changed (snapshot compare after
+  each of the three deploys: no difference). Clean-up verified in D1: Test
+  Worker (agent) archived, QQS-TJP and 3M2-7BM retired, the test worker off
+  the Tecno. The owner closed the test window midway (it had idle-locked once
+  before — scripted clicks are not "activity"; a keep-awake touch every 2 min
+  was used afterwards).
+- **Tecno:** staging app + its site data removed; the live app reinstalled
+  (`org.chromium.webapk.ad067deb343d95c86_v2`, label NAS Mabubu, NAS icon),
+  device YB7-EN2 and Jijo 2's 38 records unchanged. Chrome refused to swap the
+  icon of the old install (only "Review name update").
+- **Tools (scratchpad, not in the repo):** `live.mjs` (driver: innermost
+  match, refuses disabled buttons, dispatches a pointerdown), `run.mjs`,
+  `keytest.mjs` (17 real-key checks), `downloads.mjs` + `read_downloads.py`,
+  `phone-tap.mjs` (adb taps from DOM rects: ×3 + 161 px on the Tecno),
+  `tools/pin-window.ps1` (a visible test window must not be covered, or Chrome
+  stops drawing it and screenshots hang).
+- **Not verified:** Said's and Nancy's phones; Word files in Microsoft Word;
+  the late-record flow on production (unit/e2e tests + staging run of 22–25
+  Oct only); a temporary sign-in on the new version (owner did one on 26 Oct
+  20:16 UTC, before these changes).
 
 ## 26 Oct session (3) — keyboard repeat, temporary sign-in across tabs, NAS Mabubu System branding, Word reports, go-live access clean-up (deployed: `b6bd2d36`, then `125c74af`)
 
@@ -344,14 +389,14 @@ Checks: `npm run typecheck && npm test && npm run build` clean, 138 tests. **Not
 | Item | State (26 Oct 2026) |
 |---|---|
 | Code | `main` on private GitHub `Jow75/mabubu-business-system`; no force-pushes; no automatic deploy |
-| Live app | https://mabubu.mabubu-family.workers.dev — **NAS Mabubu System**, Worker `mabubu`, version `125c74af` (main `e0409ad`) |
+| Live app | https://mabubu.mabubu-family.workers.dev — **NAS Mabubu System**, Worker `mabubu`, version `5bf7487f` (main `60bef1e`) |
 | Database | D1 `mabubu` (`99eb0bfa-…`, WEUR), migrations 0001–0007 (phase: pre-release); real people (1 owner, 2 managers, 1 active worker, 3 archived), test activity |
-| Staging | https://mabubu-staging.mabubu-family.workers.dev — Worker `mabubu-staging` (`b96210b0`), D1 `mabubu-staging` (0001–0007, phase live), synthetic data |
-| Phone | Tecno `0978354327102255`: production app (`org.chromium.webapk.a7dd751d874a1ac0b_v2`, device `YB7-EN2`) and staging app (`…a56590860e5e85bd5_v2`, device `VA9-X54`) |
+| Staging | **None** — deleted 26 Oct 2026 at the owner's request (Worker, database, config, phone app) |
+| Phone | Tecno `0978354327102255`: live app only, reinstalled 27 Oct (`org.chromium.webapk.ad067deb343d95c86_v2`, NAS icon, device `YB7-EN2`, Jijo 2) |
 | Secrets | `PIN_PEPPER`, `SETUP_TOKEN` in Cloudflare only (production set once, 18 Oct) |
 | Backups | `C:\Users\Admin\Documents\mabubu-backups\` (outside Git) + older ones in the repo folder (git-ignored). Copy off the laptop |
 | Wrangler | Logged in on the owner's laptop; this network drops connections now and then — retry |
-| Checks | `npm run typecheck && npm test && npm run build`: clean, 325 tests |
+| Checks | `npm run typecheck && npm test && npm run build`: clean, 334 tests |
 
 ## Done in the 18 Oct session
 

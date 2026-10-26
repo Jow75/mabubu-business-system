@@ -283,3 +283,62 @@ installed app (only the owner can sign in there).
 
 **New computer:** see ADR-006, amendment of 26 Oct — the temporary sign-in
 now carries over to other tabs, and People & devices opens view-only.
+
+## 11. 26–27 Oct 2026 — Enter on the laptop, a new tab asking for the code
+
+**"Enter does not work" (investigated with the production sign-in log and the
+laptop's own offline cache).** The owner's laptop (`5YK-3GS`) recorded wrong
+codes at 20:00:46, 20:18:24 and 20:18:32 UTC on 26 Oct — so Enter *did* send,
+but the code that arrived was wrong. The fixed version had been deployed at
+19:39; the laptop's installed app received it only at 20:00:10 (its offline
+cache), and the page kept running the old code (the one where a digit held a
+moment too long repeated) until it was reloaded: a new version waited for the
+"Reload" bar, and the code screen counted as "work in progress". Fixed:
+a new version found while a sign-in screen shows, or waiting when the app
+comes back to a sign-in screen (signed out, locked, session ended), takes
+over at once, so a code is never typed into the old version
+(`src/client/lib/update.ts`, `tests/update.test.ts`). The build time now shows
+at the bottom of the sign-in screen and under Me, to the minute.
+Re-verified with real Windows key events on the current code, in a Chrome tab
+and in an app window (17/17 each): incomplete code + Enter sends nothing;
+main Enter and keypad Enter send once, exactly as typed; Enter pressed three
+times sends once; a held digit counts once; Backspace corrects; a wrong code
+clears and says how many tries are left; the saved-profile code screen has the
+focus and unlocks with Enter. The owner then signed in on the live app with
+the keyboard and Enter (a new browser, 26 Oct 20:59 UTC, code accepted at the
+first try); no wrong code has been recorded on the server since 20:18.
+
+**A pasted link asked for the code again (normal sign-in).** Cause: a normal
+sign-in is saved on the device, but every page load started at the code
+screen; only a temporary sign-in was shared between tabs. Decided by the owner
+(26 Oct): a new tab or window of the **same browser** continues the person
+signed in in another open tab, and a reload continues it within the idle time
+(20 minutes, `TEMP_SIGNIN.idleMinutes`). Rules (`src/client/lib/store.ts`,
+`tests/tabs-e2e.test.ts`):
+
+| Situation | Result |
+|---|---|
+| Reload of the tab, used in the last 20 minutes | Same person, same page, no code |
+| Link pasted into a new tab while another tab is signed in | Same person, that page, no code, no new server session |
+| No tab of this browser signed in (all closed), or idle 20 minutes | Code asked, as before |
+| Lock / switch person in one tab, or the idle lock | Every tab of that browser locks |
+| Session ended on the server (signed out elsewhere, blocked, new code, archived) | Never continued: the first sync is refused, every tab goes to the sign-in screen, the profile says "sign in online" |
+| Another browser profile, another computer | Nothing shared: its own sign-in and device approval |
+| Temporary sign-in | Unchanged (ADR-006): continues in other tabs, never saved |
+
+Nothing new is written to the computer for this: the tabs answer each other
+over `BroadcastChannel` while they are open; the tab's own `sessionStorage`
+keeps only who is signed in and when it was last used (no token, no code). The
+device approval model is unchanged. Verified on the live app: the "new version
+ready → Reload" bar reloaded into the new version still signed in, on the same
+page.
+
+**Waiting screen made two sessions.** The automatic re-check and "Check again"
+at the same moment signed in twice (production log 26 Oct 21:01:41, 0.2 s
+apart; the server kept the later session). Now one check at a time.
+
+**Code change, block, unblock (live, test person).** A new code ends every
+session of that person: the phone signed out at its next sync, the old code was
+refused online ("4 tries left"), the new one worked. Blocking a device signed
+it out at once and refused sign-in ("This device was blocked by the owner");
+unblocking let the person sign in again. All recorded in the sign-in log.

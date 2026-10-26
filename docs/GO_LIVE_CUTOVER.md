@@ -122,6 +122,30 @@ cutover was not run.** Full output (no secrets):
    connected recently" — ask them to open the app online the day before). The
    backup is made on the day.
 
+### 5b. Changes since the preview (27 Oct 2026, 00:00–01:15 EAT)
+
+- **Owner decisions (26 Oct, written):** all **six** recorded exchange rates are
+  test entries — choose **Remove all 6** on the day. The temporary sign-in
+  limits stay as they are (8 h, 20/30 min idle, 3 at once); go-live ends every
+  temporary sign-in that is open (it already does).
+- **Test records added on the live app** for the end-to-end check, all marked
+  "TEST (agent check)": a Hafsaa purchase (30 pcs, inspected 27/3, 3 returned,
+  paid in two M-Pesa payments with KSh 450 credit, re-split and restored), a
+  Mama M-somalia purchase collected and then cancelled, shipments BUS-1027
+  (Mombasa → Dar, partly then fully received, estimate replaced by actual) and
+  AIR-1027 (Dar → Comoros, 2 missing), one damaged-piece adjustment, an expense
+  entered and cancelled, and one sales day of "Test Worker (agent)" (take,
+  offline return, close, question, approve, reopen, close, approve). 29 test
+  records in all (110 records on the server now; the Go live screen listed
+  52 to remove part-way through, the rest came after). **No set-up record was added or
+  changed** (snapshots before/after each deploy: same places, sizes, vendors,
+  garments, prices, settings, rates).
+- **Test access removed (verified in the database):** "Test Worker (agent)"
+  archived by the owner (removed at go-live, no kept record names them);
+  devices QQS-TJP (the owner test window) and 3M2-7BM (the test worker browser)
+  retired; the test worker taken off the Tecno. Archived, the test worker can
+  no longer sign in there or anywhere; YB7-EN2 stays Jijo 2's.
+
 ## 5a. Earlier production preview (25 Oct 2026, 18:32 UTC, superseded by §5)
 
 Computed by the real server code (`goLiveStatus`) on a local copy of the

@@ -92,26 +92,36 @@ Safe recovery rule: never restore over a database that has newer records you wan
 
 If the free limits are ever reached, Cloudflare's **Workers Paid** plan is **$5/month** and nothing changes in the app. Do not switch unless the owner decides to.
 
-## Staging (test copy with synthetic data)
+## Testing a change (no staging copy)
 
-`npm run deploy:staging` deploys the same build to the Worker `mabubu-staging`
-with its own database `mabubu-staging` and its own secrets
-(`npx wrangler secret put <NAME> --env staging`); migrations:
-`npm run db:migrate:staging`. Address:
-https://mabubu-staging.mabubu-family.workers.dev. Only synthetic data; never
-copy production records there.
+There is **one** app and one database. The staging copy (Worker and database
+`mabubu-staging`) was deleted on 26 Oct 2026 at the owner's request: changes
+were being checked there and assumed to be in the real app when they were not.
+Since then:
+
+1. `npm run typecheck && npm test && npm run build`, and anything that needs a
+   server on a local copy (`npx wrangler dev`, local database) — the same build.
+2. Export + snapshot, deploy to production, snapshot + compare (above).
+3. Check the change **on the live address** and on the installed apps (the
+   version and build time are shown at the bottom of the sign-in screen and
+   under Me, to the minute: compare them with the deploy).
+4. Until go-live, test records may be made on production with clearly marked
+   notes ("TEST …"); go-live clears them. **Never** add set-up records for a
+   test (places, size groups, vendors, garments, prices, settings): go-live
+   keeps those. Test people must be archived and test devices retired before
+   go-live (GO_LIVE_CUTOVER §4).
 
 **Setting a secret on Windows:** paste the value when Wrangler asks. Do not pipe
 it from Windows PowerShell 5.1 (`"x" | npx wrangler secret put …`): the value
 arrives with extra characters and the key "does not match". From Git Bash,
 `printf '%s' "$VALUE" | npx wrangler secret put NAME` is safe.
 
-## Rolling back (rehearsed on staging, 20 Oct 2026)
+## Rolling back (rehearsed on the former staging copy, 20 Oct 2026)
 
 1. `npx wrangler deployments list` — the current and earlier versions.
 2. `npx wrangler versions list` — check **Source**: a "Secret Change" creates a
    new version. **Never roll back to a version older than a secret change**: the
-   old secret comes back with it (on staging this broke sign-in, as expected).
+   old secret comes back with it (on the former staging copy this broke sign-in, as expected).
    Production's secrets were set before its first code version, so all its
    versions are safe targets today.
 3. `npx wrangler rollback <version-id> --message "why" --yes`.

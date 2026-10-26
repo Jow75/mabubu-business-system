@@ -129,12 +129,22 @@ How the installed name and icon change:
   accept. If an old icon stays after a few days, unpin it, open the app once,
   and pin it again; uninstalling and reinstalling also works (records are on
   the server; this computer must still be one of the owner's devices).
-- **Android (Chrome):** Chrome rebuilds the home-screen app from the new
-  manifest some time after it is opened online (usually within a day or two).
-  Inside the app the new name and logo show at once; only the home-screen
-  icon and its label wait for Chrome. Reinstalling ("Add to Home screen")
-  gives the new icon immediately.
+- **Android (Chrome): the icon does not change by itself.** Found on the
+  Tecno on 27 Oct: Chrome offered only "Review name update" (Mabubu → NAS
+  Mabubu) and kept the old garment icon on both sides of its dialog — current
+  Chrome does not swap an installed app's icon for a very different one. The
+  way to the new icon is to **reinstall**: Settings → Apps → *Mabubu* →
+  Uninstall (or long-press the icon → Uninstall), choose **Keep data** if
+  Chrome asks, then open the address in Chrome → ⋮ → **Install and create
+  shortcut** → Install. The site data stays in Chrome, so the phone keeps its
+  approval and the people saved on it; first check under Me that nothing is
+  waiting to send.
 
-Verified 26 Oct: the production app on the Tecno shows the new name and logo
-inside the app after its update; the home-screen icon change was not yet
-observed (Chrome decides when).
+Verified 27 Oct on the Tecno: the old app (`org.chromium.webapk.a7dd751d874a1ac0b_v2`,
+installed 18 Oct) was uninstalled after checking 0 unsent records, the new one
+(`org.chromium.webapk.ad067deb343d95c86_v2`) installed from the live address:
+the launcher search shows **NAS Mabubu** with the NAS logo, the app opens in its
+own window, same device `YB7-EN2`, Jijo 2's profile and records unchanged. The
+staging app (`…a56590860e5e85bd5_v2`) and its 2.4 MB of site data were removed.
+Other family phones and installed laptops with the old icon need the same
+reinstall (Windows: see above).

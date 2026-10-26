@@ -166,6 +166,25 @@ the fix removed** (10 fixes checked that way, then restored exactly).
 | Low | "Remove" (a person's access on a device) could be pressed twice (two log entries 3 s apart on 25 Oct) | **Fixed**: the line disappears at once and waits for the answer |
 | Info | The laptop's identity was lost again at 16:10 UTC 25 Oct — Mabubu's site data only, deleted outside the app (AUTH_AND_RECOVERY §3) | Explained; temporary sign-in removes the key from ordinary use |
 
+## 4c. Findings and fixes, 26–27 Oct 2026 (owner's production-readiness directive)
+
+Found on the **live app** (owner test window, a test worker browser, the real
+Tecno) unless noted. Each fix deployed and re-checked on the live app.
+
+| Finding | Evidence | Fix | Verified |
+|---|---|---|---|
+| Laptop "Enter does not work" | Sign-in log: wrong codes 20:00 and 20:18 UTC after the fix was live; laptop cache got it at 20:00:10, page kept the old code | A waiting version takes over on any sign-in screen; build time shown there | Real keys 17/17 tab and app window; reload into the new version on live |
+| New tab / reload asked for the code (normal sign-in) | Code: every page load started at the code screen | Continue the person signed in in this browser (open tab, or reload within 20 min); Lock locks all | `tabs-e2e` (fails without the fix); live: Reload bar kept the sign-in |
+| Phone launcher kept the garment icon | Tecno: WebAPK from 18 Oct; Chrome offered a name-only update | Reinstall (data kept) | Launcher search shows NAS Mabubu with the NAS logo |
+| Route labels ~5 px and in the brand row on phones | Measured 360 px: 18×5 px labels | Own strip between brand and headline | 320/360/412 px, real Tecno |
+| Stock download hid garments below zero | File 2,201 ready vs screen 2,124 | Skip only all-zero rows | Regression test; live CSV 2,124 / 197 = screen |
+| People & devices never showed a new request while open | Live: "Waiting 0" until reopened | Refresh every 10 s on screen and on return | Live: 2 refreshes in 21 s |
+| Waiting screen made two sessions | Log 21:01:41, two `login_ok` 0.2 s apart | One check at a time | Code review (timing race) |
+| Activity log 269 px wider than a phone | Long warning labels | Wrap | Live 390 px: no overflow |
+| fr/sw: converter button +93–147 px, Lock button +7 px at 320 px | Crawl of every page | Wrap | Re-crawl: none |
+| "Word documents are not offered yet" under the Word option | Live download sheet | Sentence removed (en/fr/sw) | — |
+| A cancelled purchase did not say so on its page | Live | "Cancelled" pill in the heading | — |
+
 ## 4b. Findings and fixes, 26 Oct 2026 (owner's master directive)
 
 | Finding | Evidence | Fix | Verified |
@@ -216,12 +235,11 @@ the fix removed** (10 fixes checked that way, then restored exactly).
 
 ## 7. Safe testing
 
-1. Automated tests (`tests/`). 2. Explore Demo. 3. **Staging** — Worker
-`mabubu-staging` + D1 `mabubu-staging`, synthetic data only
-(https://mabubu-staging.mabubu-family.workers.dev; `npm run deploy:staging`;
-its own secrets; the staging-only key and test codes are in
-`Documents\mabubu-backups\STAGING-ONLY-setup-key.txt`, never in Git).
-4. Controlled production checks — backup first, read-only where possible.
+1. Automated tests (`tests/`). 2. Explore Demo. 3. A local copy of the same
+build (`npx wrangler dev`, local database). 4. **The live app** — backup and
+snapshot first; before go-live, marked test records only, never set-up records
+(DEPLOY.md, "Testing a change"). The staging copy used until 26 Oct 2026 was
+deleted at the owner's request (its tests are recorded above as **S**).
 
 ## 8. Backup, restore and rollback (rehearsed 20 Oct 2026)
 
