@@ -313,7 +313,7 @@ export function PurchaseDetail({ id }: { id: string }) {
         title={`${lk.vendor(p.vendorId)?.name ?? t('pu.vendor')} · ${fmtDate(p.date)}`}
         lead={
           <>
-            {t(`lbl.intake.${p.intake}`)} · {t('pu.toPlace', { place: lk.locName(p.locationId) })}
+            {p.status === 'voided' && <span className="pill">{t('c.cancelled')}</span>} {t(`lbl.intake.${p.intake}`)} · {t('pu.toPlace', { place: lk.locName(p.locationId) })}
             {p.note && <> · “{p.note}”</>}
           </>
         }

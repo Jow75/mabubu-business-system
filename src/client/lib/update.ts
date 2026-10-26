@@ -56,6 +56,15 @@ export function onNewVersion() {
   document.addEventListener('visibilitychange', reloadIfLeft);
 }
 
+/**
+ * The app has just come to a sign-in screen (signed out, locked, session
+ * ended): a new version that arrived while someone was working takes over now,
+ * before a code is typed into the old one.
+ */
+export function onQuietScreen() {
+  if (ready && quiet() && safeNow()) location.reload();
+}
+
 /** Work in progress: a new version waits until the returned function is called. */
 export function holdReload(): () => void {
   holds++;

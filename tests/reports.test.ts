@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildDemo, DEMO_USERS } from '../src/shared/demo-data';
 import { Ledger } from '../src/shared/ledger';
-import { profitReport } from '../src/shared/queries';
+import { profitReport, stockByLocation } from '../src/shared/queries';
+import { A, balanceKey } from '../src/shared/model';
 import {
   ReportForbidden,
   activityReport,
@@ -129,6 +130,23 @@ describe('report filters select exactly the matching records', () => {
     const rates = doc.tables.find((t) => t.title === 'Exchange rates used')!.rows;
     expect(rates.some((x) => String(x.pair).startsWith('1 KES = 3.5 KMF') && String(x.source).includes('DEMO RATE'))).toBe(true);
     expect(rates.some((x) => String(x.pair).startsWith('1 USD = 450 KMF'))).toBe(true);
+  });
+
+  it('stock now: a garment below zero is in the file, and the file totals equal the Stock screen (live run, 27 Oct)', () => {
+    const L = demoLedger();
+    const loc = L.list<{ id: string }>('loc')[0]!.id;
+    const gt = L.list<{ id: string }>('gt').find((g) => !stockByLocation(L).get(loc)?.has(g.id))?.id ?? L.list<{ id: string }>('gt')[0]!.id;
+    // Records show more sold than ever arrived here: −14 ready, 14 sold (the signed sum is zero).
+    L.balances.set(balanceKey(A.avail(loc), gt), -14);
+    L.balances.set(balanceKey(A.sold(loc), gt), 14);
+    const t = stockReport(ctxFor(L), { locationId: null }).tables[0]!;
+    const code = L.list<{ id: string; code: string }>('gt').find((g) => g.id === gt)!.code;
+    expect(t.rows.some((r) => r.code === code && Number(r.ready) < 0)).toBe(true);
+    let screenReady = 0;
+    let screenSold = 0;
+    for (const m of stockByLocation(L).values()) for (const s of m.values()) (screenReady += s.avail), (screenSold += s.sold);
+    expect(t.totals![0]!.ready).toBe(screenReady);
+    expect(t.totals![0]!.sold).toBe(screenSold);
   });
 
   it('every report builds from the demo records', () => {

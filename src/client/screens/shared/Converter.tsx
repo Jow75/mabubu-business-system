@@ -150,7 +150,7 @@ export function CurrencyConverter() {
           )}
           {canRecord && (
             <div>
-              <button className="btn" onClick={() => setSaveOpen(true)}>
+              <button className="btn btn-wrap" onClick={() => setSaveOpen(true)}>
                 {t('cv.saveMarket')}
               </button>
             </div>

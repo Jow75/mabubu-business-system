@@ -80,7 +80,7 @@ export function SyncCenter() {
         {temporary ? (
           <SignOutButton className="btn btn-primary" />
         ) : (
-          <button className="btn" onClick={() => store.lock()}>
+          <button className="btn btn-wrap" onClick={() => store.lock()}>
             <Icon name="lock" size={18} /> {t('me.lock')}
           </button>
         )}

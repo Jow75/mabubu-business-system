@@ -98,6 +98,17 @@ describe('a new version takes over safely', () => {
     v.onNewVersion();
     expect(reloads).toBe(0);
     expect(v.BUILD_STAMP).toBe('2026-10-26 00:00 UTC');
+    // Then the person is signed out (or locks): the waiting version takes over on the sign-in screen.
+    signInScreen = true;
+    v.onQuietScreen();
+    expect(reloads).toBe(1);
+  });
+
+  it('coming to the sign-in screen with no new version waiting changes nothing', async () => {
+    const u = await load();
+    u.setQuietScreen(() => true);
+    u.onQuietScreen();
+    expect(reloads).toBe(0);
   });
 
   it('records of a temporary sign-in that exist only in the page hold it too', async () => {

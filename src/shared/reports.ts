@@ -673,7 +673,9 @@ export function stockReport(ctx: ReportCtx, f: { locationId: string | null }): R
   for (const [loc, m] of stockByLocation(ctx.ledger)) {
     if (f.locationId && loc !== f.locationId) continue;
     for (const [gt, s] of m) {
-      if (s.avail + s.withWorkers + s.incoming + s.inspection + s.awaiting + s.rejected + s.sold === 0) continue;
+      // Only an all-zero row is left out. A garment the records show below zero
+      // (−14 ready, 14 sold) adds up to zero but is exactly what must be seen.
+      if ([s.avail, s.withWorkers, s.incoming, s.inspection, s.awaiting, s.rejected, s.sold].every((v) => v === 0)) continue;
       const g = d.lk.garment(gt);
       rows.push({ place: d.lk.locName(loc), code: g?.code ?? gt, garment: g?.name ?? '', size: d.lk.size(g?.sizeCategoryId)?.name ?? '', ready: s.avail, workers: s.withWorkers, incoming: s.incoming, inspect: s.inspection, vendor: s.awaiting, rejected: s.rejected, sold: s.sold });
       total.ready += s.avail;
