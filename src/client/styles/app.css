@@ -1558,6 +1558,12 @@ button.list-item {
   .auth:has(.pinpad) .route-line {
     display: none;
   }
+  /* The route drawing ends above the headline on narrow phones (its "Moroni"
+     label ran under it at 360 px on the Tecno). */
+  .route-line {
+    inset: 0 0 auto 0;
+    height: 44%;
+  }
   .auth:has(.pinpad) .auth-panel {
     justify-content: flex-start;
     padding-top: 16px;
