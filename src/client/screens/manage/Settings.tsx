@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { href } from '../../lib/router';
 import type { GoLiveStatus } from '../../../shared/golive';
 import { store, useApp } from '../../lib/store';
@@ -164,6 +164,14 @@ export function SettingsPage() {
 
       {caps.includes('users.manage') && !demo && <BackupCard />}
       {user!.role === 'owner' && caps.includes('users.manage') && !demo && <GoLiveCard />}
+      {user!.role === 'owner' && user!.temporary && !demo && (
+        <section className="card card-pad stack">
+          <span className="section-title">{t('gl.title')}</span>
+          <p className="soft" style={{ margin: 0 }}>
+            {t('gl.tempCard')}
+          </p>
+        </section>
+      )}
 
       {demo && (
         <section className="card card-pad stack">
@@ -181,17 +189,41 @@ export function SettingsPage() {
   );
 }
 
-/** Owner only: the way to the one-time go-live cutover, or its record once done. */
+/**
+ * Owner only: the way to the one-time go-live cutover, or its record once
+ * done. It always says where things stand — checking, could not check (and
+ * why), not yet done, or done — and never disappears from the page.
+ */
 function GoLiveCard() {
   const t = useT();
   const { online } = useApp();
   const [status, setStatus] = useState<GoLiveStatus | null>(null);
-  useEffect(() => {
+  const [failed, setFailed] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setFailed(null);
     api<GoLiveStatus>('GET', '/admin/golive', undefined, store.token)
       .then(setStatus)
-      .catch(() => setStatus(null));
-  }, [online]);
-  if (!status) return null;
+      .catch((e: unknown) => setFailed(e instanceof ApiError ? (e.offline ? t('gl.online') : errText(e.message)) : t('c.somethingWrong')));
+  }, [t]);
+  useEffect(load, [online, load]);
+  if (!status)
+    return (
+      <section className="card card-pad stack" aria-live="polite">
+        <span className="section-title">{t('gl.title')}</span>
+        {failed ? (
+          <>
+            <div className="error-box">{t('gl.cardFailed', { why: failed })}</div>
+            <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={load}>
+              {t('gl.checkAgain')}
+            </button>
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            {t('gl.checking')}
+          </p>
+        )}
+      </section>
+    );
   if (status.phase === 'live')
     return (
       <section className="card card-pad stack">
