@@ -58,6 +58,8 @@ export function PinPad({
   const t = useT();
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(false);
+  // Counts Enter presses on a code below the minimum, so each one shakes again.
+  const [short, setShort] = useState(0);
   const [touch] = useState(touchFirst);
   const field = useRef<HTMLInputElement>(null);
   const minLength = role ? MIN_PIN_LENGTH[role] : MIN_PIN_LENGTH.worker;
@@ -98,6 +100,13 @@ export function PinPad({
     }
   }, [error, keepOnError, update, focusField]);
 
+  useEffect(() => {
+    if (!short) return;
+    setShake(true);
+    const t = setTimeout(() => setShake(false), 400);
+    return () => clearTimeout(t);
+  }, [short]);
+
   // Nothing of the code stays in memory once the screen closes.
   useEffect(() => () => void (pinRef.current = ''), []);
 
@@ -106,7 +115,12 @@ export function PinPad({
       const { busy, minLength, onSubmit, onCancel } = live.current;
       if (a.kind === 'ignore') return;
       if (a.kind === 'submit') {
-        if (busy || sent.current || pinRef.current.length < minLength) return;
+        if (busy || sent.current) return;
+        // Too short: never silent — the dots shake and the length rule lights up.
+        if (pinRef.current.length < minLength) {
+          setShort((n) => n + 1);
+          return;
+        }
         sent.current = true;
         onSubmit(pinRef.current);
       } else if (a.kind === 'cancel') {
@@ -117,16 +131,29 @@ export function PinPad({
     [update],
   );
 
-  // Keys and paste while the focus is not in any field (the page, a keypad button).
+  // Every key on this screen — in the code field or with the focus on the page
+  // or a keypad button — is read here, on the window before anything else:
+  // browser extensions (autofill, typing tools) can swallow Enter before the
+  // page sees it, which on the owner's laptop left Enter doing nothing. If
+  // Enter's key-down never arrives, its key-up still sends the code (once).
   useEffect(() => {
+    let enterSeen = false;
+    const ours = (e: Event) => e.target === field.current || !typingInField(e.target);
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || typingInField(e.target)) return;
+      if (!ours(e)) return;
       const a = pinAction(e);
       if (!a) return;
+      if (e.key === 'Enter') enterSeen = true;
       // Handled here, so a focused keypad button does not also act on Enter.
       e.preventDefault();
+      e.stopPropagation();
       act(a);
       focusField();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || !ours(e)) return;
+      if (!enterSeen && !(e.ctrlKey || e.metaKey || e.altKey)) act({ kind: 'submit' });
+      enterSeen = false;
     };
     const onPaste = (e: ClipboardEvent) => {
       if (typingInField(e.target) || live.current.busy) return;
@@ -135,10 +162,12 @@ export function PinPad({
       e.preventDefault();
       update(pastedPin(pinRef.current, text));
     };
-    document.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onKeyUp, true);
     document.addEventListener('paste', onPaste);
     return () => {
-      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKeyUp, true);
       document.removeEventListener('paste', onPaste);
     };
   }, [act, update, focusField]);
@@ -174,19 +203,13 @@ export function PinPad({
           aria-label={t('pin.field')}
           value={pin}
           readOnly={busy}
-          onKeyDown={(e) => {
-            const a = pinAction(e.nativeEvent);
-            if (!a) return;
-            e.preventDefault();
-            act(a);
-          }}
           // A phone keyboard, paste or autofill: whatever arrives, only its digits count.
           onChange={(e) => {
             if (!busy) update(fieldPin(e.target.value));
           }}
         />
       </div>
-      <p className="hint pin-hint">
+      <p className={`hint pin-hint${short && !ready ? ' warn' : ''}`} role={short && !ready ? 'alert' : undefined}>
         {role ? t('pin.lenHint', { min: minLength, max: MAX_PIN_LENGTH }) : t('pin.lenAny', { w: MIN_PIN_LENGTH.worker, o: MIN_PIN_LENGTH.owner, max: MAX_PIN_LENGTH })}
       </p>
       {error && (

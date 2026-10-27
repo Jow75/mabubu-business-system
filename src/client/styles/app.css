@@ -1544,6 +1544,11 @@ button.list-item {
   text-align: center;
   margin-top: -6px;
 }
+/* Enter on a code that is too short: the length rule is the answer. */
+.pin-hint.warn {
+  color: var(--hibiscus);
+  font-weight: 600;
+}
 .pinpad button:disabled {
   cursor: default;
   opacity: 0.45;
