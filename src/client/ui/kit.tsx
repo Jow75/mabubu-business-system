@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { formatLocalCount, formatMoney, parseMoney, type Currency, CURRENCIES } from '../../shared/money';
+import { editTyped, formatAmount, formatLocalCount, formatMoney, parseMoney, type Currency, CURRENCIES } from '../../shared/money';
 import type { GarmentType } from '../../shared/model';
 import { store, useApp } from '../lib/store';
 import { personColor } from '../lib/labels';
@@ -49,7 +49,12 @@ export function LocalCountToggle() {
   );
 }
 
-/** Money input in minor units. Always official currency; KMF shows the local count beside it. */
+/**
+ * Money input in minor units. Always official currency; KMF shows the local
+ * count beside it. Thousands are grouped while typing ("20,880") so a large
+ * amount can be read at a glance; the commas are display only — the amount
+ * passed on and saved is the same number (`parseMoney` ignores them).
+ */
 export function MoneyInput({
   value,
   onChange,
@@ -70,7 +75,7 @@ export function MoneyInput({
 }) {
   const t = useT();
   const exp = CURRENCIES[currency].exp;
-  const toText = (v: number | null) => (v === null ? '' : exp ? String(v / 10 ** exp) : String(v));
+  const toText = (v: number | null) => (v === null ? '' : formatAmount(currency, v));
   const [text, setText] = useState(toText(value));
   const last = useRef(value);
   useEffect(() => {
@@ -91,8 +96,15 @@ export function MoneyInput({
           value={text}
           placeholder={placeholder ?? '0'}
           onChange={(e) => {
-            setText(e.target.value);
-            const v = parseMoney(currency, e.target.value);
+            const el = e.target;
+            const edit = editTyped(currency, text, el.value, el.selectionStart ?? el.value.length, (e.nativeEvent as InputEvent).inputType);
+            if (edit.caret !== null) {
+              // Set here, in the same key press, so the cursor stays beside the digit just typed instead of jumping to the end.
+              el.value = edit.text;
+              el.setSelectionRange(edit.caret, edit.caret);
+            }
+            setText(edit.text);
+            const v = parseMoney(currency, edit.text);
             last.current = v;
             onChange(v);
           }}

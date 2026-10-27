@@ -38,6 +38,53 @@ export function parseMoney(currency: Currency, input: string): number | null {
   return Number.isSafeInteger(minor) ? minor : null;
 }
 
+/**
+ * An amount being typed, with thousands separators put in as it is typed
+ * ("20880" → "20,880"), and where the cursor goes afterwards: beside the same
+ * digit it was beside. Leading zeros are dropped; nothing else is added or
+ * rounded (no decimals the person did not type). Returns null when the text is
+ * not a plain amount for this currency, so it stays exactly as typed and the
+ * field says it is not valid. Display only: `parseMoney` ignores the commas,
+ * so the amount stored is the same with or without them.
+ */
+export function groupTyped(currency: Currency, text: string, caret = text.length): { text: string; caret: number } | null {
+  const { exp } = CURRENCIES[currency];
+  const core = text.replace(/[\s,]/g, '');
+  if (!(exp > 0 ? new RegExp(`^\\d*(\\.\\d{0,${exp}})?$`) : /^\d*$/).test(core)) return null;
+  // Digits and the decimal point before the cursor: the cursor stays after the same number of them.
+  let before = 0;
+  for (const ch of text.slice(0, caret)) if ((ch >= '0' && ch <= '9') || ch === '.') before++;
+  const [int = '', frac] = core.split('.');
+  const zeros = int.length - int.replace(/^0+(?=\d)/, '').length;
+  const out = int.slice(zeros).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (frac === undefined ? '' : `.${frac}`);
+  let want = Math.max(0, before - zeros);
+  let pos = 0;
+  while (want > 0 && pos < out.length) if (out[pos++] !== ',') want--;
+  return { text: out, caret: pos };
+}
+
+/**
+ * What a money field shows after one edit. `prev` is what it showed; `raw` and
+ * `caret` are what the browser made of the key press, paste or cut;
+ * `inputType` is the browser's name for it. Deleting only a comma would change
+ * nothing (grouping puts it straight back), so Backspace or Delete next to a
+ * comma deletes the digit beside it instead. `caret` is null when the text is
+ * left exactly as typed (not a plain amount).
+ */
+export function editTyped(currency: Currency, prev: string, raw: string, caret: number, inputType?: string): { text: string; caret: number | null } {
+  let text = raw;
+  let at = caret;
+  if (raw.length === prev.length - 1 && prev[at] === ',' && prev.slice(0, at) + prev.slice(at + 1) === raw) {
+    if (inputType === 'deleteContentForward') text = raw.slice(0, at) + raw.slice(at + 1);
+    else if (at > 0) {
+      text = raw.slice(0, at - 1) + raw.slice(at);
+      at -= 1;
+    }
+  }
+  const grouped = groupTyped(currency, text, at);
+  return grouped ?? { text: raw, caret: null };
+}
+
 /** Minor units → plain major-unit string without currency ("1,000", "82.50"). */
 export function formatAmount(currency: Currency, minor: number): string {
   const { exp } = CURRENCIES[currency];
