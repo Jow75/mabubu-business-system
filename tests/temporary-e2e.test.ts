@@ -146,6 +146,12 @@ describe('the owner on a computer that is not theirs: temporary sign-in (ADR-006
     expect(r.ok).toBe(true);
     await store.syncNow();
     expect(n("SELECT COUNT(*) AS n FROM ops WHERE type = 'vendor.upsert'")).toBe(1);
+    // An unfinished purchase typed here stays in this page too (drafts, 27 Oct 2026): nothing on the computer's disk.
+    await vi.waitFor(() => expect(store.getDrafts().ready).toBe(true));
+    expect(await store.saveDraft('purchase', 'draft-temp', { note: 'typed on the cybercafe computer' })).toBe(true);
+    expect(store.getDrafts().list.map((d) => d.id)).toEqual(['draft-temp']);
+    expect(await dbNames()).toEqual(['mabubu-device']);
+    expect(await deviceDb.kv.count()).toBe(1); // only this computer's own identity
   });
 
   it('a reload of the tab keeps it, with no new device or session on the server', async () => {
@@ -159,6 +165,9 @@ describe('the owner on a computer that is not theirs: temporary sign-in (ADR-006
     expect(n('SELECT COUNT(*) AS n FROM devices')).toBe(devices);
     expect(n('SELECT COUNT(*) AS n FROM sessions')).toBe(sessions);
     expect(await dbNames()).toEqual(['mabubu-device']);
+    // The draft lived only in the page: the reload forgot it, as ADR-006 asks of everything a temporary sign-in holds.
+    await vi.waitFor(() => expect(store.getDrafts().ready).toBe(true));
+    expect(store.getDrafts().list).toEqual([]);
   });
 
   it('signing out asks first while a record is unsent; then ends it on the server and leaves nothing', async () => {

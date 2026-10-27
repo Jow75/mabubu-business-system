@@ -25,3 +25,9 @@ export function navigate(to: string) {
 export function href(to: string) {
   return `#${to}`;
 }
+
+/** Change the address without a new history step: Back still goes where it went before. */
+export function replaceRoute(to: string) {
+  history.replaceState(history.state, '', href(to));
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}

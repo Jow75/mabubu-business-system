@@ -68,6 +68,30 @@ export interface Snapshot {
 
 export type SubmitResult = { ok: true; op: AnyOp; flags: Flag[] } | { ok: false; error: string };
 
+/**
+ * A form's unsaved entries — an unfinished purchase — kept in this person's own
+ * copy on this device (in memory only for a temporary sign-in, ADR-006; in the
+ * demo's own copy in demo mode). A draft is never a record: it is not sent,
+ * counted, shown in reports or written to the activity log. It goes when the
+ * person saves it as a record or discards it; it is never removed for being old.
+ */
+export interface Draft<F = unknown> {
+  id: string;
+  kind: DraftKind;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+  form: F;
+}
+export type DraftKind = 'purchase';
+/** `ready` is false until this person's drafts have been read from the device. */
+export interface DraftsSnapshot {
+  ready: boolean;
+  list: readonly Draft[];
+}
+const DRAFTS_KEY = 'drafts';
+const NO_DRAFTS: DraftsSnapshot = { ready: false, list: [] };
+
 const PREFS_KEY = 'mabubu.prefs';
 const DEMO_DB = 'mabubu-demo';
 const PUSH_BATCH = 25;
@@ -241,6 +265,11 @@ class Store {
   private epoch = 0;
   private kick: ReturnType<typeof setTimeout> | null = null;
   private localOrder = 0;
+  /** Drafts have their own subscription: saving one while typing must not rebuild every screen's figures. */
+  private draftsSnap: DraftsSnapshot = NO_DRAFTS;
+  private draftListeners = new Set<() => void>();
+  /** Draft writes run one after another, so the list on screen always ends as the device has it. */
+  private draftWrites: Promise<unknown> = Promise.resolve();
 
   subscribe = (fn: () => void) => {
     this.listeners.add(fn);
@@ -578,6 +607,7 @@ class Store {
     if (epoch !== this.epoch) return;
     this.profile = profile;
     this.db = db;
+    void this.loadDrafts(db, profile.userId, epoch);
     if (!profile.temporary) keepOpen(profile.userId);
     const [records, directory, profiles, held] = await Promise.all([
       this.db.ops.toArray(),
@@ -623,6 +653,7 @@ class Store {
     this.db?.close();
     this.db = null;
     this.profile = null;
+    this.setDrafts(NO_DRAFTS);
     if (temporary) {
       // Nothing of a temporary sign-in stays: the tab forgets it, the server
       // ends it, and the other tabs sharing it end too.
@@ -1083,6 +1114,7 @@ class Store {
     const { seedDemo, DEMO_USERS } = await import('./demo');
     if (epoch !== this.epoch) return null;
     this.db = new UserDb(DEMO_DB);
+    void this.loadDrafts(this.db, user.id, epoch);
     if (!(await kvGet<boolean>(this.db, 'seeded'))) await seedDemo(this.db);
     const records = new Map((await this.db.ops.toArray()).map((r) => [r.id, r]));
     this.localOrder = [...records.values()].reduce((m, r) => Math.max(m, r.localOrder), 0);
@@ -1134,6 +1166,72 @@ class Store {
     this.lock();
   }
 
+  /* ---------------- unfinished forms (drafts) ---------------- */
+
+  subscribeDrafts = (fn: () => void) => {
+    this.draftListeners.add(fn);
+    return () => this.draftListeners.delete(fn);
+  };
+  getDrafts = () => this.draftsSnap;
+
+  private setDrafts(snap: DraftsSnapshot) {
+    this.draftsSnap = snap;
+    for (const l of this.draftListeners) l();
+  }
+
+  /** Only this person's drafts, newest first (the demo's copy is shared by its sample people). */
+  private showDrafts(all: Record<string, Draft> | undefined, userId: string) {
+    this.setDrafts({ ready: true, list: Object.values(all ?? {}).filter((d) => d.userId === userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) });
+  }
+
+  private async loadDrafts(db: RecordsDb, userId: string, epoch: number) {
+    this.setDrafts(NO_DRAFTS);
+    const all = await kvGet<Record<string, Draft>>(db, DRAFTS_KEY).catch(() => undefined);
+    if (epoch === this.epoch) this.showDrafts(all, userId);
+  }
+
+  /** Change this person's drafts in one step on the device; nothing happens if they signed out meanwhile. */
+  private writeDrafts(change: (all: Record<string, Draft>, userId: string) => void): Promise<boolean> {
+    const db = this.db;
+    const userId = this.snap.user?.id;
+    const epoch = this.epoch;
+    if (!db || !userId) return Promise.resolve(false);
+    const run = this.draftWrites
+      .then(async () => {
+        if (epoch !== this.epoch) return false;
+        const all = await db.atomic(async () => {
+          const next = { ...((await kvGet<Record<string, Draft>>(db, DRAFTS_KEY)) ?? {}) };
+          change(next, userId);
+          await kvSet(db, DRAFTS_KEY, next);
+          return next;
+        });
+        if (epoch !== this.epoch) return false;
+        this.showDrafts(all, userId);
+        return true;
+      })
+      // Locked or switched person mid-write (the copy was closed): nothing to report but "not saved".
+      .catch(() => false);
+    this.draftWrites = run;
+    return run;
+  }
+
+  /** Keep what a form holds so far (creates the draft the first time). Never another person's draft. */
+  saveDraft<F>(kind: DraftKind, id: string, form: F): Promise<boolean> {
+    return this.writeDrafts((all, userId) => {
+      const before = all[id];
+      if (before && before.userId !== userId) return;
+      const now = new Date().toISOString();
+      all[id] = { id, kind, userId, createdAt: before?.createdAt ?? now, updatedAt: now, form };
+    });
+  }
+
+  /** Remove one draft (saved as a record, or discarded by the person); other drafts stay. */
+  deleteDraft(id: string): Promise<boolean> {
+    return this.writeDrafts((all, userId) => {
+      if (all[id]?.userId === userId) delete all[id];
+    });
+  }
+
   /* ---------------- preferences ---------------- */
 
   setPrefs(patch: Partial<Prefs>) {
@@ -1151,4 +1249,9 @@ export const store = new Store();
 
 export function useApp(): Snapshot {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
+}
+
+/** This person's unfinished forms on this device. */
+export function useDrafts(): DraftsSnapshot {
+  return useSyncExternalStore(store.subscribeDrafts, store.getDrafts);
 }

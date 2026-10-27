@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
-import { store, useApp } from '../../lib/store';
-import { describeOp, useLookups } from '../../lib/lookups';
-import { href, navigate } from '../../lib/router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { store, useApp, useDrafts, type Draft } from '../../lib/store';
+import { describeOp, useLookups, type Lookups } from '../../lib/lookups';
+import { href, navigate, replaceRoute } from '../../lib/router';
 import { uuidv7 } from '../../../shared/ids';
 import { previewAccount, purchaseBalances, purchaseSummary, vendorAccounts, type PurchaseBalance } from '../../../shared/queries';
 import { purchasesReport, selectPurchases, vendorsReport, type PurchaseFilter } from '../../../shared/reports';
@@ -42,6 +42,8 @@ export function PurchasesPage() {
   const [filter, setFilter] = useState<PurchaseFilter>({ status: 'open', vendorId: null, payment: 'any', from: null, to: null });
   const balances = useMemo(() => purchaseBalances(ledger), [ledger, version]);
   const list = useMemo(() => selectPurchases(ledger, balances, filter), [ledger, balances, filter]);
+  const drafts = useDrafts();
+  const unfinished = useMemo(() => drafts.list.filter((d) => d.kind === 'purchase'), [drafts.list]);
   return (
     <div className="page">
       <PageHead
@@ -72,6 +74,7 @@ export function PurchasesPage() {
           </>
         }
       />
+      {user!.caps.includes('purchasing') && <PurchaseDrafts drafts={unfinished} title={t('dr.title', { n: unfinished.length })} />}
       <section className="card">
         {list.length === 0 ? (
           <Empty icon="bag" title={filter.vendorId || filter.payment !== 'any' ? t('pu.noMatch') : filter.status === 'open' ? t('pu.nothingOpen') : t('pu.none')}>
@@ -117,26 +120,90 @@ export function PurchasesPage() {
   );
 }
 
-export function NewPurchase() {
+/* ---------------- New purchase, kept as a draft until saved ---------------- */
+
+/** Everything the New purchase form holds. Kept on this device as a draft (store.saveDraft) until saved or discarded. */
+export interface PurchaseForm {
+  /** The purchase's own id, fixed when the form starts: saving the same draft twice can record only one purchase. */
+  id: string;
+  vendorId: string;
+  locationId: string;
+  date: string;
+  intake: (typeof PURCHASE_INTAKES)[number];
+  currency: Currency;
+  lines: EditLine[];
+  note: string;
+  payNow: number | null;
+  method: (typeof PAYMENT_METHODS)[number];
+  reference: string;
+}
+
+function blankPurchase(id: string, lk: Lookups): PurchaseForm {
+  const buying = lk.locations.filter((l) => l.active && l.kind === 'purchasing');
+  const locationId = buying[0]?.id ?? lk.locations[0]?.id ?? '';
+  return { id, vendorId: lk.vendors.find((v) => v.active)?.id ?? '', locationId, date: businessDate(), intake: 'collected', currency: (lk.loc(locationId)?.currency as Currency) ?? 'KES', lines: [], note: '', payNow: null, method: 'mpesa', reference: '' };
+}
+
+/** Sum of a form's lines, or null if it is too large to be a real amount (a draft must never break the page). */
+function formTotal(lines: EditLine[]): number | null {
+  try {
+    return lines.reduce((s, l) => s + lineTotal(l.qty, l.unitCost ?? 0), 0);
+  } catch {
+    return null;
+  }
+}
+
+/** This person's unfinished purchases on this device, each with a way back to it. */
+function PurchaseDrafts({ drafts, title }: { drafts: readonly Draft[]; title: string }) {
   const lk = useLookups();
   const t = useT();
-  const buying = lk.locations.filter((l) => l.active && l.kind === 'purchasing');
-  const [vendorId, setVendorId] = useState(lk.vendors.find((v) => v.active)?.id ?? '');
-  const [locationId, setLocationId] = useState(buying[0]?.id ?? lk.locations[0]?.id ?? '');
-  const [date, setDate] = useState(businessDate());
-  const [intake, setIntake] = useState<(typeof PURCHASE_INTAKES)[number]>('collected');
-  const loc = lk.loc(locationId);
-  const [currency, setCurrency] = useState<Currency>((loc?.currency as Currency) ?? 'KES');
-  const [lines, setLines] = useState<EditLine[]>([]);
-  const [note, setNote] = useState('');
-  const [payNow, setPayNow] = useState<number | null>(null);
-  const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]>('mpesa');
-  const [reference, setReference] = useState('');
-  useHoldReload(lines.length > 0 || note !== '' || payNow !== null || reference !== '');
-  const [busy, setBusy] = useState(false);
-  const vendorGarments = lk.garments.filter((g) => !g.vendorId || g.vendorId === vendorId);
-  const total = lines.reduce((s, l) => s + lineTotal(l.qty, l.unitCost ?? 0), 0);
-  const valid = vendorId && locationId && lines.length > 0 && lines.every((l) => l.qty > 0 && l.unitCost !== null && l.unitCost !== undefined);
+  if (!drafts.length) return null;
+  return (
+    <section className="card">
+      <div className="card-head" style={{ flexWrap: 'wrap', gap: 6 }}>
+        <span className="section-title">{title}</span>
+        <span className="hint">{t('dr.hint')}</span>
+      </div>
+      <div className="list" style={{ marginTop: 8 }}>
+        {drafts.map((d) => {
+          const f = d.form as PurchaseForm;
+          const total = formTotal(f.lines);
+          return (
+            <a key={d.id} className="list-item" href={href(`/purchases/new/${d.id}`)} style={{ flexWrap: 'wrap' }}>
+              <span style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <strong>{lk.vendor(f.vendorId)?.name ?? t('pu.vendor')}</strong> <span className="pill saffron">{t('dr.pill')}</span>
+                <div className="hint">{t('dr.summary', { garments: f.lines.map((l) => lk.garment(l.garmentTypeId)?.code ?? '?').join(', ') || t('dr.noLines'), pcs: f.lines.reduce((s, l) => s + l.qty, 0), edited: fmtDateTime(d.updatedAt) })}</div>
+              </span>
+              {total !== null && <Money amount={total} currency={f.currency} />}
+              <span className="btn btn-sm">
+                {t('dr.continue')} <Icon name="right" size={15} />
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * New purchase. What is typed is kept as a draft on this device (owner
+ * request, 27 Oct 2026): going to Garments & prices and back, a refresh or a
+ * new version of the app brings it back. The address names the draft
+ * (#/purchases/new/<id>); a plain #/purchases/new starts a separate, new one —
+ * it never overwrites another unfinished purchase.
+ */
+export function NewPurchase({ draftId = null }: { draftId?: string | null }) {
+  const lk = useLookups();
+  const { ledger } = useApp();
+  const drafts = useDrafts();
+  const t = useT();
+  // A blank form gets its own id; asking for a new purchase again (from a draft's address) starts another one.
+  const [seen, setSeen] = useState(() => ({ draftId, fresh: uuidv7() }));
+  if (seen.draftId !== draftId) setSeen({ draftId, fresh: draftId === null && seen.draftId !== null ? uuidv7() : seen.fresh });
+  const formId = draftId ?? seen.fresh;
+  const mine = useMemo(() => drafts.list.filter((d) => d.kind === 'purchase'), [drafts.list]);
+  const draft = mine.find((d) => d.id === formId) as Draft<PurchaseForm> | undefined;
 
   if (!lk.vendors.length || !lk.garments.length)
     return (
@@ -147,14 +214,143 @@ export function NewPurchase() {
         </Empty>
       </div>
     );
+  // Reading this person's drafts from the device takes a moment after the app opens.
+  if (draftId && !drafts.ready) return <div className="page"><PageHead eyebrow={<a href={href('/purchases')}>{t('pu.back')}</a>} title={t('pu.new')} /></div>;
+  if (draftId && !draft && draftId !== seen.fresh) {
+    const saved = Boolean(ledger.get(K.purchase(draftId)));
+    return (
+      <div className="page">
+        <PageHead eyebrow={<a href={href('/purchases')}>{t('pu.back')}</a>} title={t('pu.new')} />
+        <Empty icon="bag" title={saved ? t('dr.alreadySaved') : t('dr.gone')}>
+          {saved ? <a href={href(`/purchases/${draftId}`)}>{t('dr.openSaved')}</a> : t('dr.goneBody')}
+        </Empty>
+        <PurchaseDrafts drafts={mine} title={t('dr.title', { n: mine.length })} />
+        <a className="btn btn-primary" style={{ alignSelf: 'flex-start' }} href={href('/purchases/new')}>
+          <Icon name="plus" size={18} /> {t('pu.new')}
+        </a>
+      </div>
+    );
+  }
+  return <PurchaseFormPage key={formId} id={formId} draft={draft} others={mine.filter((d) => d.id !== formId)} />;
+}
+
+function PurchaseFormPage({ id, draft, others }: { id: string; draft: Draft<PurchaseForm> | undefined; others: readonly Draft[] }) {
+  const lk = useLookups();
+  const { ledger, user } = useApp();
+  const t = useT();
+  // The form as it first looked, to tell when something has been entered (and a draft is worth keeping).
+  const [blank] = useState(() => blankPurchase(id, lk));
+  // A draft from an older version of the app may lack a field: take the default for it, keep everything that was typed.
+  const [form, setForm] = useState<PurchaseForm>(() => (draft ? { ...blank, ...draft.form, id } : blank));
+  const set = (patch: Partial<PurchaseForm>) => setForm((f) => ({ ...f, ...patch }));
+  const [restoredFrom] = useState(() => draft?.updatedAt ?? null);
+  const [keptAt, setKeptAt] = useState<string | null>(null);
+  const [discard, setDiscard] = useState(false);
+  const [busy, setBusy] = useState(false);
+  /** Set once the form is saved as a purchase or discarded: nothing may write the draft again. */
+  const closed = useRef(false);
+  const pending = useRef<PurchaseForm | null>(null);
+  /** What the device holds for this form; only a real change is written (opening a draft does not "change" it). */
+  const stored = useRef(JSON.stringify(form));
+  /** False once the page has moved on: a save finishing late must not pull the address back to this form. */
+  const shown = useRef(true);
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
+  useHoldReload(Boolean(draft) || JSON.stringify(form) !== JSON.stringify(blank));
+
+  const keep = useCallback(() => {
+    const f = pending.current;
+    pending.current = null;
+    if (!f || closed.current) return;
+    const text = JSON.stringify(f);
+    void store.saveDraft('purchase', f.id, f).then((ok) => {
+      if (!ok) return;
+      stored.current = text;
+      if (!shown.current) return;
+      setKeptAt(new Date().toISOString());
+      // Back, a refresh or a new version of the app then come back to this draft.
+      if (window.location.hash === href('/purchases/new')) replaceRoute(`/purchases/new/${f.id}`);
+    });
+  }, []);
+  useEffect(() => {
+    if (closed.current) return;
+    if (JSON.stringify(form) === stored.current) {
+      pending.current = null; // changed and changed back: nothing to keep
+      return;
+    }
+    pending.current = form;
+    const timer = setTimeout(keep, 300);
+    return () => clearTimeout(timer);
+  }, [form, keep]);
+  // Leaving the page — another screen, a refresh, the app going to the background — keeps what was typed last.
+  useEffect(() => {
+    const now = () => keep();
+    window.addEventListener('pagehide', now);
+    document.addEventListener('visibilitychange', now);
+    return () => {
+      window.removeEventListener('pagehide', now);
+      document.removeEventListener('visibilitychange', now);
+      keep();
+    };
+  }, [keep]);
+
+  const { vendorId, locationId, date, intake, currency, lines, note, payNow, method, reference } = form;
+  const vendorGarments = lk.garments.filter((g) => !g.vendorId || g.vendorId === vendorId);
+  const total = formTotal(lines);
+  const valid = vendorId && locationId && total !== null && lines.length > 0 && lines.every((l) => l.qty > 0 && l.unitCost !== null && l.unitCost !== undefined);
+  const hasDraft = Boolean(draft) || keptAt !== null;
+  const status = [restoredFrom ? t('dr.restored', { time: fmtDateTime(restoredFrom) }) : keptAt ? t('dr.saved', { time: fmtDateTime(keptAt) }) : '', hasDraft && user?.temporary ? t('dr.tempNote') : ''].filter(Boolean).join(' ');
+
+  const submit = async () => {
+    setBusy(true);
+    closed.current = true;
+    pending.current = null;
+    if (ledger.get(K.purchase(id))) {
+      // Already saved (from another tab of this browser): one purchase only.
+      toast(t('dr.alreadySaved'));
+      navigate(`/purchases/${id}`);
+      void store.deleteDraft(id);
+      return;
+    }
+    const ok = await save(
+      () => store.submit('purchase.record', { id, vendorId, locationId, date, currency, intake, lines: lines.map((l) => ({ garmentTypeId: l.garmentTypeId, qty: l.qty, unitCost: l.unitCost ?? 0 })), note: note.trim() }),
+      t('pu.saved'),
+    );
+    if (ok && payNow && intake !== 'inspection') {
+      await save(() => store.submit('vendor.payment', { vendorId, purchaseId: id, date, amount: payNow, currency, method, reference, note: '' }), t('pu.paySaved'));
+    }
+    setBusy(false);
+    if (!ok) {
+      closed.current = false; // still a draft: correct it and save again
+      return;
+    }
+    navigate(`/purchases/${id}`);
+    void store.deleteDraft(id); // this draft only; other unfinished purchases stay
+  };
 
   return (
     <div className="page" style={{ maxWidth: 860 }}>
-      <PageHead eyebrow={<a href={href('/purchases')}>{t('pu.back')}</a>} title={t('pu.new')} />
+      <PageHead
+        eyebrow={<a href={href('/purchases')}>{t('pu.back')}</a>}
+        title={t('pu.new')}
+        lead={status ? <span aria-live="polite">{status}</span> : undefined}
+        actions={
+          hasDraft && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDiscard(true)}>
+              <Icon name="x" size={16} /> {t('dr.discard')}
+            </button>
+          )
+        }
+      />
+      <PurchaseDrafts drafts={others} title={t('dr.others')} />
       <section className="card card-pad stack">
         <div className="form-grid">
           <Field label={t('pu.vendor')}>
-            <select className="select" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+            <select className="select" value={vendorId} onChange={(e) => set({ vendorId: e.target.value })}>
               {lk.vendors.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
@@ -164,16 +360,15 @@ export function NewPurchase() {
             </select>
           </Field>
           <Field label={t('ex.date')}>
-            <input type="date" className="input" value={date} max={businessDate()} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" className="input" value={date} max={businessDate()} onChange={(e) => set({ date: e.target.value })} />
           </Field>
           <Field label={t('pu.goodsTo')}>
             <select
               className="select"
               value={locationId}
               onChange={(e) => {
-                setLocationId(e.target.value);
-                const c = lk.loc(e.target.value)?.currency;
-                if (c) setCurrency(c);
+                const c = lk.loc(e.target.value)?.currency as Currency | undefined;
+                set({ locationId: e.target.value, ...(c ? { currency: c } : {}) });
               }}
             >
               {lk.locations.map((l) => (
@@ -184,7 +379,7 @@ export function NewPurchase() {
             </select>
           </Field>
           <Field label={t('ex.currency')}>
-            <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value as Currency)}>
+            <select className="select" value={currency} onChange={(e) => set({ currency: e.target.value as Currency })}>
               {CURRENCY_CODES.map((c) => (
                 <option key={c}>{c}</option>
               ))}
@@ -192,29 +387,24 @@ export function NewPurchase() {
           </Field>
         </div>
         <Field label={t('pu.whatHappened')}>
-          <Seg
-            value={intake}
-            onChange={setIntake}
-            options={PURCHASE_INTAKES.map((i) => ({ value: i, label: t(`lbl.intake.${i}`) }))}
-          />
+          <Seg value={intake} onChange={(v) => set({ intake: v })} options={PURCHASE_INTAKES.map((i) => ({ value: i, label: t(`lbl.intake.${i}`) }))} />
         </Field>
-        <p className="hint">
-          {t(`pu.hint.${intake}`)}
-        </p>
+        <p className="hint">{t(`pu.hint.${intake}`)}</p>
       </section>
       <section className="stack">
         <span className="section-title">{t('pu.garmentsCount')}</span>
-        <LinesEditor garments={vendorGarments.length ? vendorGarments : lk.garments} lines={lines} onChange={setLines} costCurrency={currency} />
+        <LinesEditor garments={vendorGarments.length ? vendorGarments : lk.garments} lines={lines} onChange={(l) => set({ lines: l })} costCurrency={currency} />
+        <p className="hint">{rich(t('dr.kept'), { catalogue: <a href={href('/catalogue')}>{t('nav.catalogue')}</a> })}</p>
       </section>
       {intake !== 'inspection' && (
         <section className="card card-pad stack">
           <span className="section-title">{t('pu.payNow')}</span>
           <div className="form-grid">
             <Field label={t('pu.amountPaid')}>
-              <MoneyInput currency={currency} value={payNow} onChange={setPayNow} />
+              <MoneyInput currency={currency} value={payNow} onChange={(v) => set({ payNow: v })} />
             </Field>
             <Field label={t('pu.paidBy')}>
-              <select className="select" value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+              <select className="select" value={method} onChange={(e) => set({ method: e.target.value as PurchaseForm['method'] })}>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
                     {t(`lbl.payment.${m}`)}
@@ -223,51 +413,52 @@ export function NewPurchase() {
               </select>
             </Field>
             <Field label={t('pu.refMpesa')}>
-              <input className="input mono" value={reference} onChange={(e) => setReference(e.target.value.toUpperCase())} />
+              <input className="input mono" value={reference} onChange={(e) => set({ reference: e.target.value.toUpperCase() })} />
             </Field>
           </div>
         </section>
       )}
       <Field label={t('stk.note')}>
-        <textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea className="textarea" value={note} onChange={(e) => set({ note: e.target.value })} />
       </Field>
       <div className="sticky-foot">
         <div>
           <div style={{ fontWeight: 700 }}>
-            {t('c.nPcs', { n: lines.reduce((s, l) => s + l.qty, 0) })} · <Money amount={total} currency={currency} />
+            {t('c.nPcs', { n: lines.reduce((s, l) => s + l.qty, 0) })} · {total === null ? t('c.notValidAmount') : <Money amount={total} currency={currency} />}
           </div>
           <div style={{ opacity: 0.7, fontSize: 13 }}>{intake === 'inspection' ? t('pu.owedAccepted') : t('pu.owedVendor')}</div>
         </div>
-        <button
-          className="btn btn-accent btn-lg"
-          disabled={!valid || busy}
-          onClick={async () => {
-            setBusy(true);
-            const id = uuidv7();
-            const ok = await save(
-              () =>
-                store.submit('purchase.record', {
-                  id,
-                  vendorId,
-                  locationId,
-                  date,
-                  currency,
-                  intake,
-                  lines: lines.map((l) => ({ garmentTypeId: l.garmentTypeId, qty: l.qty, unitCost: l.unitCost ?? 0 })),
-                  note: note.trim(),
-                }),
-              t('pu.saved'),
-            );
-            if (ok && payNow && intake !== 'inspection') {
-              await save(() => store.submit('vendor.payment', { vendorId, purchaseId: id, date, amount: payNow, currency, method, reference, note: '' }), t('pu.paySaved'));
-            }
-            setBusy(false);
-            if (ok) navigate(`/purchases/${id}`);
-          }}
-        >
+        <button className="btn btn-accent btn-lg" disabled={!valid || busy} onClick={() => void submit()}>
           <Icon name="check" /> {t('pu.save')}
         </button>
       </div>
+      {discard && (
+        <Sheet
+          title={t('dr.discardTitle')}
+          onClose={() => setDiscard(false)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setDiscard(false)}>
+                {t('dr.keep')}
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  closed.current = true;
+                  pending.current = null;
+                  await store.deleteDraft(id);
+                  toast(t('dr.discarded'));
+                  navigate('/purchases');
+                }}
+              >
+                {t('dr.discard')}
+              </button>
+            </>
+          }
+        >
+          <p className="soft">{t('dr.discardBody')}</p>
+        </Sheet>
+      )}
     </div>
   );
 }

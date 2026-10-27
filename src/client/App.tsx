@@ -323,7 +323,7 @@ function ManageRoutes() {
     case 'stock':
       return b ? <GarmentDetail id={b} /> : <StockPage />;
     case 'purchases':
-      return b === 'new' ? <NewPurchase /> : b ? <PurchaseDetail id={b} /> : <PurchasesPage />;
+      return b === 'new' ? <NewPurchase draftId={c ?? null} /> : b ? <PurchaseDetail id={b} /> : <PurchasesPage />;
     case 'vendors':
       return b ? <VendorDetail id={b} /> : <VendorsPage />;
     case 'shipments':
