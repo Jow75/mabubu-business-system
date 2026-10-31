@@ -6,7 +6,19 @@ Last updated 31 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md
 production is real.** No test records on production any more — test in demo
 mode or on a local copy (`wrangler dev --persist-to …`).
 
-## 31 Oct session (6) — owner's report after the first live days
+## 31 Oct session (6) — owner's report after the first live days (deployed: `7b1ba7a6`)
+
+Deployed 31 Oct 2026 05:40 UTC, main `8946b3e` (separators, purchase drafts,
+go live card, assistant switched off, sales-day drafts, rates, stock
+warnings). Before: export
+`Documents\mabubu-backups\mabubu-backup-2026-10-31-pre-deploy-drafts-rates.sql`
+(restore-checked: integrity ok, every table count equal to production), Time
+Travel bookmark `0000009e-00000000-00005115-6b30ff952aba55ae14fcde1aa02097ea`,
+snapshots `2026-10-31-before-deploy.json` / `-after-deploy.json`: no
+difference. Smoke: health, setup status, `/api/assistant` and sync 401
+without a session, manifest name, live page = local build. No migration.
+Rollback target if needed: `8fceeed7` (code only; drafts and the strict
+durability are on devices and harmless to an older version).
 
 - **Sales-day drafts:** `src/client/lib/drafts.ts` `useFormDraft(kind, id,
   blank)`; Take/Return/Close day keyed `kind:worker:date:place`
