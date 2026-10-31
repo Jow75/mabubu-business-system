@@ -211,6 +211,7 @@ export function ReportsPage() {
                   <div className="trace">
                     {t(`basis.${u.basis}` as Key)} · {u.basis === 'live' ? t('rp.publishedOn', { date: fmtDate(u.effectiveDate) }) : t('rp.sinceDate', { date: fmtDate(u.effectiveDate) })} · {u.source}
                   </div>
+                  {u.later && <div className="trace">{t('rp.laterRate', { date: fmtDate(u.effectiveDate) })}</div>}
                 </div>
               ))}
             </div>

@@ -42,25 +42,48 @@ export interface RateUse {
   basis: RateBasis | 'live';
   /** fx.set entry id, or the provider for a market rate. */
   ref: string;
+  /** Also used for amounts dated before it: no rate for this pair was recorded on or before their date (ADR-002 amendment, 31 Oct 2026). */
+  later?: boolean;
 }
 
-/** Recorded rate in force on `date` (the latest entry on or before it). Tries the inverse pair. */
+/**
+ * Recorded rate in force on `date`: the latest entry on or before it (tries
+ * the inverse pair too). If none was recorded that early — trading began
+ * before the first rates were written down — the first rate recorded after
+ * it is used and marked `later`, so reports say so (owner's decision,
+ * 31 Oct 2026; ADR-002 amendment). Null only when no rate for the pair was
+ * ever recorded.
+ */
 export function findRecordedRate(get: (key: string) => unknown, from: Currency, to: Currency, date: string): RateUse | null {
   if (from === to) return null;
+  const direct = get(K.fx(from, to)) as FxSeries | undefined;
+  const inverse = get(K.fx(to, from)) as FxSeries | undefined;
   const pick = (s: FxSeries | undefined) => {
-    if (!s) return null;
     let found: FxSeries['entries'][number] | null = null;
-    for (const e of s.entries) if (e.date <= date) found = e;
+    for (const e of s?.entries ?? []) if (e.date <= date) found = e;
     return found;
   };
-  const direct = pick(get(K.fx(from, to)) as FxSeries | undefined);
-  if (direct) {
-    return { from, to, rate: Number(direct.rate), recorded: { from, to, rate: direct.rate }, inverse: false, effectiveDate: direct.date, source: direct.source, basis: direct.basis ?? 'manual', ref: direct.id };
-  }
-  const inv = pick(get(K.fx(to, from)) as FxSeries | undefined);
-  if (inv) {
-    return { from, to, rate: 1 / Number(inv.rate), recorded: { from: to, to: from, rate: inv.rate }, inverse: true, effectiveDate: inv.date, source: inv.source, basis: inv.basis ?? 'manual', ref: inv.id };
-  }
+  const use = (e: FxSeries['entries'][number], inv: boolean, later: boolean): RateUse => ({
+    from,
+    to,
+    rate: inv ? 1 / Number(e.rate) : Number(e.rate),
+    recorded: inv ? { from: to, to: from, rate: e.rate } : { from, to, rate: e.rate },
+    inverse: inv,
+    effectiveDate: e.date,
+    source: e.source,
+    basis: e.basis ?? 'manual',
+    ref: e.id,
+    ...(later ? { later: true } : {}),
+  });
+  const d = pick(direct);
+  if (d) return use(d, false, false);
+  const i = pick(inverse);
+  if (i) return use(i, true, false);
+  // None that early: the first one recorded afterwards (entries are kept oldest first), whichever direction is earlier.
+  const fd = direct?.entries[0];
+  const fi = inverse?.entries[0];
+  if (fd && (!fi || fd.date <= fi.date)) return use(fd, false, true);
+  if (fi) return use(fi, true, true);
   return null;
 }
 
@@ -199,9 +222,14 @@ export class Converter {
       } else this.missing.add(`${from}→${this.target} (no market rate available)`);
     } else {
       use = findRecordedRate(this.get, from, this.target, date);
-      if (!use) this.missing.add(`${from}→${this.target} on or before ${date}`);
+      if (!use) this.missing.add(`${from}→${this.target} (no rate recorded)`);
     }
-    if (use) this.uses.set(`${use.ref}|${from}`, use);
+    if (use) {
+      // One line per rate in the "rates used" list; it says so if it also served earlier amounts.
+      const key = `${use.ref}|${from}`;
+      const prev = this.uses.get(key);
+      this.uses.set(key, prev ? { ...prev, ...(prev.later || use.later ? { later: true } : {}) } : use);
+    }
     return use;
   }
 

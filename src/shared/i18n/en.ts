@@ -1241,6 +1241,7 @@ export const en = {
   'rp.noConversion': 'No conversion needed — everything was already in {currency}.',
   'rp.publishedOn': 'published {date}',
   'rp.sinceDate': 'since {date}',
+  'rp.laterRate': 'Also used for amounts dated before {date}: no earlier rate was recorded.',
   'rp.byKind': 'Costs by kind',
   'rp.noCosts': 'No costs in this period.',
   'rp.byGarment': 'By garment',

@@ -94,7 +94,11 @@ describe('currency: original amounts are kept and conversions are traceable', ()
     ok(L, op('fx.set', { id: 'fx-inv', from: 'KMF', to: 'KES', rate: '0.25', date: '2026-10-01', source: 'Bureau, Moroni' }));
     const use = findRecordedRate((k) => L.get(k), 'KES', 'KMF', '2026-10-10')!;
     expect(use).toMatchObject({ rate: 4, inverse: true, recorded: { from: 'KMF', to: 'KES', rate: '0.25' }, basis: 'manual' });
-    expect(findRecordedRate((k) => L.get(k), 'KES', 'KMF', '2026-09-30')).toBeNull();
+    expect(use.later).toBeUndefined();
+    // Before the first recorded rate: that first rate, marked (owner's decision 31 Oct 2026, ADR-002 amendment).
+    expect(findRecordedRate((k) => L.get(k), 'KES', 'KMF', '2026-09-30')).toMatchObject({ rate: 4, inverse: true, effectiveDate: '2026-10-01', later: true });
+    // A pair never recorded in either direction still has no rate.
+    expect(findRecordedRate((k) => L.get(k), 'EUR', 'KMF', '2026-10-10')).toBeNull();
   });
 
   it('converting a KES expense does not change the expense record', () => {
@@ -110,6 +114,51 @@ describe('currency: original amounts are kept and conversions are traceable', ()
     expect(localCount(saved)).toBe(200);
     expect(formatLocalCount(saved)).toBe('200');
     expect(saved).toBe(1000);
+  });
+});
+
+describe('amounts dated before the first recorded rate (owner decision, 31 Oct 2026 — ADR-002 amendment)', () => {
+  // The live case: rates first written down on 28 Oct, a US$ shipment cost dated 27 Oct.
+  function startedBeforeRates() {
+    const L = sold357(false);
+    ok(L, op('fx.set', { id: 'fx-kmf-kes', from: 'KMF', to: 'KES', rate: '0.25', date: '2026-10-28', source: 'TEST RATE' }));
+    ok(L, op('fx.set', { id: 'fx-usd-kmf', from: 'USD', to: 'KMF', rate: '440', date: '2026-10-28', source: 'TEST RATE' }));
+    ok(L, op('shipment.cost', { shipmentId: 'shp-1', category: 'air_baggage', description: 'Extra baggage', amount: 10_000, currency: 'USD', status: 'actual', date: '2026-10-27', reference: '', supersedesId: null }));
+    return L;
+  }
+
+  it('the first rate recorded later is used for them, and the report is complete and says so', () => {
+    const r = profitReport(startedBeforeRates(), '2026-10-01', '2026-10-31', 'KMF');
+    expect(r.missingRates).toEqual([]);
+    expect(r.complete).toBe(true);
+    // KSh 357 + KSh 300 + KSh 1,500 (2 Oct) at 1 KES = 4 KMF; US$ 100 (27 Oct) at 440.
+    expect(r.costOfGoods).toBe(142_800);
+    expect(r.shipmentCosts).toBe(1_200 + 44_000);
+    expect(r.ratesUsed.every((u) => u.later)).toBe(true);
+    expect(r.ratesUsed.map((u) => [u.from, u.to, u.effectiveDate])).toEqual([
+      ['KES', 'KMF', '2026-10-28'],
+      ['USD', 'KMF', '2026-10-28'],
+    ]);
+  });
+
+  it('a rate in force on the date is still preferred; the later one serves only amounts before any rate', () => {
+    const L = startedBeforeRates();
+    ok(L, op('fx.set', { id: 'fx-usd-kmf-oct1', from: 'USD', to: 'KMF', rate: '430', date: '2026-10-01', source: 'TEST RATE' }));
+    const c = new Converter((k) => L.get(k), 'KMF');
+    expect(c.convert(10_000, 'USD', '2026-10-27')).toBe(43_000); // the 1 Oct rate, in force on the 27th
+    expect(c.convert(10_000, 'USD', '2026-09-15')).toBe(43_000); // before any rate: the first one (1 Oct)
+    expect(c.convert(10_000, 'USD', '2026-10-29')).toBe(44_000); // the 28 Oct rate
+    const lines = c.ratesUsed();
+    expect(lines.find((u) => u.effectiveDate === '2026-10-01')!.later).toBe(true);
+    expect(lines.find((u) => u.effectiveDate === '2026-10-28')!.later).toBeUndefined();
+  });
+
+  it('a currency with no recorded rate at all still makes the report incomplete (never a guessed rate)', () => {
+    const L = sold357(false);
+    ok(L, op('shipment.cost', { shipmentId: 'shp-1', category: 'air_baggage', description: 'Extra baggage', amount: 10_000, currency: 'USD', status: 'actual', date: '2026-10-27', reference: '', supersedesId: null }));
+    const r = profitReport(L, '2026-10-01', '2026-10-31', 'KMF');
+    expect(r.complete).toBe(false);
+    expect(r.missingRates).toEqual(expect.arrayContaining(['KES→KMF (no rate recorded)', 'USD→KMF (no rate recorded)']));
   });
 });
 

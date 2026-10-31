@@ -1225,6 +1225,7 @@ export const sw: Record<Key, string> = {
   'rp.noConversion': 'Hakuna haja ya kubadilisha — kila kitu kilikuwa tayari kwa {currency}.',
   'rp.publishedOn': 'ilichapishwa {date}',
   'rp.sinceDate': 'tangu {date}',
+  'rp.laterRate': 'Pia imetumika kwa kiasi cha tarehe kabla ya {date}: hakuna kiwango cha awali kilichorekodiwa.',
   'rp.byKind': 'Gharama kwa aina',
   'rp.noCosts': 'Hakuna gharama katika kipindi hiki.',
   'rp.byGarment': 'Kwa nguo',

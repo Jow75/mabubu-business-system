@@ -34,6 +34,8 @@ The agreed rule (requirements §4): *"Any conversion for reporting must use an e
 - Every report line shows its original amounts ("as paid: KSh 31,720") and lists each rate used, with its date, kind and source.
 - A missing rate leaves the amount out and marks the report **Incomplete** in red. The app never shows it as a finished profit figure.
 
+**Amendment, 31 Oct 2026 (owner's request): amounts dated before the first recorded rate.** Real trading began on 27 Oct; the owner recorded the rates on 28 Oct (dated 28 Oct), and a US$ shipment cost dated 27 Oct then had no rate "in force", so every profit report said *Incomplete — do not use the totals* although the rates were in Settings. The owner asked for the rates in Settings to be used. Rule now (`findRecordedRate` in `src/shared/fx.ts`): the rate in force on the amount's date is used as before (either direction); **only when no rate for that pair was recorded on or before the date, the first rate recorded after it is used**, and the report says so — the rate is marked "also used for amounts dated before …" in the rates list on screen and in every download, and a note says some amounts predate their first rate. A pair with no recorded rate at all still leaves the amount out and marks the report Incomplete: no rate is ever guessed. Checked on a read-only copy of the live ledger: the October profit report in KMF and in KES became complete, using the 28 Oct rates.
+
 ## 3. Downloads
 
 - Reports are built on the device from the same records and selection functions as each screen (`src/shared/reports.ts`). The downloaded totals therefore match the screen.

@@ -1225,6 +1225,7 @@ export const fr: Record<Key, string> = {
   'rp.noConversion': 'Aucune conversion nécessaire — tout était déjà en {currency}.',
   'rp.publishedOn': 'publié le {date}',
   'rp.sinceDate': 'depuis le {date}',
+  'rp.laterRate': 'Utilisé aussi pour les montants datés d’avant le {date} : aucun taux antérieur n’a été enregistré.',
   'rp.byKind': 'Coûts par type',
   'rp.noCosts': 'Aucun coût sur cette période.',
   'rp.byGarment': 'Par vêtement',

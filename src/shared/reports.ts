@@ -1060,6 +1060,7 @@ export function profitDoc(ctx: ReportCtx, r: ProfitReport, f: { locationId: stri
     'Shipment costs and expenses count in the period they are dated. They are not yet spread per piece.',
     `Conversion: ${CONVERSION_BASIS_LABEL[r.basis]}. Each amount stays saved in the currency it was paid in; the original amounts are shown beside every converted line.`,
     ...(r.complete ? [] : [`INCOMPLETE: ${[...r.missingRates.map((m) => `no exchange rate ${m}`), ...r.missingCosts.map((c) => `no purchase cost for ${c}`)].join('; ')}. Those amounts are left out, so the totals are partial.`]),
+    ...(r.ratesUsed.some((u) => u.later) ? ['Some amounts are dated before the first exchange rate recorded for their currency: the first recorded rate is used for them (marked in "Exchange rates used").'] : []),
   ]);
   d.filters = [
     { label: 'Period', value: `${f.preset ? `${f.preset}: ` : ''}${rangeText(r.from, r.to)}` },
@@ -1113,7 +1114,7 @@ export function profitDoc(ctx: ReportCtx, r: ProfitReport, f: { locationId: stri
       { key: 'basis', label: 'Basis', kind: 'text', width: 1.2 },
       { key: 'source', label: 'Source', kind: 'text', width: 2.4 },
     ],
-    rows: r.ratesUsed.map((u) => ({ pair: rateText(u), date: u.effectiveDate, basis: RATE_BASIS_LABEL[u.basis], source: u.source })),
+    rows: r.ratesUsed.map((u) => ({ pair: rateText(u), date: u.effectiveDate, basis: RATE_BASIS_LABEL[u.basis], source: u.later ? `${u.source} — also used for amounts dated before ${fmtDate(u.effectiveDate)} (no earlier rate recorded)` : u.source })),
   });
   const kinds: Record<string, Cell>[] = [
     ...Object.entries(r.shipmentCostsByCategory).map(([k, v]) => ({ kind: `Shipment · ${SHIP_COST_LABEL[k as keyof typeof SHIP_COST_LABEL] ?? k}`, amount: v })),
