@@ -8,6 +8,7 @@ import { HttpError, errorResponse, json } from './http';
 import { pull, push } from './sync';
 import { marketRates, recordExport } from './fx';
 import { goLiveBackup, goLiveExecute, goLiveStatus } from './golive';
+import { assistantChat, assistantInfo } from './assistant';
 
 export async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -37,6 +38,9 @@ export async function handle(request: Request, env: Env): Promise<Response> {
     if (path === '/api/auth/logout' && method === 'POST') return await logout(env, session);
     if (path === '/api/sync/push' && method === 'POST') return await push(env, session, request);
     if (path === '/api/sync/pull' && method === 'GET') return await pull(env, session, url);
+
+    if (path === '/api/assistant' && method === 'GET') return assistantInfo(env, session);
+    if (path === '/api/assistant' && method === 'POST') return await assistantChat(env, session, request);
 
     if (path === '/api/fx/market' && method === 'GET') return await marketRates(env, session);
     if (path === '/api/audit/export' && method === 'POST') return await recordExport(env, session, request);

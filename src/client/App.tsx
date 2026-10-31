@@ -30,6 +30,7 @@ import { CataloguePage } from './screens/manage/Catalogue';
 import { PeoplePage } from './screens/manage/People';
 import { SettingsPage } from './screens/manage/Settings';
 import { GoLivePage } from './screens/manage/GoLive';
+import { AssistantPage } from './screens/manage/Assistant';
 import { StarterSetup } from './screens/manage/StarterSetup';
 
 const MANAGEMENT_CAPS: Capability[] = ['workers.reconcile', 'purchasing', 'shipments', 'costs.view', 'catalog.manage', 'users.manage', 'payments', 'expenses'];
@@ -44,7 +45,14 @@ interface NavItem {
 }
 
 const NAV: { group: Key; items: NavItem[] }[] = [
-  { group: 'nav.group.today', items: [{ to: '/', label: 'nav.overview', icon: 'home' }] },
+  {
+    group: 'nav.group.today',
+    items: [
+      { to: '/', label: 'nav.overview', icon: 'home' },
+      // Anyone who may read a report (docs/AI_ASSISTANT.md); the server re-checks.
+      { to: '/assistant', label: 'nav.assistant', icon: 'search', cap: ['costs.view', 'workers.reconcile', 'audit.view', 'purchasing', 'payments', 'shipments', 'stock.adjust', 'expenses', 'catalog.manage', 'pricing.manage'] },
+    ],
+  },
   {
     group: 'nav.group.goods',
     items: [
@@ -320,6 +328,8 @@ function ManageRoutes() {
   switch (a) {
     case '':
       return <Overview />;
+    case 'assistant':
+      return <AssistantPage />;
     case 'stock':
       return b ? <GarmentDetail id={b} /> : <StockPage />;
     case 'purchases':

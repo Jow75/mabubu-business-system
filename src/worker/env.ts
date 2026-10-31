@@ -26,4 +26,15 @@ export interface Env {
   PIN_PEPPER: string;
   /** One-time secret for first setup and owner recovery. */
   SETUP_TOKEN?: string;
+  /**
+   * The business assistant (docs/AI_ASSISTANT.md): off unless both are set.
+   * AI_PROVIDER names a preset in worker/assistant.ts; AI_API_KEY is a secret
+   * (wrangler secret put) that never reaches the app, a log or the repository.
+   */
+  AI_PROVIDER?: string;
+  AI_API_KEY?: string;
+  /** Optional: the models to try, in order, comma-separated (default: the preset's tested list). */
+  AI_MODELS?: string;
+  /** Optional: the provider's address if not the preset's (HTTPS only; localhost for testing). */
+  AI_BASE_URL?: string;
 }

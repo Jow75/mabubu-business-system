@@ -1988,3 +1988,127 @@ button.list-item {
     min-height: 36px;
   }
 }
+
+/* ---------- Assistant: questions and answers kept like ledger notes ---------- */
+.ai-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ai-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-q {
+  align-self: flex-end;
+  max-width: min(560px, 88%);
+  padding: 10px 14px;
+  border-radius: var(--r) var(--r) 4px var(--r);
+  background: var(--indigo-tint);
+  color: var(--indigo-ink);
+  font-weight: 560;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* An answer is a ledger card with the tailor's stitch down its margin. */
+.ai-a {
+  position: relative;
+  padding: 14px 18px 12px 26px;
+  border-radius: var(--r);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+}
+.ai-a::before {
+  content: '';
+  position: absolute;
+  inset: 14px auto 14px 11px;
+  width: 2px;
+  background-image: linear-gradient(180deg, var(--rule-strong) 0 7px, transparent 7px 12px);
+  background-size: 2px 12px;
+}
+.ai-a p {
+  margin: 0 0 8px;
+}
+.ai-a ul,
+.ai-a ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+.ai-a li {
+  margin: 2px 0;
+}
+.ai-a table {
+  border-collapse: collapse;
+  margin: 2px 0 10px;
+  font-size: 14px;
+}
+.ai-a th,
+.ai-a td {
+  padding: 5px 14px 5px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.ai-a th {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ai-working span {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.ai-src {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding-top: 9px;
+  background-image: linear-gradient(90deg, var(--rule-strong) 0 7px, transparent 7px 12px);
+  background-size: 12px 2px;
+  background-repeat: repeat-x;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.ai-src strong {
+  color: var(--ink-2);
+  font-weight: 650;
+}
+.ai-meta {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.ai-ask {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  box-shadow: var(--shadow-lift);
+}
+/* On a wide screen the question box stays in reach; on a phone it would cover the answer being read, so it ends the page. */
+@media (min-width: 961px) {
+  .ai-ask {
+    position: sticky;
+    bottom: 16px;
+    z-index: 10;
+  }
+}
+/* Scrolling to the end stops above the phone's bottom navigation. */
+.ai-end {
+  scroll-margin-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 961px) {
+  .ai-end {
+    scroll-margin-bottom: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-working span {
+    animation: none;
+  }
+}
