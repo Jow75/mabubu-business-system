@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { A, K, type Purchase, type Shipment, type WorkerDay } from '../src/shared/model';
-import { purchaseSummary, stockByLocation, vendorBalances, workerHolding, profitReport, garmentJourney } from '../src/shared/queries';
+import { purchaseSummary, stockByLocation, stockWarningResolved, vendorBalances, workerHolding, profitReport, garmentJourney } from '../src/shared/queries';
 import { dayTotals, selectDays } from '../src/shared/reports';
 import { lateEvidence, lateRecords } from '../src/shared/late';
 import { parsePayload } from '../src/shared/ops';
@@ -681,5 +681,25 @@ describe('an archived person gets no new work (enforced by the rules, not only t
     // Reactivated: new work again.
     archive(L, 'u-amina', true);
     ok(L, op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-18', lines: [{ garmentTypeId: HAF, qty: 2 }] }, 'manager'), 'manager');
+  });
+});
+
+describe('a "stock below zero" warning covered later by a back-dated record (owner, 31 Oct 2026)', () => {
+  const { msa, com, yasmin, yasminPlain80: YAS } = IDS;
+  it('stays on the record as history, and reads as resolved once the stock covers it', () => {
+    const L = seeded();
+    // The take in the Comoros was entered first…
+    const take = op('worker.issue', { workerId: 'u-amina', locationId: com, workDate: '2026-10-27', lines: [{ garmentTypeId: YAS, qty: 10 }] }, 'amina');
+    const fx = ok(L, take, 'amina');
+    expect(fx.flags.map((f) => f.code)).toContain('NEGATIVE_STOCK');
+    expect(stockWarningResolved(L, take.id)).toBe(false);
+    // …then the luggage it came from, back-dated to before the take.
+    ok(L, op('purchase.record', { id: 'pur-bag', vendorId: yasmin, locationId: msa, date: '2026-10-25', currency: 'KES', intake: 'collected', lines: [{ garmentTypeId: YAS, qty: 10, unitCost: 8000 }], note: '' }));
+    ok(L, op('shipment.dispatch', { id: 'shp-bag', code: 'BAG-1', fromLocationId: msa, toLocationId: com, method: 'air', carrier: '', packages: [], lines: [{ garmentTypeId: YAS, qty: 10 }], date: '2026-10-26', expectedDate: null, note: '' }));
+    expect(stockWarningResolved(L, take.id)).toBe(false); // on the way is not yet at the Comoros
+    ok(L, op('shipment.receive', { shipmentId: 'shp-bag', date: '2026-10-26', lines: [{ garmentTypeId: YAS, received: 10, missing: 0 }], note: '' }));
+    expect(stockWarningResolved(L, take.id)).toBe(true);
+    // The record's own warning is unchanged: it is what the records showed when it was saved.
+    expect(L.effects.get(take.id)!.flags.map((f) => f.code)).toContain('NEGATIVE_STOCK');
   });
 });

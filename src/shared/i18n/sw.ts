@@ -1134,6 +1134,7 @@ export const sw: Record<Key, string> = {
   'act.notOnServer': 'Bado haiko kwenye seva',
   'act.refused': 'Imekataliwa: {error}',
   'act.offline': 'Iliingizwa nje ya mtandao',
+  'act.stockFineNow': 'imefidiwa baadaye na rekodi nyingine (mara nyingi ya tarehe ya nyuma); haiko chini ya sifuri sasa',
   'act.serverAt': 'Seva ilipokea {time}',
   'act.reachedLater': 'Ilifika kwenye seva {delay} baadaye',
   'act.timesNote': 'Saa ni za biashara (Nairobi / Komoro, UTC+3). Saa ya kifaa inaweza kubadilishwa, hivyo saa ya kifaa ni ushahidi, si uthibitisho; saa ya seva inawekwa na seva.',

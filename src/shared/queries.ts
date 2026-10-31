@@ -2,11 +2,13 @@
 // worker days and profit. Shared so the same numbers can be tested.
 
 import type { Ledger } from './ledger';
+import { moveDeltas } from './engine';
 import { Converter, addTo, type ConversionBasis, type MarketRates, type RateUse } from './fx';
 import { lineTotal, type Currency } from './money';
 import type { PaymentMethod } from './model';
 import {
   K,
+  isPhysical,
   parseAccount,
   purchasePayable,
   splitBalanceKey,
@@ -21,6 +23,24 @@ import {
 /* ------------------------------------------------------------------ */
 /* Stock                                                               */
 /* ------------------------------------------------------------------ */
+
+/**
+ * A "stock below zero" warning records the moment a record was saved — for
+ * example a take entered before the shipment that supplied it, the shipment
+ * then entered back-dated (owner, 31 Oct 2026). True when none of the stock
+ * this record took from is below zero now: the warning stays in the log as
+ * history, but needs no attention.
+ */
+export function stockWarningResolved(ledger: Ledger, opId: string): boolean {
+  const e = ledger.effects.get(opId);
+  if (!e) return false;
+  for (const [k, d] of moveDeltas(e.moves)) {
+    if (d >= 0) continue;
+    const [acct, gt] = splitBalanceKey(k);
+    if (isPhysical(acct) && ledger.balance(acct, gt) < 0) return false;
+  }
+  return true;
+}
 
 export interface StockRow {
   gt: string;

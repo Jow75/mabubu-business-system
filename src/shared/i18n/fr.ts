@@ -1134,6 +1134,7 @@ export const fr: Record<Key, string> = {
   'act.notOnServer': 'Pas encore sur le serveur',
   'act.refused': 'Refusé : {error}',
   'act.offline': 'Saisi hors ligne',
+  'act.stockFineNow': 'couvert depuis par un enregistrement plus tardif (souvent antidaté) ; plus en dessous de zéro',
   'act.serverAt': 'Reçu par le serveur le {time}',
   'act.reachedLater': 'Arrivé au serveur {delay} plus tard',
   'act.timesNote': 'Les heures sont en heure de l’entreprise (Nairobi / Comores, UTC+3). L’horloge d’un appareil peut être modifiée : l’heure de l’appareil est un indice, pas une preuve ; l’heure du serveur est fixée par le serveur.',

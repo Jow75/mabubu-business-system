@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useApp, store } from '../../lib/store';
 import { describeOp, useLookups } from '../../lib/lookups';
 import { href, navigate } from '../../lib/router';
-import { stockByLocation, sumRows, vendorAccounts, workerDays } from '../../../shared/queries';
+import { stockByLocation, stockWarningResolved, sumRows, vendorAccounts, workerDays } from '../../../shared/queries';
 import { lateRecords } from '../../../shared/late';
 import { addDays, businessDate, fmtDate, fmtDateShort, fmtTime } from '../../../shared/time';
 import { K, type Purchase, type Shipment, type WorkerDay } from '../../../shared/model';
@@ -87,10 +87,12 @@ export function Overview() {
     }
   }
   if (caps.includes('audit.view')) {
+    // A "stock below zero" that the stock now covers (a back-dated record entered later) needs no attention; it stays in the log.
     const flagged = [...ledger.ops.values()]
-      .map((r) => ({ r, rec: records.get(r.op.id) }))
-      .filter(({ r, rec }) => !r.voidedBy && (rec?.flags ?? []).some((f) => f.code !== 'CASH_VARIANCE') && businessDate(r.op.deviceTime) >= addDays(today, -7));
-    if (flagged.length) attention.push({ key: 'flags', text: t('ov.att.flags', { n: flagged.length, list: [...new Set(flagged.flatMap(({ rec }) => rec!.flags.map((f) => t(`lbl.flag.${f.code}` as Key))))].slice(0, 3).join(', ') }), to: '/activity?flagged=1', tone: 'saffron' });
+      .filter((r) => !r.voidedBy && businessDate(r.op.deviceTime) >= addDays(today, -7))
+      .map((r) => ({ r, flags: (records.get(r.op.id)?.flags ?? []).filter((f) => f.code !== 'CASH_VARIANCE' && !(f.code === 'NEGATIVE_STOCK' && stockWarningResolved(ledger, r.op.id))) }))
+      .filter(({ flags }) => flags.length > 0);
+    if (flagged.length) attention.push({ key: 'flags', text: t('ov.att.flags', { n: flagged.length, list: [...new Set(flagged.flatMap(({ flags }) => flags.map((f) => t(`lbl.flag.${f.code}` as Key))))].slice(0, 3).join(', ') }), to: '/activity?flagged=1', tone: 'saffron' });
   }
 
   const recent = [...ledger.ops.values()].filter((r) => r.status !== 'rejected').sort((a, b) => b.op.deviceTime.localeCompare(a.op.deviceTime)).slice(0, 7);

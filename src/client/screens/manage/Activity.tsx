@@ -13,6 +13,7 @@ import { Icon } from '../../ui/Icon';
 import { LatePill } from '../../ui/Late';
 import { DownloadButton } from '../../ui/Reporting';
 import { activityReport, selectActivity, type ActivityFilter } from '../../../shared/reports';
+import { stockWarningResolved } from '../../../shared/queries';
 import { reportCtx } from '../../lib/report-ctx';
 
 export function ActivityPage() {
@@ -90,13 +91,16 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
               const corrected = Date.parse(o.op.deviceTime) + skew;
               const delay = rec?.serverTime ? Date.parse(rec.serverTime) - corrected : null;
               const flags = rec?.flags ?? [];
+              // "Stock below zero" when it was saved, covered since (often by a back-dated record): kept as history, no longer a warning.
+              const stockFine = flags.some((f) => f.code === 'NEGATIVE_STOCK') && stockWarningResolved(ledger, o.op.id);
+              const live = (f: (typeof flags)[number]) => f.code !== 'CASH_VARIANCE' && !(f.code === 'NEGATIVE_STOCK' && stockFine);
               return (
                 <div key={o.op.id} className="tl-item">
                   <span className="tl-time" title={t('act.deviceTime')}>
                     {fmtTime(o.op.deviceTime)}
                   </span>
                   <span className="tl-rail">
-                    <span className={`tl-knot ${o.status === 'rejected' ? (o.review === 'waiting' ? 'saffron' : 'red') : o.voidedBy ? 'muted' : flags.some((f) => f.code !== 'CASH_VARIANCE') ? 'saffron' : ''}`} />
+                    <span className={`tl-knot ${o.status === 'rejected' ? (o.review === 'waiting' ? 'saffron' : 'red') : o.voidedBy ? 'muted' : flags.some(live) ? 'saffron' : ''}`} />
                   </span>
                   <div className="stack-sm">
                     <span className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
@@ -131,8 +135,9 @@ function Records({ flaggedOnly }: { flaggedOnly: boolean }) {
                         </span>
                       )}
                       {flags.map((f, i) => (
-                        <span key={i} className={`pill wrap ${f.code === 'CASH_VARIANCE' ? '' : 'saffron'}`} title={f.message}>
+                        <span key={i} className={`pill wrap ${live(f) ? 'saffron' : ''}`} title={f.message}>
                           <Icon name="flag" size={13} /> {t(`lbl.flag.${f.code}` as Key)}: {f.message}
+                          {f.code === 'NEGATIVE_STOCK' && stockFine && ` — ${t('act.stockFineNow')}`}
                         </span>
                       ))}
                     </span>

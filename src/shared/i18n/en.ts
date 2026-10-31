@@ -1150,6 +1150,7 @@ export const en = {
   'act.notOnServer': 'Not on server yet',
   'act.refused': 'Refused: {error}',
   'act.offline': 'Entered offline',
+  'act.stockFineNow': 'covered since by a later record (often back-dated); not below zero now',
   'act.serverAt': 'Server received at {time}',
   'act.reachedLater': 'Reached server {delay} later',
   'act.timesNote': 'Times are business time (Nairobi / Comoros, UTC+3). A device clock can be changed, so a device time is evidence, not proof; the server time is set by the server.',
