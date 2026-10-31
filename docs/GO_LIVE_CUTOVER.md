@@ -1,8 +1,12 @@
 # Go live — moving from test records to real business records
 
+**Done: go live ran on 28 Oct 2026 at 08:04 EAT** (05:04 UTC), by George on
+his laptop 5YK-3GS, after its verified backup (05:03 UTC): 44 set-up records
+kept, 81 test records moved to the trial archive, the six test exchange rates
+removed. It cannot run again; Settings shows the record.
+
 Written for the owner (George) and for whoever helps on the day. The design
-and the reasons are in `docs/decisions/ADR-005-go-live-cutover.md`. Nothing
-here has been run on production: only the preview has been computed (see §5).
+and the reasons are in `docs/decisions/ADR-005-go-live-cutover.md`.
 
 ## 1. What it does, in one sentence
 

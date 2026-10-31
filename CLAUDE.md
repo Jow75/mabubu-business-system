@@ -8,6 +8,7 @@ Read first:
 - `docs/decisions/ADR-005-go-live-cutover.md` + `docs/GO_LIVE_CUTOVER.md` — the owner's one-time move from test records to real ones.
 - `docs/decisions/ADR-006-temporary-owner-sign-in.md` — the owner's sign-in on a computer that is not one of their devices.
 - `docs/STATUS.md` — what is done, what is open, and which decisions belong to the owner.
+- `docs/AI_ASSISTANT.md` — the read-only business assistant, the NVIDIA keys and models tested, and the provider decision.
 
 ## Ground rules from the owner
 
@@ -40,6 +41,9 @@ Read first:
 - Go-live access clean-up (ADR-005 amendment): people/devices outside the kept set get `removed_at` (hidden, blocked, rows never deleted). Anything listing people or devices for People & devices must exclude `removed_at`; removed rows can't be changed there.
 - Before and after every production deploy or migration: `node scripts/data-snapshot.mjs take production …` and `compare` (docs/DEPLOY.md). Never treat an HTTP 200 as proof the data is unchanged.
 - Archived people get no new sales day (rule in `workerDay`, not only the screens); `pull` returns `deviceUsers` so apps take people who may no longer sign in off a device's list (never deleting records that were not sent).
+- Business assistant (`docs/AI_ASSISTANT.md`): read-only. Its tools are the downloadable reports (`src/shared/assistant-tools.ts`), built on the person's device with the same builder and `canExport` check as the download — never a second query path, never a tool that writes. The server (`src/worker/assistant.ts`) only relays: it adds the rules (`systemPrompt`) and the tools this person may use, keeps the key (`AI_API_KEY`, a Cloudflare secret), reads and writes no business records and logs no content. Owner and managers only. Off unless `AI_PROVIDER` and `AI_API_KEY` are set; switching it on, or a new provider, is the owner's decision (NVIDIA's free API is for testing only under NVIDIA's terms). Its failure must never affect anything else.
+- Unfinished forms are drafts in the person's own `kv` (`store.saveDraft`; New purchase, and Take / Return / Close day via `useFormDraft` in `src/client/lib/drafts.ts`), in memory only for a temporary sign-in; a draft is never a record (not sent, counted or logged) and is never removed for being old. A new data-entry form should keep a draft the same way.
+- **The business is live since 28 Oct 2026 (go live run): every record on production is real.** Never create test records there; test in demo mode or on a local copy.
 
 ## Before saying a change is done
 

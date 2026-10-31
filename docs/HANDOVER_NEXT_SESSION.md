@@ -1,6 +1,63 @@
 # Handover — next session
 
-Last updated 27 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+Last updated 31 Oct 2026. Read `CLAUDE.md`, then this file, then `docs/STATUS.md`.
+
+**The business is live (go live 28 Oct 2026 08:04 EAT): every record on
+production is real.** No test records on production any more — test in demo
+mode or on a local copy (`wrangler dev --persist-to …`).
+
+## 31 Oct session (6) — owner's report after the first live days
+
+- **Sales-day drafts:** `src/client/lib/drafts.ts` `useFormDraft(kind, id,
+  blank)`; Take/Return/Close day keyed `kind:worker:date:place`
+  (`SalesDay.tsx`); `UserDb` now `chromeTransactionDurability: 'strict'`.
+  Browser "power cut" test: the Chrome process tree killed with `taskkill /F
+  /T` mid-entry, then reopened (scratchpad `powercut-check.mjs`).
+- **Rates before the first recorded rate:** `findRecordedRate` falls back to
+  the first later rate, `RateUse.later`; shown in the rates list and every
+  download (ADR-002 amendment). Diagnosed and verified on a read-only copy of
+  the live ops (wrangler SELECT → scratch folder, replayed in a throwaway test,
+  both deleted afterwards).
+- **Stock warnings:** `stockWarningResolved(ledger, opId)` in `queries.ts`;
+  Overview and Activity use it. Vendor accounts are negative by design (pieces
+  leave the vendor); do not mistake them for stock below zero.
+- **Live facts (31 Oct, read-only):** 104 records; George records his own sales
+  days (Jijo 2 archived); all ten exchange rates dated 28 Oct.
+
+## 27–28 Oct session (5) — pre-launch brief: baseline, separators, drafts, go live card, assistant, NVIDIA keys (nothing deployed)
+
+Owner's brief "pre-launch safety, branding, purchase workflow and AI
+assistant". Commits `d140f3e` (separators), `da712b3` (drafts), `2a0ea35`
+(go live card), then the assistant and docs. **Nothing deployed, migrated or
+changed on production**; production read with SELECTs and the snapshot only
+(`snapshots\2026-10-27-baseline-before-master-build.json`).
+
+- **Found:** production is `8fceeed7` (the Enter fix, deployed 27 Oct 19:35
+  UTC by the previous session without a handover entry; owner: "the enter key
+  works"). 15 activity records of 27 Oct have no TEST note (see
+  `PRE_LAUNCH_AUDIT_2026-10-27.md` §2) — ask before go live.
+- **Separators:** `editTyped`/`groupTyped` in `money.ts`, used by `MoneyInput`
+  (all money fields). Browser: 31/31 purchase checks + 5/5 worker cash (demo).
+- **Drafts:** `store.saveDraft/deleteDraft/useDrafts` (kv `drafts`), route
+  `#/purchases/new/<draftId>`, `replaceRoute` in `router.ts`.
+- **Assistant:** `src/shared/assistant.ts` (rules, tools, request schema),
+  `assistant-tools.ts` (reports as text, `unverifiedFigures`),
+  `src/worker/assistant.ts` (relay, presets, fallback, cooldowns),
+  `src/client/lib/assistant.ts` + `screens/manage/Assistant.tsx`. Env:
+  `AI_PROVIDER`, `AI_API_KEY` (secret), `AI_MODELS`, `AI_BASE_URL`. Off in
+  production. Live NVIDIA runs used the downloader's key read at run time from
+  the owner's file by a throwaway test (deleted); never printed.
+- **Local browser check of the assistant:** `wrangler dev --persist-to
+  <scratch> --var AI_PROVIDER:nvidia --var AI_BASE_URL:http://127.0.0.1:8799/v1
+  …` with a stand-in provider. Lesson: after `npm run build`, **restart**
+  `wrangler dev` — it keeps the asset list it started with and answers new
+  file names with index.html (blank page). Stopping it from a tool leaves
+  `node` wrangler + `workerd` running: stop them by port.
+- **Leftovers not from this session:** headless Chrome with profile folders
+  `…\AppData\LocalTempmbt-worker` and `…LocalTempmbt-local` (a missing
+  backslash in an earlier session's script) were still running on 28 Oct.
+- **Not verified:** anything on a real phone this session; Workers AI;
+  the assistant on production (off).
 
 ## 26–27 Oct session (4) — staging removed, phone icon, route strip, Enter, tabs, live end-to-end run (deployed: `0f0a73d3`, `174bc383`, `5bf7487f`)
 

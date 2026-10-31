@@ -663,6 +663,24 @@ Not yet read by a native speaker. Keys (see `src/shared/i18n/fr.ts` and
 `err.accessChanged`. Every sentence that named the app now says "NAS Mabubu
 System" (19 per language).
 
+## 9. New on 27–28 Oct 2026 — unfinished purchases, go live card, assistant
+
+Not yet read by a native speaker. Keys (see `src/shared/i18n/fr.ts` and
+`sw.ts`):
+
+- Unfinished purchases (drafts): `dr.title`, `dr.others`, `dr.hint`,
+  `dr.pill`, `dr.summary`, `dr.noLines`, `dr.continue`, `dr.saved`,
+  `dr.restored`, `dr.tempNote`, `dr.kept`, `dr.discard`, `dr.discardTitle`,
+  `dr.discardBody`, `dr.keep`, `dr.discarded`, `dr.alreadySaved`,
+  `dr.openSaved`, `dr.gone`, `dr.goneBody` (French *brouillon*, Swahili
+  *rasimu* for "draft")
+- Go live card: `gl.checking`, `gl.cardFailed`, `gl.checkAgain`, `gl.tempCard`
+- Assistant: `nav.assistant` (*Assistant* / *Msaidizi*), `ai.*` (35 keys:
+  title, explanations, errors, the seven example questions), `err.aiQuestion`
+- 31 Oct: `sd.draftBack`, `sd.draftClear` (sales-day entries brought back after
+  a power cut — seen by workers too), `rp.laterRate` (a rate also used for
+  earlier amounts), `act.stockFineNow` (a stock warning covered since)
+
 ## Not in this list
 
 The other 750 interface phrases (purchases, shipments, stock, catalogue,
