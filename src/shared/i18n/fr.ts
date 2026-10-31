@@ -153,6 +153,8 @@ export const fr: Record<Key, string> = {
   'sd.noSelling': 'Pas encore de lieu de vente',
   'sd.noSellingBody': 'Le propriétaire doit d’abord ajouter le lieu des Comores.',
   'sd.takeLead': 'Comptez les vêtements que vous avez en main, puis enregistrez. Enregistrez maintenant, pas en fin de journée.',
+  'sd.draftBack': 'Pas encore enregistré : ce que vous aviez saisi le {time} est revenu. Rien n’est enregistré tant que vous ne l’avez pas validé.',
+  'sd.draftClear': 'Effacer',
   'sd.search': 'Rechercher un vêtement…',
   'sd.noGarments': 'Aucun vêtement trouvé',
   'sd.noPrice': 'pas de prix',

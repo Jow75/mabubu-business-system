@@ -99,7 +99,10 @@ export class UserDb extends Dexie implements RecordsDb {
   ops!: Table<LocalOp, string>;
   kv!: Table<UserKv, string>;
   constructor(name: string) {
-    super(name);
+    // "Strict": a write is finished only once it is on the disk, so a record
+    // or a draft survives the laptop or phone losing power right afterwards
+    // (Chrome's default may still hold it in the system's cache).
+    super(name, { chromeTransactionDurability: 'strict' });
     this.version(1).stores({ ops: 'id, status, seq, localOrder', kv: 'key' });
   }
   atomic<T>(fn: () => Promise<T>): Promise<T> {

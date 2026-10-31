@@ -1,11 +1,12 @@
 // Take garments, return garments and close the day. Used by workers for
 // themselves and by managers recording on behalf of a worker.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { store, useApp } from '../../lib/store';
+import { useFormDraft } from '../../lib/drafts';
 import { useLookups } from '../../lib/lookups';
 import { navigate, useRoute } from '../../lib/router';
-import { businessDate, fmtDate } from '../../../shared/time';
+import { businessDate, fmtDate, fmtDateTime } from '../../../shared/time';
 import { priceFor } from '../../../shared/engine';
 import { workerHolding } from '../../../shared/queries';
 import { K, type WorkerDay } from '../../../shared/model';
@@ -31,6 +32,25 @@ export function useDayContext() {
   return { workerId, worker, workDate, locationId, loc, self, back, lk };
 }
 
+type DayContext = ReturnType<typeof useDayContext>;
+
+/** One draft per form, person, worker, day and place: opening the same form again brings unsaved entries back. */
+const draftId = (kind: string, ctx: DayContext) => `${kind}:${ctx.workerId}:${ctx.workDate}:${ctx.locationId}`;
+
+/** Entries typed earlier but never saved are back (a power cut, the app closed, another screen opened). */
+function DraftBack({ at, onClear }: { at: string | null; onClear: () => void }) {
+  const t = useT();
+  if (!at) return null;
+  return (
+    <div className="note-box row-between" style={{ flexWrap: 'wrap', gap: 8 }} role="status">
+      <span>{t('sd.draftBack', { time: fmtDateTime(at) })}</span>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onClear}>
+        {t('sd.draftClear')}
+      </button>
+    </div>
+  );
+}
+
 function WhoBar({ ctx }: { ctx: ReturnType<typeof useDayContext> }) {
   const t = useT();
   if (ctx.self) return null;
@@ -45,9 +65,15 @@ function WhoBar({ ctx }: { ctx: ReturnType<typeof useDayContext> }) {
 
 export function TakeGarments() {
   const ctx = useDayContext();
+  return <TakeForm key={draftId('take', ctx)} ctx={ctx} />;
+}
+
+function TakeForm({ ctx }: { ctx: DayContext }) {
   const t = useT();
   const { ledger } = useApp();
-  const [qty, setQty] = useState<Record<string, number>>({});
+  const draft = useFormDraft<Record<string, number>>('take', draftId('take', ctx), {});
+  const qty = draft.form;
+  const setQty = draft.update;
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   useHoldReload(Object.values(qty).some((n) => n > 0));
@@ -64,6 +90,7 @@ export function TakeGarments() {
     <div className="page" style={{ maxWidth: 720 }}>
       <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc.name}`} title={t('w.take')} lead={t('sd.takeLead')} />
       <WhoBar ctx={ctx} />
+      <DraftBack at={draft.restoredAt} onClear={draft.clear} />
       <input className="input" placeholder={t('sd.search')} value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="card">
         {garments.length === 0 && <Empty title={t('sd.noGarments')} />}
@@ -104,7 +131,10 @@ export function TakeGarments() {
             setBusy(true);
             const ok = await save(() => store.submit('worker.issue', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), t('sd.takenToast', { n: total }));
             setBusy(false);
-            if (ok) navigate(ctx.back);
+            if (ok) {
+              draft.done();
+              navigate(ctx.back);
+            }
           }}
         >
           <Icon name="check" /> {t('c.save')}
@@ -118,10 +148,16 @@ export function TakeGarments() {
 
 export function ReturnGarments() {
   const ctx = useDayContext();
+  return <ReturnForm key={draftId('return', ctx)} ctx={ctx} />;
+}
+
+function ReturnForm({ ctx }: { ctx: DayContext }) {
   const t = useT();
   const { ledger, version } = useApp();
   const holding = useMemo(() => workerHolding(ledger, ctx.workerId, ctx.locationId), [ledger, ctx.workerId, ctx.locationId, version]);
-  const [qty, setQty] = useState<Record<string, number>>({});
+  const draft = useFormDraft<Record<string, number>>('return', draftId('return', ctx), {});
+  const qty = draft.form;
+  const setQty = draft.update;
   const [busy, setBusy] = useState(false);
   useHoldReload(Object.values(qty).some((n) => n > 0));
   const lines = Object.entries(qty)
@@ -134,6 +170,7 @@ export function ReturnGarments() {
     <div className="page" style={{ maxWidth: 720 }}>
       <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title={t('w.return')} lead={t('sd.returnLead')} />
       <WhoBar ctx={ctx} />
+      <DraftBack at={draft.restoredAt} onClear={draft.clear} />
       <div className="card">
         {held.length === 0 && <Empty title={t('sd.nothingReturn')}>{t('sd.nothingReturnBody')}</Empty>}
         {held.map(([gt, n]) => (
@@ -161,7 +198,10 @@ export function ReturnGarments() {
               setBusy(true);
               const ok = await save(() => store.submit('worker.return', { workerId: ctx.workerId, locationId: ctx.locationId, workDate: ctx.workDate, lines }), t('sd.returnedToast', { n: total }));
               setBusy(false);
-              if (ok) navigate(ctx.back);
+              if (ok) {
+                draft.done();
+                navigate(ctx.back);
+              }
             }}
           >
             <Icon name="check" /> {t('c.save')}
@@ -182,8 +222,21 @@ interface LineState {
   lost: number;
 }
 
+/** Everything the Close day form holds (kept as a draft until the day is closed). */
+interface CloseFormState {
+  lines: Record<string, LineState>;
+  cash: number | null;
+  mobile: number | null;
+  expenses: { description: string; amount: number | null }[];
+  note: string;
+}
+
 export function CloseDay() {
   const ctx = useDayContext();
+  return <CloseForm key={draftId('close', ctx)} ctx={ctx} />;
+}
+
+function CloseForm({ ctx }: { ctx: DayContext }) {
   const t = useT();
   const { ledger, version } = useApp();
   const holding = useMemo(() => workerHolding(ledger, ctx.workerId, ctx.locationId), [ledger, ctx.workerId, ctx.locationId, version]);
@@ -200,21 +253,27 @@ export function CloseDay() {
     return m;
   }, [held.length, ledger, version, ctx.locationId, ctx.workDate]);
 
-  const [lines, setLines] = useState<Record<string, LineState>>({});
+  const draft = useFormDraft<CloseFormState>('close', draftId('close', ctx), { lines: {}, cash: null, mobile: null, expenses: [], note: '' });
+  const { lines, cash, mobile, expenses, note } = draft.form;
+  const setCash = (v: number | null) => draft.update((f) => ({ ...f, cash: v }));
+  const setMobile = (v: number | null) => draft.update((f) => ({ ...f, mobile: v }));
+  const setExpenses = (v: CloseFormState['expenses']) => draft.update((f) => ({ ...f, expenses: v }));
+  const setNote = (v: string) => draft.update((f) => ({ ...f, note: v }));
   const [showDetail, setShowDetail] = useState<Record<string, boolean>>({});
-  const [cash, setCash] = useState<number | null>(null);
-  const [mobile, setMobile] = useState<number | null>(null);
-  const [expenses, setExpenses] = useState<{ description: string; amount: number | null }[]>([]);
-  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   useHoldReload(Object.keys(lines).length > 0 || cash !== null || mobile !== null || expenses.length > 0 || note !== '');
+  // A day closed meanwhile (on this or another device) needs no unsaved closing.
+  const closedAlready = day?.status === 'settled';
+  useEffect(() => {
+    if (closedAlready) draft.done();
+  }, [closedAlready, draft.done]);
 
   const lineOf = (gt: string, n: number): LineState => lines[gt] ?? { sold: n, wholesaleQty: 0, wholesalePrice: prices.get(gt)?.wholesale ?? 0, carried: 0, lost: 0 };
   const setLine = (gt: string, n: number, patch: Partial<LineState>) => {
     const next = { ...lineOf(gt, n), ...patch };
     next.sold = Math.max(0, n - next.carried - next.lost);
     next.wholesaleQty = Math.min(next.wholesaleQty, next.sold);
-    setLines({ ...lines, [gt]: next });
+    draft.update((f) => ({ ...f, lines: { ...f.lines, [gt]: next } }));
   };
 
   let expected = 0;
@@ -231,7 +290,7 @@ export function CloseDay() {
   const variance = expected - spent - handed;
   const missingPrice = payloadLines.some((l) => l.sold - l.wholesaleQty > 0 && l.retailPrice === 0);
 
-  if (day?.status === 'settled') {
+  if (closedAlready) {
     return (
       <div className="page" style={{ maxWidth: 720 }}>
         <PageHead title={t('sd.alreadyClosed')} lead={t('sd.alreadyClosedLead', { date: fmtDate(ctx.workDate) })} />
@@ -246,6 +305,7 @@ export function CloseDay() {
     <div className="page" style={{ maxWidth: 760 }}>
       <PageHead eyebrow={`${fmtDate(ctx.workDate)} · ${ctx.loc?.name ?? ''}`} title={t('w.closeDay')} lead={t('sd.closeLead')} />
       <WhoBar ctx={ctx} />
+      <DraftBack at={draft.restoredAt} onClear={draft.clear} />
 
       <div className="card">
         <div className="card-head">
@@ -399,7 +459,10 @@ export function CloseDay() {
             t('sd.closedToast'),
           );
           setBusy(false);
-          if (ok) navigate(ctx.back);
+          if (ok) {
+            draft.done();
+            navigate(ctx.back);
+          }
         }}
       >
         <Icon name="lock" /> {t('w.closeDay')}

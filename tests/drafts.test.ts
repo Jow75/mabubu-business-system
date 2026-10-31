@@ -161,6 +161,30 @@ describe('unfinished purchases are kept on the device (drafts)', () => {
     expect(store.getSnapshot().ledger.list<Purchase>('purchase').filter((x) => x.id === d.id)).toHaveLength(1);
   });
 
+  it('the sales-day forms keep one draft each per worker, day and place, beside purchases, and are never records', async () => {
+    const before = books();
+    const take = { 'gt-yas-pl80': 12, 'gt-haf-en80': 30 };
+    const close = { lines: {}, cash: 227_400, mobile: null, expenses: [{ description: 'Taxi', amount: 350 }], note: '' };
+    await store.saveDraft('take', 'take:demo-amina:2026-10-31:loc-com', take);
+    await store.saveDraft('take', 'take:demo-said:2026-10-31:loc-com', { 'gt-yas-pl80': 5 });
+    await store.saveDraft('close', 'close:demo-amina:2026-10-31:loc-com', close);
+    const list = store.getDrafts().list;
+    expect(list.filter((d) => d.kind === 'take').map((d) => d.id).sort()).toEqual(['take:demo-amina:2026-10-31:loc-com', 'take:demo-said:2026-10-31:loc-com']);
+    expect(list.find((d) => d.id === 'close:demo-amina:2026-10-31:loc-com')!.form).toEqual(close);
+    expect(list.some((d) => d.kind === 'purchase')).toBe(true);
+    expect(books()).toEqual(before);
+    // Back after the app is closed and opened again (as after a power cut).
+    store.lock();
+    await store.openDemo(owner);
+    await ready();
+    expect(store.getDrafts().list.find((d) => d.id === 'take:demo-amina:2026-10-31:loc-com')!.form).toEqual(take);
+    // Saving the take removes that draft only.
+    await store.deleteDraft('take:demo-amina:2026-10-31:loc-com');
+    expect(store.getDrafts().list.map((d) => d.id)).toContain('take:demo-said:2026-10-31:loc-com');
+    expect(store.getDrafts().list.map((d) => d.id)).toContain('close:demo-amina:2026-10-31:loc-com');
+    for (const id of ['take:demo-said:2026-10-31:loc-com', 'close:demo-amina:2026-10-31:loc-com']) await store.deleteDraft(id);
+  });
+
   it('discarding one leaves the others; a draft is never removed for being old', async () => {
     const old = typed('draft-old', 'ven-wanyama', { date: '2026-09-01' });
     await store.saveDraft('purchase', old.id, old);

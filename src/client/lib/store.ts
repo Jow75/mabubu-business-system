@@ -83,7 +83,8 @@ export interface Draft<F = unknown> {
   updatedAt: string;
   form: F;
 }
-export type DraftKind = 'purchase';
+/** New purchase; and the sales-day forms (take, return, close day), one draft per person, worker, day and place. */
+export type DraftKind = 'purchase' | 'take' | 'return' | 'close';
 /** `ready` is false until this person's drafts have been read from the device. */
 export interface DraftsSnapshot {
   ready: boolean;

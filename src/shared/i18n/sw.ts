@@ -153,6 +153,8 @@ export const sw: Record<Key, string> = {
   'sd.noSelling': 'Bado hakuna mahali pa kuuzia',
   'sd.noSellingBody': 'Mmiliki anahitaji kwanza kuongeza mahali pa Komoro.',
   'sd.takeLead': 'Hesabu nguo ulizoshika, kisha hifadhi. Hifadhi sasa — si mwisho wa siku.',
+  'sd.draftBack': 'Bado haijahifadhiwa: ulichoingiza {time} kimerudi. Hakuna kinachorekodiwa mpaka ukihifadhi.',
+  'sd.draftClear': 'Futa',
   'sd.search': 'Tafuta nguo…',
   'sd.noGarments': 'Hakuna nguo iliyopatikana',
   'sd.noPrice': 'bei haijawekwa',

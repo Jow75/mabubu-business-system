@@ -163,6 +163,8 @@ export const en = {
   'sd.noSelling': 'No selling location yet',
   'sd.noSellingBody': 'The owner needs to add the Comoros location first.',
   'sd.takeLead': 'Count the garments in your hands, then save. Save now — not at the end of the day.',
+  'sd.draftBack': 'Not saved yet: what you entered on {time} is back. Nothing is recorded until you save it.',
+  'sd.draftClear': 'Clear',
   'sd.search': 'Search garments…',
   'sd.noGarments': 'No garments found',
   'sd.noPrice': 'no price set',
